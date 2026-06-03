@@ -66,7 +66,7 @@ const FIELDS: Field[] = [
   },
   {
     id: 'message',
-    label: 'دوست داری در این جلسه دقیقاً روی چه چیزی کار کنیم؟',
+    label: 'اگر بخواهی مهم‌ترین سؤال یا نگرانی خود را در چند جمله توضیح دهی، چه می‌گویی؟',
     type: 'textarea',
     placeholder: '',
     required: true,
@@ -230,7 +230,7 @@ export function ConsultationForm() {
           whiteSpace: 'nowrap',
         }}
       >
-        {status === 'submitting' ? '...' : 'درخواست بررسی جلسه'}
+        {status === 'submitting' ? '...' : 'ارسال درخواست'}
       </button>
     </form>
   )
