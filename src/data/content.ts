@@ -6,13 +6,13 @@ export const site = {
 export const nav = {
   links: [
     { label: 'خدمات', href: '#offers', highlight: false },
-    { label: 'رزرو مشاوره', href: '/consultation', highlight: true },
+    { label: 'درخواست جلسه', href: '/consultation', highlight: true },
   ],
 }
 
 export const hero = {
   headlineLines: [
-    'قبل از مهاجرت،',
+    'قبل از تصمیم‌های بزرگ،',
     'تصمیمی بگیر که پنج سال بعد',
     'از آن پشیمان نشوی.',
   ],
@@ -33,23 +33,23 @@ export const offers = [
   },
   {
     id: 'consultation',
-    title: 'مشاوره خصوصی',
-    description: 'یک جلسه اختصاصی برای بررسی مسیر خاص تو. بدون وعده‌های توخالی.',
+    title: 'جلسه استراتژی خصوصی',
+    description: 'یک جلسه برای تصمیم‌گیری بهتر قبل از اقدام مهم. بدون وعده‌های توخالی.',
     price: '۶.۹ میلیون تومان',
     priceSub: '۴۰ دقیقه',
-    action: 'رزرو مشاوره',
+    action: 'درخواست جلسه',
     href: '/consultation',
   },
 ] as const
 
 export const offersMeta = {
-  disclaimer: 'این دوره و مشاوره، مشاوره حقوقی نیست و هیچ نتیجه ویزایی را تضمین نمی‌کند.',
+  disclaimer: 'این دوره و جلسه بر پایه تجربه شخصی است و جایگزین مشاوره حقوقی، مالی یا تخصصی نیست.',
 }
 
 export const testimonials = {
   sectionLabel: 'تجربه‌های واقعی',
   headline: 'نتیجه واقعی، با صدای خودشان',
-  subtext: 'از زبان کسانی که مسیرشان را با اطلاعات درست انتخاب کردند.',
+  subtext: 'از زبان کسانی که تصمیم‌های بزرگ را با دیدِ کامل‌تری گرفتند.',
   items: [
     {
       id: 'testimonial-1',
@@ -74,7 +74,7 @@ export const testimonials = {
 
 export const footer = {
   brand: {
-    tagline: 'مهاجرت · آگاهی · تصمیم',
+    tagline: 'استراتژی · آگاهی · تصمیم',
     description: 'راهنمای آگاهانه برای تصمیم‌های بزرگ.',
   },
   legal: '© ۱۴۰۴ اشکان فارا',

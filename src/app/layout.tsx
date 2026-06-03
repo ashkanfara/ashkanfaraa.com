@@ -12,7 +12,7 @@ const vazirmatn = Vazirmatn({
 
 export const metadata: Metadata = {
   title: "Ashkan Faraa",
-  description: "وبسایت شخصی اشکان فارا",
+  description: "تصمیم‌های بزرگ را با دیدِ کامل‌تری بگیر. جلسه استراتژی خصوصی با اشکان فارا.",
 };
 
 export default function RootLayout({
