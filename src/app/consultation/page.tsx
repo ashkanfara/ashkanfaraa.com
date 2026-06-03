@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import Image from 'next/image'
 import { Footer } from '@/components/layout/Footer'
 import { ConsultationForm } from '@/components/sections/ConsultationForm'
 
@@ -8,7 +9,6 @@ export const metadata: Metadata = {
 }
 
 const CONTENT_PADDING = 'clamp(1.25rem, 5vw, 4rem)'
-const FORM_TOP = '4rem'
 
 function Eyebrow({ children }: { children: string }) {
   return (
@@ -26,72 +26,92 @@ export default function ConsultationPage() {
     <main className="w-full overflow-x-hidden">
 
       {/* ══════════════════════════════════════════════════
-          1 — HERO
+          1 — HERO (two-column on desktop, stacked on mobile)
           ══════════════════════════════════════════════════ */}
       <section
-        dir="rtl"
         style={{
-          minHeight: '100svh',
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'center',
           paddingInline: CONTENT_PADDING,
-          paddingTop: '8rem',
-          paddingBottom: '5rem',
-          background: 'radial-gradient(ellipse at 70% 40%, rgba(196,151,58,0.06) 0%, transparent 60%)',
+          paddingTop: '6rem',
+          paddingBottom: '4rem',
         }}
       >
-        <div style={{ maxWidth: '680px' }}>
-          <Eyebrow>مشاوره خصوصی مهاجرت</Eyebrow>
+        {/* Grid: image left, text right on desktop / stacked on mobile */}
+        <div className="grid grid-cols-1 md:grid-cols-[45fr_55fr] items-center gap-10 md:gap-16">
 
-          <h1 style={{
-            fontSize: 'clamp(2rem, 4.5vw, 3.8rem)',
-            fontWeight: 700,
-            lineHeight: 1.15,
-            letterSpacing: '-0.025em',
-            color: 'var(--foreground)',
-            marginBottom: '1.75rem',
-          }}>
-            یک جلسه.
-            <br />
-            مسیر مهاجرتت را روشن کن.
-          </h1>
+          {/* ── Image column ── */}
+          <div
+            className="w-full aspect-[4/3] md:aspect-[4/5]"
+            style={{
+              position: 'relative',
+              borderRadius: '0.875rem',
+              overflow: 'hidden',
+              flexShrink: 0,
+            }}
+          >
+            <Image
+              src="/images/card-consultation.png"
+              alt="مشاوره خصوصی اشکان فارا"
+              fill
+              priority
+              className="object-cover object-top"
+              sizes="(max-width: 768px) 100vw, 45vw"
+            />
+          </div>
 
-          <div style={{ width: '2.5rem', height: '1px', background: 'var(--accent)', opacity: 0.7, marginBottom: '1.75rem' }} />
+          {/* ── Text column ── */}
+          <div dir="rtl">
+            <Eyebrow>مشاوره خصوصی مهاجرت</Eyebrow>
 
-          <p style={{
-            fontSize: 'clamp(0.95rem, 1.3vw, 1.1rem)',
-            color: 'var(--muted)',
-            lineHeight: 1.9,
-            marginBottom: '2.5rem',
-            maxWidth: '52ch',
-          }}>
-            اگر بین چند مسیر، کشور، و تصمیم مختلف گیر کرده‌ای، این جلسه برای این است که شرایطت را دقیق ببینیم و قبل از خرج کردن وقت و پول، مسیر درست‌تری انتخاب کنی.
-          </p>
+            <h1 style={{
+              fontSize: 'clamp(2rem, 4vw, 3.5rem)',
+              fontWeight: 700,
+              lineHeight: 1.15,
+              letterSpacing: '-0.025em',
+              color: 'var(--foreground)',
+              marginBottom: '1.5rem',
+            }}>
+              یک جلسه.
+              <br />
+              مسیر مهاجرتت را روشن کن.
+            </h1>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1.75rem', flexWrap: 'wrap' }}>
-            <a
-              href="#form"
-              style={{
-                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                borderRadius: '9999px',
-                background: 'var(--accent)', color: 'var(--accent-fg)',
-                padding: '0.9rem 2.25rem',
-                fontSize: '0.9rem', fontWeight: 600, letterSpacing: '0.04em',
-                textDecoration: 'none', whiteSpace: 'nowrap',
-              }}
-            >
-              شروع رزرو مشاوره
-            </a>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-              <span style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--accent)' }}>
-                ۶.۹ میلیون تومان
-              </span>
-              <span style={{ fontSize: '0.75rem', color: 'var(--subtle)' }}>
-                ۴۰ دقیقه · آنلاین
-              </span>
+            <div style={{ width: '2.5rem', height: '1px', background: 'var(--accent)', opacity: 0.7, marginBottom: '1.5rem' }} />
+
+            <p style={{
+              fontSize: 'clamp(0.9rem, 1.2vw, 1.05rem)',
+              color: 'var(--muted)',
+              lineHeight: 1.9,
+              marginBottom: '2.25rem',
+              maxWidth: '46ch',
+            }}>
+              اگر بین چند مسیر، کشور، و تصمیم مختلف گیر کرده‌ای، این جلسه برای این است که شرایطت را دقیق ببینیم و قبل از خرج کردن وقت و پول، مسیر درست‌تری انتخاب کنی.
+            </p>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
+              <a
+                href="#form"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  borderRadius: '9999px',
+                  background: 'var(--accent)', color: 'var(--accent-fg)',
+                  padding: '0.875rem 2rem',
+                  fontSize: '0.875rem', fontWeight: 600, letterSpacing: '0.04em',
+                  textDecoration: 'none', whiteSpace: 'nowrap',
+                }}
+              >
+                شروع رزرو مشاوره
+              </a>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                <span style={{ fontSize: '0.975rem', fontWeight: 700, color: 'var(--accent)' }}>
+                  ۶.۹ میلیون تومان
+                </span>
+                <span style={{ fontSize: '0.72rem', color: 'var(--subtle)' }}>
+                  ۴۰ دقیقه · آنلاین
+                </span>
+              </div>
             </div>
           </div>
+
         </div>
       </section>
 
@@ -103,7 +123,7 @@ export default function ConsultationPage() {
         dir="rtl"
         style={{
           paddingInline: CONTENT_PADDING,
-          paddingTop: FORM_TOP,
+          paddingTop: '4rem',
           paddingBottom: '6rem',
           borderTop: '1px solid var(--border)',
         }}
@@ -123,7 +143,6 @@ export default function ConsultationPage() {
 
         <ConsultationForm />
 
-        {/* Disclaimer */}
         <p style={{
           marginTop: '2rem',
           fontSize: '0.75rem',
