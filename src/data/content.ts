@@ -6,7 +6,7 @@ export const site = {
 export const nav = {
   links: [
     { label: 'خدمات', href: '#offers', highlight: false },
-    { label: 'رزرو مشاوره', href: '#offers', highlight: true },
+    { label: 'رزرو مشاوره', href: '/consultation', highlight: true },
   ],
 }
 
@@ -38,7 +38,7 @@ export const offers = [
     price: '۶.۹ میلیون تومان',
     priceSub: '۴۰ دقیقه',
     action: 'رزرو مشاوره',
-    href: 'https://example.com/consultation',
+    href: '/consultation',
   },
 ] as const
 

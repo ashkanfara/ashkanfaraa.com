@@ -88,8 +88,7 @@ export function Offers() {
             <div style={{ padding: '0 1.4rem 1.4rem' }}>
               <a
                 href={offer.href}
-                target="_blank"
-                rel="noopener noreferrer"
+                {...(offer.href.startsWith('http') ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
                 style={{
                   display: 'flex',
                   width: '100%',

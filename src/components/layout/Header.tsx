@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { site, nav } from '@/data/content'
 
 export function Header() {
@@ -19,13 +20,13 @@ export function Header() {
         <nav className="flex items-center gap-6">
           {nav.links.map((link) =>
             link.highlight ? (
-              <a
+              <Link
                 key={link.label}
                 href={link.href}
                 className="hidden md:inline-flex items-center rounded-full border border-accent text-accent px-5 py-2 text-[12px] tracking-wide transition-colors duration-200 hover:bg-accent hover:text-accent-fg"
               >
                 {link.label}
-              </a>
+              </Link>
             ) : (
               <a
                 key={link.label}
