@@ -18,6 +18,7 @@ import { NextRequest, NextResponse } from 'next/server'
 export interface ConsultationSubmission {
   name: string
   instagram: string
+  location: string
   email: string
   subject: string
   message: string
@@ -34,14 +35,15 @@ export async function POST(req: NextRequest) {
   }
 
   // Basic validation
-  const { name, email, subject, message } = body
-  if (!name?.trim() || !email?.trim() || !subject?.trim() || !message?.trim()) {
+  const { name, email, location, subject, message } = body
+  if (!name?.trim() || !email?.trim() || !location?.trim() || !subject?.trim() || !message?.trim()) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 422 })
   }
 
   const submission: ConsultationSubmission = {
     name:        body.name!.trim(),
     instagram:   body.instagram?.trim() ?? '',
+    location:    body.location!.trim(),
     email:       body.email!.trim(),
     subject:     body.subject!.trim(),
     message:     body.message!.trim(),

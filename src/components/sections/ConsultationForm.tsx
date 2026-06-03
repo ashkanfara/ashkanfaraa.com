@@ -51,6 +51,13 @@ const FIELDS: Field[] = [
     required: false,
   },
   {
+    id: 'location',
+    label: 'در حال حاضر در کدام کشور و شهر زندگی می‌کنی؟',
+    type: 'text',
+    placeholder: '',
+    required: true,
+  },
+  {
     id: 'email',
     label: 'ایمیل',
     type: 'email',
@@ -66,7 +73,7 @@ const FIELDS: Field[] = [
   },
   {
     id: 'message',
-    label: 'اگر بخواهی مهم‌ترین سؤال یا نگرانی خود را در چند جمله توضیح دهی، چه می‌گویی؟',
+    label: 'اگر فقط ۵ دقیقه فرصت داشتی شرایطت را توضیح بدهی، چه می‌گفتی؟',
     type: 'textarea',
     placeholder: '',
     required: true,
@@ -94,6 +101,7 @@ export function ConsultationForm() {
         body: JSON.stringify({
           name:      values.name      ?? '',
           instagram: values.instagram ?? '',
+          location:  values.location  ?? '',
           email:     values.email     ?? '',
           subject:   values.subject   ?? '',
           message:   values.message   ?? '',
