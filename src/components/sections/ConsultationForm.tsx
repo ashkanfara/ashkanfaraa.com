@@ -42,8 +42,8 @@ const FIELDS: Field[] = [
   { id: 'name',      label: 'نام و نام خانوادگی',                           type: 'text',     placeholder: '',  required: true },
   { id: 'instagram', label: 'آیدی اینستاگرام',                              type: 'text',     placeholder: '@', required: false },
   { id: 'email',     label: 'ایمیل',                                         type: 'email',    placeholder: '',  required: true },
-  { id: 'subject',   label: 'موضوع جلسه',                                   type: 'text',     placeholder: '',  required: true },
-  { id: 'message',   label: 'الان دقیقاً در چه موردی به کمک نیاز داری؟',   type: 'textarea', placeholder: '',  required: true, rows: 5 },
+  { id: 'subject',   label: 'مهم‌ترین تصمیمی که الان با آن روبه‌رو هستی',                                                          type: 'text',     placeholder: '',  required: true },
+  { id: 'message',   label: 'اگر بخواهی مهم‌ترین سؤال یا نگرانی خود را در چند جمله توضیح دهی، چه می‌گویی؟',   type: 'textarea', placeholder: '',  required: true, rows: 5 },
 ]
 
 export function ConsultationForm() {

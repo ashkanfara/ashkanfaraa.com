@@ -8,7 +8,7 @@ export const metadata: Metadata = {
   description: 'قبل از تصمیم‌های بزرگ، تصویر کامل را ببین. جلسه خصوصی با اشکان فارا درباره مهاجرت، تحصیل، کار و فرصت‌های بین‌المللی.',
 }
 
-const PAD = 'clamp(1.25rem, 5vw, 4rem)'
+const PAD = 'clamp(1rem, 5vw, 4rem)'
 
 function Eyebrow({ children }: { children: string }) {
   return (
@@ -42,7 +42,7 @@ export default function ConsultationPage() {
 
           {/* ── Left: image ── */}
           <div
-            className="w-full aspect-[4/3] md:aspect-[4/5]"
+            className="w-full aspect-[16/9] md:aspect-[4/5]"
             style={{ position: 'relative', borderRadius: '0.875rem', overflow: 'hidden' }}
           >
             <Image
@@ -50,7 +50,7 @@ export default function ConsultationPage() {
               alt="اشکان فارا"
               fill
               priority
-              className="object-cover object-top"
+              className="object-cover object-[50%_15%] md:object-top"
               sizes="(max-width: 768px) 100vw, 45vw"
             />
           </div>
@@ -98,14 +98,9 @@ export default function ConsultationPage() {
               >
                 ثبت درخواست جلسه
               </a>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                <span style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--accent)' }}>
-                  شروع از ۶.۹ میلیون تومان
-                </span>
-                <span style={{ fontSize: '0.72rem', color: 'var(--subtle)' }}>
-                  ۴۰ دقیقه · آنلاین
-                </span>
-              </div>
+              <span style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--accent)' }}>
+                شروع از ۶.۹ میلیون تومان
+              </span>
             </div>
           </div>
 
@@ -133,7 +128,7 @@ export default function ConsultationPage() {
           color: 'var(--foreground)',
           marginBottom: '2.5rem',
         }}>
-          قبل از رزرو، کمی از شرایطت بگو.
+          قبل از ثبت درخواست، کمی از شرایطت بگو.
         </h2>
 
         <ConsultationForm />
