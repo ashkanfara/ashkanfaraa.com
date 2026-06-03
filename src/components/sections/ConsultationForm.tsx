@@ -66,7 +66,7 @@ const FIELDS: Field[] = [
   },
   {
     id: 'message',
-    label: 'اگر بخواهی مهم‌ترین سؤال یا نگرانی خود را در چند جمله توضیح دهی، چه می‌گویی؟',
+    label: 'دوست داری در این جلسه دقیقاً روی چه چیزی کار کنیم؟',
     type: 'textarea',
     placeholder: '',
     required: true,
@@ -138,7 +138,7 @@ export function ConsultationForm() {
           lineHeight: 1.9,
           margin: 0,
         }}>
-          من یا تیمم درخواستت را بررسی می‌کنیم و اگر این جلسه مناسب شرایطت باشد، برای هماهنگی مرحله بعد با تو تماس می‌گیریم.
+          درخواستت بررسی می‌شود. اگر این جلسه برای شرایطت مناسب باشد، برای هماهنگی مرحله بعد با تو تماس می‌گیریم.
         </p>
       </div>
     )
@@ -230,7 +230,7 @@ export function ConsultationForm() {
           whiteSpace: 'nowrap',
         }}
       >
-        {status === 'submitting' ? '...' : 'ثبت درخواست جلسه'}
+        {status === 'submitting' ? '...' : 'درخواست بررسی جلسه'}
       </button>
     </form>
   )

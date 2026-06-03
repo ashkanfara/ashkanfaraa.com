@@ -4,7 +4,7 @@ import { Footer } from '@/components/layout/Footer'
 import { ConsultationForm } from '@/components/sections/ConsultationForm'
 
 export const metadata: Metadata = {
-  title: 'جلسه استراتژی شخصی — اشکان فارا',
+  title: 'جلسه خصوصی تصمیم‌گیری — اشکان فارا',
   description: 'قبل از تصمیم‌های بزرگ، تصویر کامل را ببین. جلسه خصوصی با اشکان فارا درباره مهاجرت، تحصیل، کار و فرصت‌های بین‌المللی.',
 }
 
@@ -57,7 +57,7 @@ export default function ConsultationPage() {
 
           {/* ── Right: text ── */}
           <div dir="rtl" style={{ display: 'flex', flexDirection: 'column' }}>
-            <Eyebrow>جلسه استراتژی شخصی</Eyebrow>
+            <Eyebrow>جلسه خصوصی تصمیم‌گیری</Eyebrow>
 
             <h1 style={{
               fontSize: 'clamp(1.8rem, 3.5vw, 3.2rem)',
@@ -81,7 +81,9 @@ export default function ConsultationPage() {
               marginBottom: '2.25rem',
               maxWidth: '44ch',
             }}>
-              اگر بین چند مسیر مختلف گیر کرده‌ای، این جلسه برای کمک به تصمیم‌گیری بهتر طراحی شده است. درباره مهاجرت، تحصیل، کار، زندگی در کشورهای مختلف یا فرصت‌های پیش رویت. هدف این جلسه فروش چیزی نیست. هدف این است که قبل از تصمیم‌های مهم، تصویر کامل‌تری داشته باشی.
+              اگر بین چند مسیر مختلف گیر کرده‌ای، این جلسه برای کمک به تصمیم‌گیری بهتر طراحی شده است؛ درباره مهاجرت، تحصیل، کار، زندگی در کشورهای مختلف، راه‌اندازی کسب‌وکار، خرید ملک در استرالیا یا فرصت‌های مهمی که پیش رویت قرار گرفته‌اند.
+              <br /><br />
+              هدف این جلسه فروش چیزی نیست. هدف این است که قبل از تصمیم‌های مهم، تصویر کامل‌تری داشته باشی.
             </p>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
@@ -96,7 +98,7 @@ export default function ConsultationPage() {
                   textDecoration: 'none', whiteSpace: 'nowrap',
                 }}
               >
-                ثبت درخواست جلسه
+                درخواست بررسی جلسه
               </a>
               <span style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--accent)' }}>
                 شروع از ۶.۹ میلیون تومان
@@ -128,8 +130,18 @@ export default function ConsultationPage() {
           color: 'var(--foreground)',
           marginBottom: '2.5rem',
         }}>
-          قبل از ثبت درخواست، کمی از شرایطت بگو.
+          قبل از رزرو، کمی از شرایطت بگو.
         </h2>
+
+        <p style={{
+          fontSize: '0.82rem',
+          color: 'var(--subtle)',
+          lineHeight: 1.8,
+          marginBottom: '2.5rem',
+          maxWidth: '52ch',
+        }}>
+          همه درخواست‌ها پذیرفته نمی‌شوند. اگر احساس کنم این جلسه واقعاً می‌تواند برای شرایطت مفید باشد، برای هماهنگی مرحله بعد با تو تماس می‌گیریم.
+        </p>
 
         <ConsultationForm />
 
@@ -141,7 +153,7 @@ export default function ConsultationPage() {
           maxWidth: '56ch',
           opacity: 0.75,
         }}>
-          این جلسه بر پایه تجربه شخصی، مشاهده، تحقیق و گفت‌وگوهای متعدد شکل گرفته است و جایگزین مشاوره حقوقی، مالی یا تخصصی نیست.
+          این جلسه بر پایه تجربه شخصی، مشاهده، تحقیق و گفت‌وگوهای متعدد شکل گرفته است. جایگزین مشاوره حقوقی، مالی یا تخصصی نیست.
         </p>
       </section>
 
