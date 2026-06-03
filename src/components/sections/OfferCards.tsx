@@ -71,17 +71,19 @@ export function Offers() {
                 {offer.description}
               </p>
 
-              {/* Price */}
-              <div style={{ marginBottom: '1.25rem', display: 'flex', alignItems: 'baseline', gap: '0.4rem', flexWrap: 'wrap' }}>
-                <span style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--accent)' }}>
-                  {offer.price}
-                </span>
-                {offer.priceSub && (
-                  <span style={{ fontSize: '0.78rem', color: 'var(--subtle)' }}>
-                    / {offer.priceSub}
+              {/* Price — only rendered when a price is set */}
+              {offer.price && (
+                <div style={{ marginBottom: '1.25rem', display: 'flex', alignItems: 'baseline', gap: '0.4rem', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--accent)' }}>
+                    {offer.price}
                   </span>
-                )}
-              </div>
+                  {offer.priceSub && (
+                    <span style={{ fontSize: '0.78rem', color: 'var(--subtle)' }}>
+                      / {offer.priceSub}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Full-width gold CTA */}
