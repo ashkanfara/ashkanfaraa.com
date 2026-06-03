@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { Footer } from '@/components/layout/Footer'
+import { AudioPlayer } from '@/components/ui/AudioPlayer'
 
 export const metadata: Metadata = {
   title: 'مشاوره خصوصی مهاجرت — اشکان فارا',
@@ -7,12 +8,9 @@ export const metadata: Metadata = {
 }
 
 const BOOKING_HREF = 'https://example.com/consultation'
-
-/* ─── shared tokens ─────────────────────────────────────── */
 const CONTENT_PADDING = 'clamp(1rem, 2.2vw, 2rem)'
 const SECTION_GAP = '5rem'
 
-/* ─── reusable pieces ──────────────────────────────────── */
 function SectionEyebrow({ children }: { children: string }) {
   return (
     <div dir="rtl" style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', marginBottom: '1.25rem' }}>
@@ -30,15 +28,12 @@ function GoldDot() {
   )
 }
 
-/* ═══════════════════════════════════════════════════════════
-   PAGE
-   ═══════════════════════════════════════════════════════════ */
 export default function ConsultationPage() {
   return (
     <main className="w-full overflow-x-hidden">
 
       {/* ══════════════════════════════════════════════════
-          HERO
+          1 — HERO
           ══════════════════════════════════════════════════ */}
       <section
         dir="rtl"
@@ -56,16 +51,14 @@ export default function ConsultationPage() {
         <div style={{ maxWidth: '780px' }}>
           <SectionEyebrow>مشاوره خصوصی مهاجرت</SectionEyebrow>
 
-          <h1
-            style={{
-              fontSize: 'clamp(2rem, 4.5vw, 3.8rem)',
-              fontWeight: 700,
-              lineHeight: 1.15,
-              letterSpacing: '-0.025em',
-              color: 'var(--foreground)',
-              marginBottom: '1.75rem',
-            }}
-          >
+          <h1 style={{
+            fontSize: 'clamp(2rem, 4.5vw, 3.8rem)',
+            fontWeight: 700,
+            lineHeight: 1.15,
+            letterSpacing: '-0.025em',
+            color: 'var(--foreground)',
+            marginBottom: '1.75rem',
+          }}>
             یک جلسه.
             <br />
             مسیر مهاجرتت را روشن کن.
@@ -74,8 +67,9 @@ export default function ConsultationPage() {
           <div style={{ width: '2.5rem', height: '1px', background: 'var(--accent)', opacity: 0.7, marginBottom: '1.5rem' }} />
 
           <p style={{ fontSize: 'clamp(1rem, 1.4vw, 1.15rem)', color: 'var(--muted)', lineHeight: 1.85, marginBottom: '2.5rem', maxWidth: '52ch' }}>
-            ۴۰ دقیقه مشاوره اختصاصی با اشکان فارا — بر اساس شرایط خاص تو،
-            نه یک مسیر کلیشه‌ای که برای همه یکسان است.
+            وقتی از ده‌ها منبع مختلف اطلاعات گرفته‌ای و هنوز مطمئن نیستی، مشکل کمبود اطلاعات نیست —
+            مشکل نبود یک نگاه صادقانه به شرایط خاص توست.
+            این جلسه همان نگاه است.
           </p>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
@@ -104,11 +98,104 @@ export default function ConsultationPage() {
       </section>
 
       {/* ══════════════════════════════════════════════════
-          WHAT WE COVER
+          2 — WHO IS ASHKAN
           ══════════════════════════════════════════════════ */}
       <section
         dir="rtl"
-        style={{ paddingInline: CONTENT_PADDING, paddingTop: SECTION_GAP, paddingBottom: SECTION_GAP }}
+        style={{
+          paddingInline: CONTENT_PADDING,
+          paddingTop: SECTION_GAP,
+          paddingBottom: SECTION_GAP,
+          borderTop: '1px solid var(--border)',
+        }}
+      >
+        <SectionEyebrow>با کی طرفی</SectionEyebrow>
+
+        <h2 style={{
+          fontSize: 'clamp(1.4rem, 2.5vw, 2.2rem)',
+          fontWeight: 600, lineHeight: 1.3, letterSpacing: '-0.015em',
+          color: 'var(--foreground)', marginBottom: '2rem', maxWidth: '44ch',
+        }}>
+          کسی که از داخل می‌داند، نه از روی کتاب.
+        </h2>
+
+        <div style={{ maxWidth: '64ch', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          <p style={{ fontSize: 'clamp(0.9rem, 1.2vw, 1rem)', color: 'var(--muted)', lineHeight: 1.9, margin: 0 }}>
+            در چند کشور زندگی و تحصیل کرده‌ام و طی سال‌های گذشته با هزاران نفر درباره مهاجرت، انتخاب کشور
+            و تصمیم‌گیری برای آینده‌شان گفتگو داشته‌ام.
+            بسیاری از آن‌ها قبل از اینکه به من برسند، وقت، پول، و فرصت از دست داده بودند —
+            نه به خاطر کمبود تلاش، به خاطر اطلاعات اشتباه از منابع اشتباه.
+          </p>
+          <p style={{ fontSize: 'clamp(0.9rem, 1.2vw, 1rem)', color: 'var(--muted)', lineHeight: 1.9, margin: 0 }}>
+            من مشاور حقوقی نیستم و وعده‌ای نمی‌دهم که نمی‌توانم نگه دارم.
+            آنچه دارم قضاوتی است که از تجربه واقعی آمده؛ تجربه‌ای که از زندگی، تحصیل و گفتگو با
+            آدم‌های زیادی در مسیر مهاجرت شکل گرفته است.
+          </p>
+        </div>
+      </section>
+
+      {/* ══════════════════════════════════════════════════
+          3 — COST OF GETTING IT WRONG
+          ══════════════════════════════════════════════════ */}
+      <section
+        dir="rtl"
+        style={{
+          paddingInline: CONTENT_PADDING,
+          paddingTop: SECTION_GAP,
+          paddingBottom: SECTION_GAP,
+          borderTop: '1px solid var(--border)',
+        }}
+      >
+        <SectionEyebrow>چرا این جلسه مهم است</SectionEyebrow>
+
+        <h2 style={{
+          fontSize: 'clamp(1.4rem, 2.5vw, 2.2rem)',
+          fontWeight: 600, lineHeight: 1.3, letterSpacing: '-0.015em',
+          color: 'var(--foreground)', marginBottom: '2.5rem', maxWidth: '44ch',
+        }}>
+          اشتباه‌هایی که گران تمام می‌شوند.
+        </h2>
+
+        <div style={{
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
+          borderRadius: '0.875rem',
+          padding: '1.75rem',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '1.25rem',
+          maxWidth: '680px',
+          marginBottom: '1.75rem',
+        }}>
+          {[
+            'ثبت درخواست ویزا در زمان اشتباه — و رد شدنی که روی پرونده می‌ماند',
+            'انتخاب کشوری که روی کاغذ جذاب است، اما با شرایط تو همخوانی ندارد',
+            'هزینه کردن برای مدارک و آزمون‌هایی که در مسیر اشتباه هیچ ارزشی ندارند',
+            'اعتماد به کسی که به هر سوالی جواب مثبت می‌دهد، بدون اینکه شرایط واقعی تو را بسنجد',
+          ].map((item) => (
+            <div key={item} style={{ display: 'flex', gap: '0.875rem', alignItems: 'flex-start' }}>
+              <GoldDot />
+              <p style={{ fontSize: '0.875rem', color: 'var(--muted)', lineHeight: 1.8, margin: 0 }}>{item}</p>
+            </div>
+          ))}
+        </div>
+
+        <p style={{ fontSize: '0.875rem', color: 'var(--subtle)', lineHeight: 1.8, maxWidth: '56ch' }}>
+          این جلسه برای این است که این اشتباه‌ها را قبل از وقوع ببینی.
+        </p>
+      </section>
+
+      {/* ══════════════════════════════════════════════════
+          4 — WHAT YOU GET
+          ══════════════════════════════════════════════════ */}
+      <section
+        dir="rtl"
+        style={{
+          paddingInline: CONTENT_PADDING,
+          paddingTop: SECTION_GAP,
+          paddingBottom: SECTION_GAP,
+          borderTop: '1px solid var(--border)',
+        }}
       >
         <SectionEyebrow>در این جلسه چه می‌گیری</SectionEyebrow>
 
@@ -126,11 +213,26 @@ export default function ConsultationPage() {
           gap: '1rem',
         }}>
           {[
-            { title: 'ارزیابی وضعیت کنونی', desc: 'بررسی دقیق آنچه داری — مدرک، سابقه کار، سن، وضعیت خانوادگی — و آنچه ممکن است.' },
-            { title: 'مسیرهای واقعی و قابل دسترس', desc: 'کدام کشورها و ویزاها با شرایط تو همخوانی دارند. نه آنچه در اینترنت می‌خوانی، آنچه در واقعیت کار می‌کند.' },
-            { title: 'نقاط قوت و ضعف پرونده‌ات', desc: 'صادقانه، نه برای دلخوش‌کردن. اینجاست که اکثر مشاوران چیزی نمی‌گویند.' },
-            { title: 'اشتباهات رایجی که باید از آن‌ها اجتناب کنی', desc: 'تله‌هایی که مهاجران تازه‌کار بارها تکرار می‌کنند و هزینه‌شان گران است.' },
-            { title: 'گام‌های عملی بعدی', desc: 'خروجی جلسه، یک لیست مشخص از کارهایی است که باید بعد از جلسه انجام بدهی.' },
+            {
+              title: 'دیگر نمی‌پرسی «از کجا شروع کنم»',
+              desc: 'وضعیتت بررسی می‌شود — مدرک، سابقه کار، سن، وضعیت خانوادگی — و نقطه شروع واقعی مشخص می‌شود.',
+            },
+            {
+              title: 'می‌فهمی کدام مسیرها واقعاً برای تو کار می‌کنند',
+              desc: 'نه آنچه در اینترنت می‌خوانی؛ آنچه با شرایط خاص تو ممکن است.',
+            },
+            {
+              title: 'می‌دانی کجا ایستاده‌ای',
+              desc: 'نقاط قوت و ضعف پرونده‌ات، صادقانه، نه برای دلخوش‌کردن.',
+            },
+            {
+              title: 'اشتباه‌هایی که نباید بکنی را می‌شناسی',
+              desc: 'تله‌هایی که بارها دیده‌ام و هزینه‌شان بالاست.',
+            },
+            {
+              title: 'با یک لیست مشخص از جلسه خارج می‌شوی',
+              desc: 'نه احساس خوب کلی؛ گام‌های عملی بعدی که باید برداری.',
+            },
           ].map((item) => (
             <div
               key={item.title}
@@ -157,80 +259,116 @@ export default function ConsultationPage() {
       </section>
 
       {/* ══════════════════════════════════════════════════
-          WHO IS IT FOR
+          5 — WHO THIS IS FOR
           ══════════════════════════════════════════════════ */}
       <section
         dir="rtl"
         style={{
-          paddingInline: CONTENT_PADDING, paddingTop: SECTION_GAP, paddingBottom: SECTION_GAP,
+          paddingInline: CONTENT_PADDING,
+          paddingTop: SECTION_GAP,
+          paddingBottom: SECTION_GAP,
           borderTop: '1px solid var(--border)',
         }}
       >
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '3rem' }}>
+        <SectionEyebrow>این مشاوره برای کیست</SectionEyebrow>
 
-          {/* For who */}
-          <div>
-            <SectionEyebrow>این مشاوره برای کیست</SectionEyebrow>
-            <h2 style={{
-              fontSize: 'clamp(1.4rem, 2.5vw, 2.2rem)',
-              fontWeight: 600, lineHeight: 1.3, letterSpacing: '-0.015em',
-              color: 'var(--foreground)', marginBottom: '2rem', maxWidth: '44ch',
-            }}>
-              اگر یکی از این‌ها درباره‌ات صدق می‌کند.
-            </h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
-              {[
-                'مسیر مهاجرتت هنوز برایت مبهم است و نمی‌دانی از کجا شروع کنی.',
-                'از چند منبع مختلف اطلاعات متناقض گرفته‌ای و گیج شده‌ای.',
-                'می‌خواهی قبل از هر هزینه یا اقدام مهمی، تصویر کاملی داشته باشی.',
-                'در میانه مسیر گیر کرده‌ای و نمی‌دانی چطور ادامه بدهی.',
-                'پرونده‌ات رد شده و نمی‌دانی دقیقاً چرا و چه باید بکنی.',
-              ].map((text) => (
-                <div key={text} style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
-                  <div style={{
-                    width: '18px', height: '18px', borderRadius: '50%',
-                    border: '1px solid var(--accent)', flexShrink: 0, marginTop: '0.15rem',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}>
-                    <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--accent)' }} />
-                  </div>
-                  <p style={{ fontSize: '0.9rem', color: 'var(--muted)', lineHeight: 1.75, margin: 0 }}>{text}</p>
-                </div>
-              ))}
+        <h2 style={{
+          fontSize: 'clamp(1.4rem, 2.5vw, 2.2rem)',
+          fontWeight: 600, lineHeight: 1.3, letterSpacing: '-0.015em',
+          color: 'var(--foreground)', marginBottom: '2rem', maxWidth: '44ch',
+        }}>
+          اگر یکی از این‌ها درباره‌ات صدق می‌کند.
+        </h2>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem', marginBottom: '2.5rem' }}>
+          {[
+            'مسیرت مبهم است و نمی‌دانی از کجا شروع کنی',
+            'از منابع مختلف اطلاعات متناقض گرفته‌ای',
+            'می‌خواهی قبل از هر هزینه‌ای تصویر کامل داشته باشی',
+            'در میانه مسیر گیر کرده‌ای',
+            'پرونده‌ات رد شده و نمی‌دانی دقیقاً چرا',
+          ].map((text) => (
+            <div key={text} style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
+              <div style={{
+                width: '18px', height: '18px', borderRadius: '50%',
+                border: '1px solid var(--accent)', flexShrink: 0, marginTop: '0.15rem',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--accent)' }} />
+              </div>
+              <p style={{ fontSize: '0.9rem', color: 'var(--muted)', lineHeight: 1.75, margin: 0 }}>{text}</p>
             </div>
-          </div>
+          ))}
+        </div>
 
-          {/* Not for who */}
-          <div style={{
-            background: 'var(--surface)', border: '1px solid var(--border)',
-            borderRadius: '0.875rem', padding: '1.5rem 1.75rem',
-          }}>
-            <p style={{ fontSize: '0.7rem', letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--subtle)', marginBottom: '1rem' }}>
-              این مشاوره برای تو نیست اگر
-            </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-              {[
-                'به دنبال تضمین قطعی نتیجه هستی.',
-                'می‌خواهی کسی مدارکت را برایت تنظیم کند.',
-                'نیاز به مشاوره حقوقی یا وکیل مهاجرت داری.',
-              ].map((text) => (
-                <p key={text} style={{ fontSize: '0.85rem', color: 'var(--subtle)', lineHeight: 1.65, margin: 0, paddingRight: '0.5rem', borderRight: '1px solid var(--border-strong)' }}>
-                  {text}
-                </p>
-              ))}
-            </div>
+        <div style={{
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
+          borderRadius: '0.875rem',
+          padding: '1.5rem 1.75rem',
+        }}>
+          <p style={{ fontSize: '0.7rem', letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--subtle)', marginBottom: '1rem' }}>
+            این مشاوره برای تو نیست اگر
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginBottom: '1.25rem' }}>
+            {[
+              'به دنبال تضمین قطعی نتیجه هستی',
+              'می‌خواهی کسی مدارکت را برایت تنظیم کند',
+              'نیاز به مشاوره حقوقی یا وکیل مهاجرت داری',
+            ].map((text) => (
+              <p key={text} style={{ fontSize: '0.85rem', color: 'var(--subtle)', lineHeight: 1.65, margin: 0, paddingRight: '0.75rem', borderRight: '1px solid var(--border-strong)' }}>
+                {text}
+              </p>
+            ))}
           </div>
-
+          <p style={{ fontSize: '0.82rem', color: 'var(--subtle)', lineHeight: 1.75, margin: 0 }}>
+            برای آن خدمات، افراد مناسب‌تری هستند. این جلسه قضاوت است، نه خدمت اجرایی.
+          </p>
         </div>
       </section>
 
       {/* ══════════════════════════════════════════════════
-          HOW THE PROCESS WORKS
+          6 — FEATURED TESTIMONIAL
           ══════════════════════════════════════════════════ */}
       <section
         dir="rtl"
         style={{
-          paddingInline: CONTENT_PADDING, paddingTop: SECTION_GAP, paddingBottom: SECTION_GAP,
+          paddingInline: CONTENT_PADDING,
+          paddingTop: SECTION_GAP,
+          paddingBottom: SECTION_GAP,
+          borderTop: '1px solid var(--border)',
+        }}
+      >
+        <SectionEyebrow>تجربه واقعی</SectionEyebrow>
+
+        <p style={{ fontSize: '0.875rem', color: 'var(--subtle)', lineHeight: 1.8, marginBottom: '2rem', maxWidth: '52ch' }}>
+          یکی از کسانی که قبل از اقدام، تصویر روشن‌تری از مسیرش خواست.
+        </p>
+
+        <div style={{
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
+          borderRadius: '0.875rem',
+          padding: '1.5rem 1.75rem',
+          maxWidth: '560px',
+        }}>
+          <AudioPlayer
+            src="/audio/testimonial-1.mp3"
+            name="یاشار ک."
+            label="مهاجرت به آلمان · ۱۴۰۲"
+          />
+        </div>
+      </section>
+
+      {/* ══════════════════════════════════════════════════
+          7 — PROCESS
+          ══════════════════════════════════════════════════ */}
+      <section
+        dir="rtl"
+        style={{
+          paddingInline: CONTENT_PADDING,
+          paddingTop: SECTION_GAP,
+          paddingBottom: SECTION_GAP,
           borderTop: '1px solid var(--border)',
         }}
       >
@@ -255,7 +393,7 @@ export default function ConsultationPage() {
             { num: '۰۱', title: 'رزرو و پرداخت', desc: 'وقت مناسب خود را انتخاب کن. پرداخت آنلاین و فوری.' },
             { num: '۰۲', title: 'فرم پیش از جلسه', desc: 'وضعیتت را شرح بده تا جلسه کاملاً هدفمند باشد.' },
             { num: '۰۳', title: 'جلسه ۴۰ دقیقه‌ای', desc: 'مشاوره اختصاصی آنلاین با تمرکز کامل روی مسیر تو.' },
-            { num: '۰۴', title: 'خلاصه مکتوب', desc: 'نکات کلیدی جلسه ظرف ۲۴ ساعت برایت ارسال می‌شود.' },
+            { num: '۰۴', title: 'ضبط و خلاصه مکتوب', desc: 'ضبط کامل جلسه به همراه نکات کلیدی مکتوب، ظرف ۲۴ ساعت برایت ارسال می‌شود.' },
           ].map((step) => (
             <div
               key={step.num}
@@ -280,12 +418,14 @@ export default function ConsultationPage() {
       </section>
 
       {/* ══════════════════════════════════════════════════
-          FAQ
+          8 — FAQ
           ══════════════════════════════════════════════════ */}
       <section
         dir="rtl"
         style={{
-          paddingInline: CONTENT_PADDING, paddingTop: SECTION_GAP, paddingBottom: SECTION_GAP,
+          paddingInline: CONTENT_PADDING,
+          paddingTop: SECTION_GAP,
+          paddingBottom: SECTION_GAP,
           borderTop: '1px solid var(--border)',
         }}
       >
@@ -300,6 +440,10 @@ export default function ConsultationPage() {
 
         <div style={{ maxWidth: '720px', display: 'flex', flexDirection: 'column', gap: '0' }}>
           {[
+            {
+              q: 'چطور بفهمم این جلسه به دردم می‌خورد؟',
+              a: 'اگر هنوز مطمئن نیستی، احتمالاً همین دلیل خوبی است که قبل از هر تصمیم مهم، شرایطت را با یک نفر مرور کنی.',
+            },
             {
               q: 'جلسه کجا برگزار می‌شود؟',
               a: 'آنلاین از طریق Google Meet. لینک ورود پس از رزرو برایت ارسال می‌شود.',
@@ -332,21 +476,19 @@ export default function ConsultationPage() {
                 borderBottom: i === arr.length - 1 ? '1px solid var(--border)' : 'none',
               }}
             >
-              <summary
-                style={{
-                  listStyle: 'none',
-                  padding: '1.25rem 0',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  gap: '1rem',
-                  fontSize: '0.95rem',
-                  fontWeight: 500,
-                  color: 'var(--foreground)',
-                  userSelect: 'none',
-                }}
-              >
+              <summary style={{
+                listStyle: 'none',
+                padding: '1.25rem 0',
+                cursor: 'pointer',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '1rem',
+                fontSize: '0.95rem',
+                fontWeight: 500,
+                color: 'var(--foreground)',
+                userSelect: 'none',
+              }}>
                 {item.q}
                 <span style={{
                   color: 'var(--accent)', fontSize: '1.2rem', lineHeight: 1,
@@ -368,7 +510,7 @@ export default function ConsultationPage() {
       </section>
 
       {/* ══════════════════════════════════════════════════
-          FINAL CTA
+          9 — FINAL CTA
           ══════════════════════════════════════════════════ */}
       <section
         dir="rtl"
@@ -383,7 +525,7 @@ export default function ConsultationPage() {
           background: 'var(--surface)',
           border: '1px solid var(--border-strong)',
           borderRadius: '1.25rem',
-          padding: 'clamp(2.5rem, 5vw, 4rem) clamp(1.5rem, 4vw, 3.5rem)',
+          padding: 'clamp(1.75rem, 3.5vw, 2.75rem) clamp(1.5rem, 4vw, 3.5rem)',
           display: 'flex', flexDirection: 'column', gap: '0',
           backgroundImage: 'radial-gradient(ellipse at 80% 20%, rgba(196,151,58,0.07) 0%, transparent 55%)',
         }}>
@@ -404,8 +546,8 @@ export default function ConsultationPage() {
             fontSize: '0.9rem', color: 'var(--muted)', lineHeight: 1.85,
             marginBottom: '2.5rem', maxWidth: '48ch',
           }}>
-            همین سوال‌هایی که الان داری، مهم‌ترین چیزهایی هستند که باید بررسی شوند.
-            قبل از هر اقدام دیگری.
+            همین سوال‌هایی که الان داری، مهم‌ترین چیزهایی هستند که باید قبل از هر اقدامی بررسی شوند.
+            هر روزی که بدون شفافیت می‌گذرد، تصمیم گرفتن را سخت‌تر می‌کند.
           </p>
           <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
             <a
@@ -423,9 +565,6 @@ export default function ConsultationPage() {
             >
               رزرو مشاوره — ۶.۹ میلیون تومان
             </a>
-            <p style={{ fontSize: '0.75rem', color: 'var(--subtle)', margin: 0, lineHeight: 1.6 }}>
-              پس از پرداخت، لینک رزرو وقت برایت ارسال می‌شود.
-            </p>
           </div>
         </div>
       </section>
