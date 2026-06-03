@@ -4,15 +4,15 @@ import { Footer } from '@/components/layout/Footer'
 import { ConsultationForm } from '@/components/sections/ConsultationForm'
 
 export const metadata: Metadata = {
-  title: 'مشاوره خصوصی مهاجرت — اشکان فارا',
-  description: '۴۰ دقیقه مشاوره خصوصی با اشکان فارا. بر اساس شرایط خاص تو، بدون وعده‌های توخالی.',
+  title: 'جلسه استراتژی شخصی — اشکان فارا',
+  description: 'قبل از تصمیم‌های بزرگ، تصویر کامل را ببین. جلسه خصوصی با اشکان فارا درباره مهاجرت، تحصیل، کار و فرصت‌های بین‌المللی.',
 }
 
-const CONTENT_PADDING = 'clamp(1.25rem, 5vw, 4rem)'
+const PAD = 'clamp(1.25rem, 5vw, 4rem)'
 
 function Eyebrow({ children }: { children: string }) {
   return (
-    <div dir="rtl" style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', marginBottom: '1.25rem' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', marginBottom: '1.25rem' }}>
       <div style={{ width: '2rem', height: '1px', background: 'var(--accent)', opacity: 0.65, flexShrink: 0 }} />
       <p style={{ fontSize: '0.65rem', letterSpacing: '0.26em', textTransform: 'uppercase', color: 'var(--subtle)', margin: 0 }}>
         {children}
@@ -26,31 +26,28 @@ export default function ConsultationPage() {
     <main className="w-full overflow-x-hidden">
 
       {/* ══════════════════════════════════════════════════
-          1 — HERO (two-column on desktop, stacked on mobile)
+          HERO — image left, text right
           ══════════════════════════════════════════════════ */}
-      <section
-        style={{
-          paddingInline: CONTENT_PADDING,
-          paddingTop: '6rem',
-          paddingBottom: '4rem',
-        }}
-      >
-        {/* Grid: image left, text right on desktop / stacked on mobile */}
-        <div className="grid grid-cols-1 md:grid-cols-[45fr_55fr] items-center gap-10 md:gap-16">
+      <section style={{ paddingInline: PAD, paddingTop: '6rem', paddingBottom: '4.5rem' }}>
 
-          {/* ── Image column ── */}
+        {/*
+          dir="ltr" on the grid so column order is physical left→right
+          regardless of the document's RTL direction.
+          The text column gets its own dir="rtl".
+        */}
+        <div
+          dir="ltr"
+          className="grid grid-cols-1 md:grid-cols-[45fr_55fr] items-center gap-10 md:gap-14"
+        >
+
+          {/* ── Left: image ── */}
           <div
             className="w-full aspect-[4/3] md:aspect-[4/5]"
-            style={{
-              position: 'relative',
-              borderRadius: '0.875rem',
-              overflow: 'hidden',
-              flexShrink: 0,
-            }}
+            style={{ position: 'relative', borderRadius: '0.875rem', overflow: 'hidden' }}
           >
             <Image
               src="/images/card-consultation.png"
-              alt="مشاوره خصوصی اشکان فارا"
+              alt="اشکان فارا"
               fill
               priority
               className="object-cover object-top"
@@ -58,33 +55,33 @@ export default function ConsultationPage() {
             />
           </div>
 
-          {/* ── Text column ── */}
-          <div dir="rtl">
-            <Eyebrow>مشاوره خصوصی مهاجرت</Eyebrow>
+          {/* ── Right: text ── */}
+          <div dir="rtl" style={{ display: 'flex', flexDirection: 'column' }}>
+            <Eyebrow>جلسه استراتژی شخصی</Eyebrow>
 
             <h1 style={{
-              fontSize: 'clamp(2rem, 4vw, 3.5rem)',
+              fontSize: 'clamp(1.8rem, 3.5vw, 3.2rem)',
               fontWeight: 700,
-              lineHeight: 1.15,
-              letterSpacing: '-0.025em',
+              lineHeight: 1.2,
+              letterSpacing: '-0.02em',
               color: 'var(--foreground)',
               marginBottom: '1.5rem',
             }}>
-              یک جلسه.
+              قبل از تصمیم‌های بزرگ،
               <br />
-              مسیر مهاجرتت را روشن کن.
+              تصویر کامل را ببین.
             </h1>
 
             <div style={{ width: '2.5rem', height: '1px', background: 'var(--accent)', opacity: 0.7, marginBottom: '1.5rem' }} />
 
             <p style={{
-              fontSize: 'clamp(0.9rem, 1.2vw, 1.05rem)',
+              fontSize: 'clamp(0.875rem, 1.1vw, 1rem)',
               color: 'var(--muted)',
-              lineHeight: 1.9,
+              lineHeight: 1.95,
               marginBottom: '2.25rem',
-              maxWidth: '46ch',
+              maxWidth: '44ch',
             }}>
-              اگر بین چند مسیر، کشور، و تصمیم مختلف گیر کرده‌ای، این جلسه برای این است که شرایطت را دقیق ببینیم و قبل از خرج کردن وقت و پول، مسیر درست‌تری انتخاب کنی.
+              اگر بین چند مسیر مختلف گیر کرده‌ای، این جلسه برای کمک به تصمیم‌گیری بهتر طراحی شده است. درباره مهاجرت، تحصیل، کار، زندگی در کشورهای مختلف یا فرصت‌های پیش رویت. هدف این جلسه فروش چیزی نیست. هدف این است که قبل از تصمیم‌های مهم، تصویر کامل‌تری داشته باشی.
             </p>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
@@ -99,11 +96,11 @@ export default function ConsultationPage() {
                   textDecoration: 'none', whiteSpace: 'nowrap',
                 }}
               >
-                شروع رزرو مشاوره
+                ثبت درخواست جلسه
               </a>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                <span style={{ fontSize: '0.975rem', fontWeight: 700, color: 'var(--accent)' }}>
-                  ۶.۹ میلیون تومان
+                <span style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--accent)' }}>
+                  شروع از ۶.۹ میلیون تومان
                 </span>
                 <span style={{ fontSize: '0.72rem', color: 'var(--subtle)' }}>
                   ۴۰ دقیقه · آنلاین
@@ -116,42 +113,40 @@ export default function ConsultationPage() {
       </section>
 
       {/* ══════════════════════════════════════════════════
-          2 — FORM
+          FORM
           ══════════════════════════════════════════════════ */}
       <section
         id="form"
         dir="rtl"
         style={{
-          paddingInline: CONTENT_PADDING,
+          paddingInline: PAD,
           paddingTop: '4rem',
           paddingBottom: '6rem',
           borderTop: '1px solid var(--border)',
         }}
       >
-        <Eyebrow>رزرو جلسه</Eyebrow>
-
         <h2 style={{
-          fontSize: 'clamp(1.2rem, 2vw, 1.65rem)',
+          fontSize: 'clamp(1.1rem, 1.8vw, 1.5rem)',
           fontWeight: 600,
-          lineHeight: 1.35,
-          letterSpacing: '-0.015em',
+          lineHeight: 1.4,
+          letterSpacing: '-0.01em',
           color: 'var(--foreground)',
           marginBottom: '2.5rem',
         }}>
-          اطلاعات زیر را وارد کن.
+          قبل از رزرو، کمی از شرایطت بگو.
         </h2>
 
         <ConsultationForm />
 
         <p style={{
           marginTop: '2rem',
-          fontSize: '0.75rem',
+          fontSize: '0.72rem',
           color: 'var(--subtle)',
-          lineHeight: 1.7,
-          maxWidth: '52ch',
-          opacity: 0.8,
+          lineHeight: 1.75,
+          maxWidth: '56ch',
+          opacity: 0.75,
         }}>
-          من وکیل مهاجرت نیستم، این جلسه مشاوره حقوقی نیست و هیچ نتیجه ویزایی را تضمین نمی‌کند.
+          این جلسه بر پایه تجربه شخصی، مشاهده، تحقیق و گفت‌وگوهای متعدد شکل گرفته است و جایگزین مشاوره حقوقی، مالی یا تخصصی نیست.
         </p>
       </section>
 
