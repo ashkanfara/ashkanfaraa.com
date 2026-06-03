@@ -26,10 +26,10 @@ export const offers = [
     id: 'course',
     title: 'تله‌های پنهان مهاجرت',
     description: 'همه آنچه باید پیش از تصمیم‌گیری بدانی — و کسی صادقانه بهت نگفته.',
-    price: '۵.۹ میلیون تومان',
+    price: '۱۴ میلیون تومان',
     priceSub: null,
-    action: 'خرید دوره',
-    href: 'https://example.com/course-payment',
+    action: 'درخواست دسترسی',
+    href: '/course',
   },
   {
     id: 'consultation',
