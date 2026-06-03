@@ -2,9 +2,6 @@
 
 import { useState, FormEvent } from 'react'
 
-// Replace with real Zarinpal or payment gateway URL when ready
-const CONSULTATION_PAYMENT_HREF = 'https://example.com/consultation-payment'
-
 const inputStyle: React.CSSProperties = {
   width: '100%',
   background: 'var(--surface-raised)',
@@ -39,33 +36,115 @@ interface Field {
 }
 
 const FIELDS: Field[] = [
-  { id: 'name',      label: 'نام و نام خانوادگی',                           type: 'text',     placeholder: '',  required: true },
-  { id: 'instagram', label: 'آیدی اینستاگرام',                              type: 'text',     placeholder: '@', required: false },
-  { id: 'email',     label: 'ایمیل',                                         type: 'email',    placeholder: '',  required: true },
-  { id: 'subject',   label: 'مهم‌ترین تصمیمی که الان با آن روبه‌رو هستی',                                                          type: 'text',     placeholder: '',  required: true },
-  { id: 'message',   label: 'اگر بخواهی مهم‌ترین سؤال یا نگرانی خود را در چند جمله توضیح دهی، چه می‌گویی؟',   type: 'textarea', placeholder: '',  required: true, rows: 5 },
+  {
+    id: 'name',
+    label: 'نام و نام خانوادگی',
+    type: 'text',
+    placeholder: '',
+    required: true,
+  },
+  {
+    id: 'instagram',
+    label: 'آیدی اینستاگرام',
+    type: 'text',
+    placeholder: '@',
+    required: false,
+  },
+  {
+    id: 'email',
+    label: 'ایمیل',
+    type: 'email',
+    placeholder: '',
+    required: true,
+  },
+  {
+    id: 'subject',
+    label: 'مهم‌ترین تصمیمی که الان با آن روبه‌رو هستی',
+    type: 'text',
+    placeholder: '',
+    required: true,
+  },
+  {
+    id: 'message',
+    label: 'اگر بخواهی مهم‌ترین سؤال یا نگرانی خود را در چند جمله توضیح دهی، چه می‌گویی؟',
+    type: 'textarea',
+    placeholder: '',
+    required: true,
+    rows: 5,
+  },
 ]
 
 export function ConsultationForm() {
-  const [values, setValues] = useState<Record<string, string>>({})
+  const [values, setValues]   = useState<Record<string, string>>({})
   const [focused, setFocused] = useState<string | null>(null)
+  const [status, setStatus]   = useState<'idle' | 'submitting' | 'success' | 'error'>('idle')
 
   function handleChange(id: string, value: string) {
     setValues(prev => ({ ...prev, [id]: value }))
   }
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    const params = new URLSearchParams({
-      name:      values.name      ?? '',
-      instagram: values.instagram ?? '',
-      email:     values.email     ?? '',
-      subject:   values.subject   ?? '',
-      message:   values.message   ?? '',
-    })
-    window.location.href = `${CONSULTATION_PAYMENT_HREF}?${params.toString()}`
+    setStatus('submitting')
+
+    try {
+      const res = await fetch('/api/consultation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name:      values.name      ?? '',
+          instagram: values.instagram ?? '',
+          email:     values.email     ?? '',
+          subject:   values.subject   ?? '',
+          message:   values.message   ?? '',
+        }),
+      })
+
+      if (!res.ok) throw new Error('submission failed')
+      setStatus('success')
+    } catch {
+      setStatus('error')
+    }
   }
 
+  /* ── Thank you state ─────────────────────────────────── */
+  if (status === 'success') {
+    return (
+      <div
+        dir="rtl"
+        style={{
+          maxWidth: '560px',
+          padding: '2.5rem 2rem',
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
+          borderRadius: '0.875rem',
+        }}
+      >
+        <div style={{ width: '2rem', height: '1px', background: 'var(--accent)', opacity: 0.65, marginBottom: '1.5rem' }} />
+
+        <h3 style={{
+          fontSize: 'clamp(1.1rem, 2vw, 1.4rem)',
+          fontWeight: 600,
+          lineHeight: 1.35,
+          color: 'var(--foreground)',
+          marginBottom: '1rem',
+        }}>
+          درخواستت ثبت شد.
+        </h3>
+
+        <p style={{
+          fontSize: '0.9rem',
+          color: 'var(--muted)',
+          lineHeight: 1.9,
+          margin: 0,
+        }}>
+          من یا تیمم درخواستت را بررسی می‌کنیم و اگر این جلسه مناسب شرایطت باشد، برای هماهنگی مرحله بعد با تو تماس می‌گیریم.
+        </p>
+      </div>
+    )
+  }
+
+  /* ── Form ────────────────────────────────────────────── */
   return (
     <form onSubmit={handleSubmit} noValidate style={{ maxWidth: '560px' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -117,8 +196,20 @@ export function ConsultationForm() {
         ))}
       </div>
 
+      {status === 'error' && (
+        <p style={{
+          marginTop: '1rem',
+          fontSize: '0.8rem',
+          color: 'var(--subtle)',
+          lineHeight: 1.6,
+        }}>
+          مشکلی پیش آمد. لطفاً دوباره امتحان کن.
+        </p>
+      )}
+
       <button
         type="submit"
+        disabled={status === 'submitting'}
         style={{
           marginTop: '2rem',
           display: 'inline-flex',
@@ -132,15 +223,14 @@ export function ConsultationForm() {
           fontWeight: 600,
           letterSpacing: '0.04em',
           border: 'none',
-          cursor: 'pointer',
+          cursor: status === 'submitting' ? 'wait' : 'pointer',
           fontFamily: 'inherit',
+          opacity: status === 'submitting' ? 0.65 : 1,
           transition: 'opacity 0.15s',
           whiteSpace: 'nowrap',
         }}
-        onMouseEnter={e => (e.currentTarget.style.opacity = '0.88')}
-        onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
       >
-        ثبت درخواست جلسه
+        {status === 'submitting' ? '...' : 'ثبت درخواست جلسه'}
       </button>
     </form>
   )
