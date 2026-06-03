@@ -1,17 +1,16 @@
 import type { Metadata } from 'next'
 import { Footer } from '@/components/layout/Footer'
-import { AudioPlayer } from '@/components/ui/AudioPlayer'
+import { ConsultationForm } from '@/components/sections/ConsultationForm'
 
 export const metadata: Metadata = {
   title: 'مشاوره خصوصی مهاجرت — اشکان فارا',
   description: '۴۰ دقیقه مشاوره خصوصی با اشکان فارا. بر اساس شرایط خاص تو، بدون وعده‌های توخالی.',
 }
 
-const BOOKING_HREF = 'https://example.com/consultation'
-const CONTENT_PADDING = 'clamp(1rem, 2.2vw, 2rem)'
-const SECTION_GAP = '5rem'
+const CONTENT_PADDING = 'clamp(1.25rem, 5vw, 4rem)'
+const FORM_TOP = '4rem'
 
-function SectionEyebrow({ children }: { children: string }) {
+function Eyebrow({ children }: { children: string }) {
   return (
     <div dir="rtl" style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', marginBottom: '1.25rem' }}>
       <div style={{ width: '2rem', height: '1px', background: 'var(--accent)', opacity: 0.65, flexShrink: 0 }} />
@@ -19,12 +18,6 @@ function SectionEyebrow({ children }: { children: string }) {
         {children}
       </p>
     </div>
-  )
-}
-
-function GoldDot() {
-  return (
-    <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--accent)', opacity: 0.75, flexShrink: 0, marginTop: '0.45rem' }} />
   )
 }
 
@@ -48,8 +41,8 @@ export default function ConsultationPage() {
           background: 'radial-gradient(ellipse at 70% 40%, rgba(196,151,58,0.06) 0%, transparent 60%)',
         }}
       >
-        <div style={{ maxWidth: '780px' }}>
-          <SectionEyebrow>مشاوره خصوصی مهاجرت</SectionEyebrow>
+        <div style={{ maxWidth: '680px' }}>
+          <Eyebrow>مشاوره خصوصی مهاجرت</Eyebrow>
 
           <h1 style={{
             fontSize: 'clamp(2rem, 4.5vw, 3.8rem)',
@@ -64,509 +57,83 @@ export default function ConsultationPage() {
             مسیر مهاجرتت را روشن کن.
           </h1>
 
-          <div style={{ width: '2.5rem', height: '1px', background: 'var(--accent)', opacity: 0.7, marginBottom: '1.5rem' }} />
+          <div style={{ width: '2.5rem', height: '1px', background: 'var(--accent)', opacity: 0.7, marginBottom: '1.75rem' }} />
 
-          <p style={{ fontSize: 'clamp(1rem, 1.4vw, 1.15rem)', color: 'var(--muted)', lineHeight: 1.85, marginBottom: '2.5rem', maxWidth: '52ch' }}>
-            وقتی از ده‌ها منبع مختلف اطلاعات گرفته‌ای و هنوز مطمئن نیستی، مشکل کمبود اطلاعات نیست —
-            مشکل نبود یک نگاه صادقانه به شرایط خاص توست.
-            این جلسه همان نگاه است.
+          <p style={{
+            fontSize: 'clamp(0.95rem, 1.3vw, 1.1rem)',
+            color: 'var(--muted)',
+            lineHeight: 1.9,
+            marginBottom: '2.5rem',
+            maxWidth: '52ch',
+          }}>
+            اگر بین چند مسیر، کشور، و تصمیم مختلف گیر کرده‌ای، این جلسه برای این است که شرایطت را دقیق ببینیم و قبل از خرج کردن وقت و پول، مسیر درست‌تری انتخاب کنی.
           </p>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1.75rem', flexWrap: 'wrap' }}>
             <a
-              href={BOOKING_HREF}
-              target="_blank"
-              rel="noopener noreferrer"
+              href="#form"
               style={{
                 display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                 borderRadius: '9999px',
                 background: 'var(--accent)', color: 'var(--accent-fg)',
-                padding: '0.875rem 2rem',
+                padding: '0.9rem 2.25rem',
                 fontSize: '0.9rem', fontWeight: 600, letterSpacing: '0.04em',
                 textDecoration: 'none', whiteSpace: 'nowrap',
-                transition: 'background-color 0.2s',
               }}
             >
-              رزرو مشاوره
+              شروع رزرو مشاوره
             </a>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
-              <span style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--accent)' }}>۶.۹ میلیون تومان</span>
-              <span style={{ fontSize: '0.75rem', color: 'var(--subtle)' }}>جلسه ۴۰ دقیقه‌ای · آنلاین</span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ══════════════════════════════════════════════════
-          2 — WHO IS ASHKAN
-          ══════════════════════════════════════════════════ */}
-      <section
-        dir="rtl"
-        style={{
-          paddingInline: CONTENT_PADDING,
-          paddingTop: SECTION_GAP,
-          paddingBottom: SECTION_GAP,
-          borderTop: '1px solid var(--border)',
-        }}
-      >
-        <SectionEyebrow>با کی طرفی</SectionEyebrow>
-
-        <h2 style={{
-          fontSize: 'clamp(1.4rem, 2.5vw, 2.2rem)',
-          fontWeight: 600, lineHeight: 1.3, letterSpacing: '-0.015em',
-          color: 'var(--foreground)', marginBottom: '2rem', maxWidth: '44ch',
-        }}>
-          کسی که از داخل می‌داند، نه از روی کتاب.
-        </h2>
-
-        <div style={{ maxWidth: '64ch', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-          <p style={{ fontSize: 'clamp(0.9rem, 1.2vw, 1rem)', color: 'var(--muted)', lineHeight: 1.9, margin: 0 }}>
-            در چند کشور زندگی و تحصیل کرده‌ام و طی سال‌های گذشته با هزاران نفر درباره مهاجرت، انتخاب کشور
-            و تصمیم‌گیری برای آینده‌شان گفتگو داشته‌ام.
-            بسیاری از آن‌ها قبل از اینکه به من برسند، وقت، پول، و فرصت از دست داده بودند —
-            نه به خاطر کمبود تلاش، به خاطر اطلاعات اشتباه از منابع اشتباه.
-          </p>
-          <p style={{ fontSize: 'clamp(0.9rem, 1.2vw, 1rem)', color: 'var(--muted)', lineHeight: 1.9, margin: 0 }}>
-            من مشاور حقوقی نیستم و وعده‌ای نمی‌دهم که نمی‌توانم نگه دارم.
-            آنچه دارم قضاوتی است که از تجربه واقعی آمده؛ تجربه‌ای که از زندگی، تحصیل و گفتگو با
-            آدم‌های زیادی در مسیر مهاجرت شکل گرفته است.
-          </p>
-        </div>
-      </section>
-
-      {/* ══════════════════════════════════════════════════
-          3 — COST OF GETTING IT WRONG
-          ══════════════════════════════════════════════════ */}
-      <section
-        dir="rtl"
-        style={{
-          paddingInline: CONTENT_PADDING,
-          paddingTop: SECTION_GAP,
-          paddingBottom: SECTION_GAP,
-          borderTop: '1px solid var(--border)',
-        }}
-      >
-        <SectionEyebrow>چرا این جلسه مهم است</SectionEyebrow>
-
-        <h2 style={{
-          fontSize: 'clamp(1.4rem, 2.5vw, 2.2rem)',
-          fontWeight: 600, lineHeight: 1.3, letterSpacing: '-0.015em',
-          color: 'var(--foreground)', marginBottom: '2.5rem', maxWidth: '44ch',
-        }}>
-          اشتباه‌هایی که گران تمام می‌شوند.
-        </h2>
-
-        <div style={{
-          background: 'var(--surface)',
-          border: '1px solid var(--border)',
-          borderRadius: '0.875rem',
-          padding: '1.75rem',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '1.25rem',
-          maxWidth: '680px',
-          marginBottom: '1.75rem',
-        }}>
-          {[
-            'ثبت درخواست ویزا در زمان اشتباه — و رد شدنی که روی پرونده می‌ماند',
-            'انتخاب کشوری که روی کاغذ جذاب است، اما با شرایط تو همخوانی ندارد',
-            'هزینه کردن برای مدارک و آزمون‌هایی که در مسیر اشتباه هیچ ارزشی ندارند',
-            'اعتماد به کسی که به هر سوالی جواب مثبت می‌دهد، بدون اینکه شرایط واقعی تو را بسنجد',
-          ].map((item) => (
-            <div key={item} style={{ display: 'flex', gap: '0.875rem', alignItems: 'flex-start' }}>
-              <GoldDot />
-              <p style={{ fontSize: '0.875rem', color: 'var(--muted)', lineHeight: 1.8, margin: 0 }}>{item}</p>
-            </div>
-          ))}
-        </div>
-
-        <p style={{ fontSize: '0.875rem', color: 'var(--subtle)', lineHeight: 1.8, maxWidth: '56ch' }}>
-          این جلسه برای این است که این اشتباه‌ها را قبل از وقوع ببینی.
-        </p>
-      </section>
-
-      {/* ══════════════════════════════════════════════════
-          4 — WHAT YOU GET
-          ══════════════════════════════════════════════════ */}
-      <section
-        dir="rtl"
-        style={{
-          paddingInline: CONTENT_PADDING,
-          paddingTop: SECTION_GAP,
-          paddingBottom: SECTION_GAP,
-          borderTop: '1px solid var(--border)',
-        }}
-      >
-        <SectionEyebrow>در این جلسه چه می‌گیری</SectionEyebrow>
-
-        <h2 style={{
-          fontSize: 'clamp(1.4rem, 2.5vw, 2.2rem)',
-          fontWeight: 600, lineHeight: 1.3, letterSpacing: '-0.015em',
-          color: 'var(--foreground)', marginBottom: '3rem', maxWidth: '44ch',
-        }}>
-          هر دقیقه با تمرکز کامل روی مسیر تو.
-        </h2>
-
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-          gap: '1rem',
-        }}>
-          {[
-            {
-              title: 'دیگر نمی‌پرسی «از کجا شروع کنم»',
-              desc: 'وضعیتت بررسی می‌شود — مدرک، سابقه کار، سن، وضعیت خانوادگی — و نقطه شروع واقعی مشخص می‌شود.',
-            },
-            {
-              title: 'می‌فهمی کدام مسیرها واقعاً برای تو کار می‌کنند',
-              desc: 'نه آنچه در اینترنت می‌خوانی؛ آنچه با شرایط خاص تو ممکن است.',
-            },
-            {
-              title: 'می‌دانی کجا ایستاده‌ای',
-              desc: 'نقاط قوت و ضعف پرونده‌ات، صادقانه، نه برای دلخوش‌کردن.',
-            },
-            {
-              title: 'اشتباه‌هایی که نباید بکنی را می‌شناسی',
-              desc: 'تله‌هایی که بارها دیده‌ام و هزینه‌شان بالاست.',
-            },
-            {
-              title: 'با یک لیست مشخص از جلسه خارج می‌شوی',
-              desc: 'نه احساس خوب کلی؛ گام‌های عملی بعدی که باید برداری.',
-            },
-          ].map((item) => (
-            <div
-              key={item.title}
-              style={{
-                background: 'var(--surface)',
-                border: '1px solid var(--border)',
-                borderRadius: '0.875rem',
-                padding: '1.5rem',
-                display: 'flex', flexDirection: 'column', gap: '0.75rem',
-              }}
-            >
-              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
-                <GoldDot />
-                <h3 style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--foreground)', lineHeight: 1.4, margin: 0 }}>
-                  {item.title}
-                </h3>
-              </div>
-              <p style={{ fontSize: '0.83rem', color: 'var(--muted)', lineHeight: 1.8, margin: 0, paddingRight: '1.25rem' }}>
-                {item.desc}
-              </p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ══════════════════════════════════════════════════
-          5 — WHO THIS IS FOR
-          ══════════════════════════════════════════════════ */}
-      <section
-        dir="rtl"
-        style={{
-          paddingInline: CONTENT_PADDING,
-          paddingTop: SECTION_GAP,
-          paddingBottom: SECTION_GAP,
-          borderTop: '1px solid var(--border)',
-        }}
-      >
-        <SectionEyebrow>این مشاوره برای کیست</SectionEyebrow>
-
-        <h2 style={{
-          fontSize: 'clamp(1.4rem, 2.5vw, 2.2rem)',
-          fontWeight: 600, lineHeight: 1.3, letterSpacing: '-0.015em',
-          color: 'var(--foreground)', marginBottom: '2rem', maxWidth: '44ch',
-        }}>
-          اگر یکی از این‌ها درباره‌ات صدق می‌کند.
-        </h2>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem', marginBottom: '2.5rem' }}>
-          {[
-            'مسیرت مبهم است و نمی‌دانی از کجا شروع کنی',
-            'از منابع مختلف اطلاعات متناقض گرفته‌ای',
-            'می‌خواهی قبل از هر هزینه‌ای تصویر کامل داشته باشی',
-            'در میانه مسیر گیر کرده‌ای',
-            'پرونده‌ات رد شده و نمی‌دانی دقیقاً چرا',
-          ].map((text) => (
-            <div key={text} style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
-              <div style={{
-                width: '18px', height: '18px', borderRadius: '50%',
-                border: '1px solid var(--accent)', flexShrink: 0, marginTop: '0.15rem',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--accent)' }} />
-              </div>
-              <p style={{ fontSize: '0.9rem', color: 'var(--muted)', lineHeight: 1.75, margin: 0 }}>{text}</p>
-            </div>
-          ))}
-        </div>
-
-        <div style={{
-          background: 'var(--surface)',
-          border: '1px solid var(--border)',
-          borderRadius: '0.875rem',
-          padding: '1.5rem 1.75rem',
-        }}>
-          <p style={{ fontSize: '0.7rem', letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--subtle)', marginBottom: '1rem' }}>
-            این مشاوره برای تو نیست اگر
-          </p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginBottom: '1.25rem' }}>
-            {[
-              'به دنبال تضمین قطعی نتیجه هستی',
-              'می‌خواهی کسی مدارکت را برایت تنظیم کند',
-              'نیاز به مشاوره حقوقی یا وکیل مهاجرت داری',
-            ].map((text) => (
-              <p key={text} style={{ fontSize: '0.85rem', color: 'var(--subtle)', lineHeight: 1.65, margin: 0, paddingRight: '0.75rem', borderRight: '1px solid var(--border-strong)' }}>
-                {text}
-              </p>
-            ))}
-          </div>
-          <p style={{ fontSize: '0.82rem', color: 'var(--subtle)', lineHeight: 1.75, margin: 0 }}>
-            برای آن خدمات، افراد مناسب‌تری هستند. این جلسه قضاوت است، نه خدمت اجرایی.
-          </p>
-        </div>
-      </section>
-
-      {/* ══════════════════════════════════════════════════
-          6 — FEATURED TESTIMONIAL
-          ══════════════════════════════════════════════════ */}
-      <section
-        dir="rtl"
-        style={{
-          paddingInline: CONTENT_PADDING,
-          paddingTop: SECTION_GAP,
-          paddingBottom: SECTION_GAP,
-          borderTop: '1px solid var(--border)',
-        }}
-      >
-        <SectionEyebrow>تجربه واقعی</SectionEyebrow>
-
-        <p style={{ fontSize: '0.875rem', color: 'var(--subtle)', lineHeight: 1.8, marginBottom: '2rem', maxWidth: '52ch' }}>
-          یکی از کسانی که قبل از اقدام، تصویر روشن‌تری از مسیرش خواست.
-        </p>
-
-        <div style={{
-          background: 'var(--surface)',
-          border: '1px solid var(--border)',
-          borderRadius: '0.875rem',
-          padding: '1.5rem 1.75rem',
-          maxWidth: '560px',
-        }}>
-          <AudioPlayer
-            src="/audio/testimonial-1.mp3"
-            name="یاشار ک."
-            label="مهاجرت به آلمان · ۱۴۰۲"
-          />
-        </div>
-      </section>
-
-      {/* ══════════════════════════════════════════════════
-          7 — PROCESS
-          ══════════════════════════════════════════════════ */}
-      <section
-        dir="rtl"
-        style={{
-          paddingInline: CONTENT_PADDING,
-          paddingTop: SECTION_GAP,
-          paddingBottom: SECTION_GAP,
-          borderTop: '1px solid var(--border)',
-        }}
-      >
-        <SectionEyebrow>مراحل کار</SectionEyebrow>
-        <h2 style={{
-          fontSize: 'clamp(1.4rem, 2.5vw, 2.2rem)',
-          fontWeight: 600, lineHeight: 1.3, letterSpacing: '-0.015em',
-          color: 'var(--foreground)', marginBottom: '3rem', maxWidth: '44ch',
-        }}>
-          از لحظه رزرو تا خروجی نهایی.
-        </h2>
-
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-          gap: '1px',
-          background: 'var(--border)',
-          borderRadius: '1rem',
-          overflow: 'hidden',
-        }}>
-          {[
-            { num: '۰۱', title: 'رزرو و پرداخت', desc: 'وقت مناسب خود را انتخاب کن. پرداخت آنلاین و فوری.' },
-            { num: '۰۲', title: 'فرم پیش از جلسه', desc: 'وضعیتت را شرح بده تا جلسه کاملاً هدفمند باشد.' },
-            { num: '۰۳', title: 'جلسه ۴۰ دقیقه‌ای', desc: 'مشاوره اختصاصی آنلاین با تمرکز کامل روی مسیر تو.' },
-            { num: '۰۴', title: 'ضبط و خلاصه مکتوب', desc: 'ضبط کامل جلسه به همراه نکات کلیدی مکتوب، ظرف ۲۴ ساعت برایت ارسال می‌شود.' },
-          ].map((step) => (
-            <div
-              key={step.num}
-              style={{
-                background: 'var(--surface)',
-                padding: '2rem 1.5rem',
-                display: 'flex', flexDirection: 'column', gap: '0.75rem',
-              }}
-            >
-              <span style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--accent)', opacity: 0.5, lineHeight: 1 }}>
-                {step.num}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+              <span style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--accent)' }}>
+                ۶.۹ میلیون تومان
               </span>
-              <h3 style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--foreground)', margin: 0, lineHeight: 1.4 }}>
-                {step.title}
-              </h3>
-              <p style={{ fontSize: '0.82rem', color: 'var(--muted)', lineHeight: 1.8, margin: 0 }}>
-                {step.desc}
-              </p>
+              <span style={{ fontSize: '0.75rem', color: 'var(--subtle)' }}>
+                ۴۰ دقیقه · آنلاین
+              </span>
             </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ══════════════════════════════════════════════════
-          8 — FAQ
-          ══════════════════════════════════════════════════ */}
-      <section
-        dir="rtl"
-        style={{
-          paddingInline: CONTENT_PADDING,
-          paddingTop: SECTION_GAP,
-          paddingBottom: SECTION_GAP,
-          borderTop: '1px solid var(--border)',
-        }}
-      >
-        <SectionEyebrow>سوالات متداول</SectionEyebrow>
-        <h2 style={{
-          fontSize: 'clamp(1.4rem, 2.5vw, 2.2rem)',
-          fontWeight: 600, lineHeight: 1.3, letterSpacing: '-0.015em',
-          color: 'var(--foreground)', marginBottom: '3rem', maxWidth: '44ch',
-        }}>
-          جواب سوال‌هایی که احتمالاً داری.
-        </h2>
-
-        <div style={{ maxWidth: '720px', display: 'flex', flexDirection: 'column', gap: '0' }}>
-          {[
-            {
-              q: 'چطور بفهمم این جلسه به دردم می‌خورد؟',
-              a: 'اگر هنوز مطمئن نیستی، احتمالاً همین دلیل خوبی است که قبل از هر تصمیم مهم، شرایطت را با یک نفر مرور کنی.',
-            },
-            {
-              q: 'جلسه کجا برگزار می‌شود؟',
-              a: 'آنلاین از طریق Google Meet. لینک ورود پس از رزرو برایت ارسال می‌شود.',
-            },
-            {
-              q: 'آیا ضبط جلسه دارم؟',
-              a: 'بله. ضبط کامل جلسه ظرف ۲۴ ساعت پس از پایان جلسه برایت ارسال می‌شود.',
-            },
-            {
-              q: 'چه چیزی شامل این مشاوره نمی‌شود؟',
-              a: 'تنظیم مدارک، پیگیری پرونده، مشاوره حقوقی، یا تضمین هیچ نتیجه ویزایی. این یک جلسه راهنمایی آگاهانه است، نه خدمت وکالت.',
-            },
-            {
-              q: 'امکان تغییر یا لغو وقت وجود دارد؟',
-              a: 'تغییر وقت تا ۴۸ ساعت قبل از جلسه امکان‌پذیر است. پس از این مدت، وقت غیرقابل بازگشت است.',
-            },
-            {
-              q: 'اگر سوالاتم خیلی پایه‌ای باشد چه؟',
-              a: 'سوال‌های پایه، دقیقاً همان‌هایی هستند که اگر جواب اشتباه بگیری، بیشترین آسیب را می‌زنند. هیچ سوالی ساده نیست.',
-            },
-            {
-              q: 'زبان جلسه فارسی است؟',
-              a: 'بله. جلسه کاملاً به فارسی برگزار می‌شود.',
-            },
-          ].map((item, i, arr) => (
-            <details
-              key={item.q}
-              style={{
-                borderTop: '1px solid var(--border)',
-                borderBottom: i === arr.length - 1 ? '1px solid var(--border)' : 'none',
-              }}
-            >
-              <summary style={{
-                listStyle: 'none',
-                padding: '1.25rem 0',
-                cursor: 'pointer',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                gap: '1rem',
-                fontSize: '0.95rem',
-                fontWeight: 500,
-                color: 'var(--foreground)',
-                userSelect: 'none',
-              }}>
-                {item.q}
-                <span style={{
-                  color: 'var(--accent)', fontSize: '1.2rem', lineHeight: 1,
-                  flexShrink: 0, opacity: 0.7, fontWeight: 300,
-                }}>
-                  +
-                </span>
-              </summary>
-              <p style={{
-                fontSize: '0.875rem', color: 'var(--muted)',
-                lineHeight: 1.85, paddingBottom: '1.25rem',
-                margin: 0,
-              }}>
-                {item.a}
-              </p>
-            </details>
-          ))}
-        </div>
-      </section>
-
-      {/* ══════════════════════════════════════════════════
-          9 — FINAL CTA
-          ══════════════════════════════════════════════════ */}
-      <section
-        dir="rtl"
-        style={{
-          paddingInline: CONTENT_PADDING,
-          paddingTop: SECTION_GAP,
-          paddingBottom: SECTION_GAP,
-          borderTop: '1px solid var(--border)',
-        }}
-      >
-        <div style={{
-          background: 'var(--surface)',
-          border: '1px solid var(--border-strong)',
-          borderRadius: '1.25rem',
-          padding: 'clamp(1.75rem, 3.5vw, 2.75rem) clamp(1.5rem, 4vw, 3.5rem)',
-          display: 'flex', flexDirection: 'column', gap: '0',
-          backgroundImage: 'radial-gradient(ellipse at 80% 20%, rgba(196,151,58,0.07) 0%, transparent 55%)',
-        }}>
-          <p style={{
-            fontSize: '0.65rem', letterSpacing: '0.26em', textTransform: 'uppercase',
-            color: 'var(--accent)', opacity: 0.8, marginBottom: '1.25rem',
-          }}>
-            شروع کن
-          </p>
-          <h2 style={{
-            fontSize: 'clamp(1.5rem, 3vw, 2.5rem)',
-            fontWeight: 700, lineHeight: 1.2, letterSpacing: '-0.02em',
-            color: 'var(--foreground)', marginBottom: '1rem', maxWidth: '20ch',
-          }}>
-            اگر سوالی داری، این جلسه برای توست.
-          </h2>
-          <p style={{
-            fontSize: '0.9rem', color: 'var(--muted)', lineHeight: 1.85,
-            marginBottom: '2.5rem', maxWidth: '48ch',
-          }}>
-            همین سوال‌هایی که الان داری، مهم‌ترین چیزهایی هستند که باید قبل از هر اقدامی بررسی شوند.
-            هر روزی که بدون شفافیت می‌گذرد، تصمیم گرفتن را سخت‌تر می‌کند.
-          </p>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
-            <a
-              href={BOOKING_HREF}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                borderRadius: '9999px',
-                background: 'var(--accent)', color: 'var(--accent-fg)',
-                padding: '0.875rem 2.25rem',
-                fontSize: '0.9rem', fontWeight: 600, letterSpacing: '0.04em',
-                textDecoration: 'none', whiteSpace: 'nowrap',
-              }}
-            >
-              رزرو مشاوره — ۶.۹ میلیون تومان
-            </a>
           </div>
         </div>
+      </section>
+
+      {/* ══════════════════════════════════════════════════
+          2 — FORM
+          ══════════════════════════════════════════════════ */}
+      <section
+        id="form"
+        dir="rtl"
+        style={{
+          paddingInline: CONTENT_PADDING,
+          paddingTop: FORM_TOP,
+          paddingBottom: '6rem',
+          borderTop: '1px solid var(--border)',
+        }}
+      >
+        <Eyebrow>رزرو جلسه</Eyebrow>
+
+        <h2 style={{
+          fontSize: 'clamp(1.2rem, 2vw, 1.65rem)',
+          fontWeight: 600,
+          lineHeight: 1.35,
+          letterSpacing: '-0.015em',
+          color: 'var(--foreground)',
+          marginBottom: '2.5rem',
+        }}>
+          اطلاعات زیر را وارد کن.
+        </h2>
+
+        <ConsultationForm />
+
+        {/* Disclaimer */}
+        <p style={{
+          marginTop: '2rem',
+          fontSize: '0.75rem',
+          color: 'var(--subtle)',
+          lineHeight: 1.7,
+          maxWidth: '52ch',
+          opacity: 0.8,
+        }}>
+          من وکیل مهاجرت نیستم، این جلسه مشاوره حقوقی نیست و هیچ نتیجه ویزایی را تضمین نمی‌کند.
+        </p>
       </section>
 
       <Footer />
