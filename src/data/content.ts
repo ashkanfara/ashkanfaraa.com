@@ -17,8 +17,6 @@ export const hero = {
     'از آن پشیمان نشوی.',
   ],
   subtext: 'در چند کشور زندگی کرده‌ام. با کسانی کار می‌کنم که واقعیت را می‌خواهند.',
-  cta: 'مشاهده خدمات',
-  ctaHref: '#offers',
 }
 
 export const offers = [
@@ -26,7 +24,7 @@ export const offers = [
     id: 'course',
     title: 'تله‌های پنهان مهاجرت',
     description: 'همه آنچه باید پیش از تصمیم‌گیری بدانی — و کسی صادقانه بهت نگفته.',
-    price: '۱۴ میلیون تومان',
+    price: '۹.۹ میلیون تومان',
     priceSub: null,
     action: 'درخواست دسترسی',
     href: '/course',

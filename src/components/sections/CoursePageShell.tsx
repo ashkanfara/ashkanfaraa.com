@@ -69,32 +69,9 @@ export function CoursePageShell() {
             paddingTop: '4.5rem',
             paddingBottom: '3.5rem',
             background: 'radial-gradient(ellipse at 65% 35%, rgba(196,151,58,0.05) 0%, transparent 60%)',
-            position: 'relative',
-            overflow: 'hidden',
           }}
         >
-          <div
-            aria-hidden="true"
-            style={{
-              position: 'absolute',
-              left: 'clamp(2rem, 8vw, 7rem)',
-              top: '50%',
-              transform: 'translateY(-50%)',
-              fontSize: 'clamp(9rem, 24vw, 22rem)',
-              fontWeight: 800,
-              color: 'var(--foreground)',
-              opacity: 0.035,
-              lineHeight: 1,
-              letterSpacing: '-0.05em',
-              userSelect: 'none',
-              pointerEvents: 'none',
-              fontVariantNumeric: 'tabular-nums',
-            }}
-          >
-            ۱۲
-          </div>
-
-          <div style={{ position: 'relative', maxWidth: '580px' }}>
+          <div style={{ maxWidth: '580px' }}>
             <Eyebrow>دوره آموزشی</Eyebrow>
 
             <h1 style={{
