@@ -106,27 +106,83 @@ function StepIndicator({ current }: { current: 2 | 3 }) {
   )
 }
 
+// ── Validation ────────────────────────────────────────────────
+function normalizePhone(val: string): string {
+  return val
+    .replace(/[\s\-]/g, '')
+    .replace(/[۰-۹]/g, d => String(d.charCodeAt(0) - 1776))
+}
+
+function validateField(id: string, val: string): string | null {
+  switch (id) {
+    case 'name':
+      return val.trim().length === 0 ? 'نام الزامی است' : null
+    case 'instagram': {
+      const clean = val.replace(/^@/, '').trim()
+      if (clean.length === 0) return 'آیدی اینستاگرام الزامی است'
+      if (clean.length < 2)  return 'آیدی باید حداقل ۲ کاراکتر باشد'
+      return null
+    }
+    case 'email':
+      return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val.trim())
+        ? null
+        : 'یک ایمیل معتبر وارد کن'
+    case 'phone': {
+      const digits = normalizePhone(val)
+      if (digits.length === 0)   return 'شماره موبایل الزامی است'
+      if (!/^\d+$/.test(digits)) return 'فقط عدد وارد کن'
+      if (digits.length < 10)    return 'شماره باید حداقل ۱۰ رقم باشد'
+      return null
+    }
+    default:
+      return null
+  }
+}
+
+const REQUIRED_FIELDS = ['name', 'instagram', 'email', 'phone']
+
 // ── Application step ──────────────────────────────────────────
 const APP_FIELDS = [
-  { id: 'name',      label: 'نام و نام خانوادگی', type: 'text',  placeholder: '',  required: true  },
-  { id: 'instagram', label: 'آیدی اینستاگرام',    type: 'text',  placeholder: '@', required: true  },
-  { id: 'email',     label: 'ایمیل',               type: 'email', placeholder: '',  required: true  },
-  { id: 'phone',     label: 'شماره موبایل',        type: 'tel',   placeholder: '',  required: true  },
-  { id: 'telegram',  label: 'آیدی تلگرام',         type: 'text',  placeholder: '@', required: false },
-  { id: 'location',  label: 'شهر و کشور فعلی',    type: 'text',  placeholder: '',  required: false },
+  { id: 'name',      label: 'نام و نام خانوادگی', type: 'text', placeholder: '',  required: true  },
+  { id: 'instagram', label: 'آیدی اینستاگرام',    type: 'text', placeholder: '@', required: true  },
+  { id: 'email',     label: 'ایمیل',               type: 'text', placeholder: '',  required: true  },
+  { id: 'phone',     label: 'شماره موبایل',        type: 'tel',  placeholder: '',  required: true  },
+  { id: 'telegram',  label: 'آیدی تلگرام',         type: 'text', placeholder: '@', required: false },
+  { id: 'location',  label: 'شهر و کشور فعلی',    type: 'text', placeholder: '',  required: false },
 ] as const
 
 function ApplicationStep({ onNext }: { onNext: (data: AppData) => void }) {
   const [values,  setValues]  = useState<Record<string, string>>({})
   const [focused, setFocused] = useState<string | null>(null)
+  const [touched, setTouched] = useState<Set<string>>(new Set())
+
+  const isValid = REQUIRED_FIELDS.every(id => validateField(id, values[id] ?? '') === null)
+
+  function handleChange(id: string, val: string) {
+    if (id === 'phone') {
+      // Strip spaces/dashes; allow only Persian and English digits
+      const cleaned = val
+        .replace(/[\s\-]/g, '')
+        .split('').filter(c => /[\d۰-۹]/.test(c)).join('')
+      setValues(p => ({ ...p, phone: cleaned }))
+    } else {
+      setValues(p => ({ ...p, [id]: val }))
+    }
+  }
+
+  function handleBlur(id: string) {
+    setFocused(null)
+    setTouched(prev => new Set([...prev, id]))
+  }
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault()
+    if (!isValid) return
     onNext({
       name:      values.name      ?? '',
       instagram: values.instagram ?? '',
       email:     values.email     ?? '',
-      phone:     values.phone     ?? '',
+      phone:     normalizePhone(values.phone ?? ''),
       telegram:  values.telegram  ?? '',
       location:  values.location  ?? '',
     })
@@ -135,26 +191,51 @@ function ApplicationStep({ onNext }: { onNext: (data: AppData) => void }) {
   return (
     <form onSubmit={handleSubmit} noValidate style={{ maxWidth: '560px' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-        {APP_FIELDS.map(f => (
-          <div key={f.id}>
-            <label htmlFor={f.id} style={lbl}>
-              {f.label}
-              {f.required && <span style={{ color: 'var(--accent)', marginRight: '0.2rem', opacity: 0.8 }}>*</span>}
-            </label>
-            <input
-              id={f.id} name={f.id} type={f.type}
-              required={f.required} placeholder={f.placeholder}
-              value={values[f.id] ?? ''}
-              onChange={e => setValues(p => ({ ...p, [f.id]: e.target.value }))}
-              onFocus={() => setFocused(f.id)}
-              onBlur={() => setFocused(null)}
-              style={{ ...input, borderColor: focused === f.id ? 'var(--accent)' : 'var(--border)' }}
-            />
-          </div>
-        ))}
+        {APP_FIELDS.map(f => {
+          const error    = validateField(f.id, values[f.id] ?? '')
+          const showError = touched.has(f.id) && error !== null
+          return (
+            <div key={f.id}>
+              <label htmlFor={f.id} style={lbl}>
+                {f.label}
+                {f.required && <span style={{ color: 'var(--accent)', marginRight: '0.2rem', opacity: 0.8 }}>*</span>}
+              </label>
+              <input
+                id={f.id} name={f.id} type={f.type}
+                placeholder={f.placeholder}
+                value={values[f.id] ?? ''}
+                onChange={e => handleChange(f.id, e.target.value)}
+                onFocus={() => setFocused(f.id)}
+                onBlur={() => handleBlur(f.id)}
+                style={{
+                  ...input,
+                  borderColor: showError
+                    ? 'rgba(192, 100, 60, 0.7)'
+                    : focused === f.id ? 'var(--accent)' : 'var(--border)',
+                }}
+              />
+              {showError && (
+                <p style={{
+                  marginTop: '0.4rem', fontSize: '0.72rem',
+                  color: 'rgba(200, 110, 70, 0.9)', lineHeight: 1.5,
+                }}>
+                  {error}
+                </p>
+              )}
+            </div>
+          )
+        })}
       </div>
 
-      <button type="submit" style={{ ...btn, marginTop: '2rem' }}>
+      <button
+        type="submit"
+        disabled={!isValid}
+        style={{
+          ...btn, marginTop: '2rem',
+          opacity: isValid ? 1 : 0.4,
+          cursor:  isValid ? 'pointer' : 'not-allowed',
+        }}
+      >
         ادامه — پرداخت
       </button>
     </form>
