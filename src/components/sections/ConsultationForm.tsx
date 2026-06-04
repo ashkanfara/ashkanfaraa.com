@@ -144,9 +144,18 @@ export function ConsultationForm() {
           fontSize: '0.9rem',
           color: 'var(--muted)',
           lineHeight: 1.9,
-          margin: 0,
+          marginBottom: '1rem',
         }}>
           درخواستت بررسی می‌شود. اگر این جلسه برای شرایطت مناسب باشد، برای هماهنگی مرحله بعد با تو تماس می‌گیریم.
+        </p>
+        <p style={{
+          fontSize: '0.78rem',
+          color: 'var(--subtle)',
+          lineHeight: 1.75,
+          margin: 0,
+          opacity: 0.8,
+        }}>
+          در صورت مناسب بودن شرایط، معمولاً طی ۲۴ تا ۴۸ ساعت آینده درخواست شما بررسی خواهد شد.
         </p>
       </div>
     )

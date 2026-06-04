@@ -28,7 +28,7 @@ export default function ConsultationPage() {
       {/* ══════════════════════════════════════════════════
           HERO — image left, text right
           ══════════════════════════════════════════════════ */}
-      <section style={{ paddingInline: PAD, paddingTop: '6rem', paddingBottom: '4.5rem' }}>
+      <section style={{ paddingInline: PAD, paddingTop: '4.5rem', paddingBottom: '3rem' }}>
 
         {/*
           dir="ltr" on the grid so column order is physical left→right
@@ -117,8 +117,8 @@ export default function ConsultationPage() {
         dir="rtl"
         style={{
           paddingInline: PAD,
-          paddingTop: '4rem',
-          paddingBottom: '6rem',
+          paddingTop: '3rem',
+          paddingBottom: '4rem',
           borderTop: '1px solid var(--border)',
         }}
       >
@@ -128,7 +128,7 @@ export default function ConsultationPage() {
           lineHeight: 1.4,
           letterSpacing: '-0.01em',
           color: 'var(--foreground)',
-          marginBottom: '2.5rem',
+          marginBottom: '1.5rem',
         }}>
           قبل از ثبت درخواست، کمی از شرایطت بگو.
         </h2>
@@ -137,7 +137,7 @@ export default function ConsultationPage() {
           fontSize: '0.82rem',
           color: 'var(--subtle)',
           lineHeight: 1.8,
-          marginBottom: '2.5rem',
+          marginBottom: '2rem',
           maxWidth: '52ch',
         }}>
           همه درخواست‌ها پذیرفته نمی‌شوند. پس از بررسی درخواست، در صورت مناسب بودن شرایط برای هماهنگی تماس خواهیم گرفت.

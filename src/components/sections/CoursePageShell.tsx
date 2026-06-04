@@ -35,12 +35,10 @@ const MODULES = [
 ]
 
 export function CoursePageShell() {
-  const [fading, setFading] = useState(false)   // opacity transition running
-  const [hidden, setHidden] = useState(false)   // sections unmounted after fade
+  const [fading, setFading] = useState(false)
+  const [hidden, setHidden] = useState(false)
   const formRef = useRef<HTMLDivElement>(null)
 
-  // Called by CourseForm when user submits the application.
-  // Fade out sales sections, then collapse them, then scroll to payment.
   const enterPaymentMode = useCallback(() => {
     setFading(true)
     setTimeout(() => {
@@ -50,24 +48,22 @@ export function CoursePageShell() {
   }, [])
 
   const fadeStyle: React.CSSProperties = {
-    opacity:        fading ? 0 : 1,
-    transition:     'opacity 0.4s ease',
-    pointerEvents:  fading ? 'none' : 'auto',
+    opacity:       fading ? 0 : 1,
+    transition:    'opacity 0.4s ease',
+    pointerEvents: fading ? 'none' : 'auto',
   }
 
   return (
     <>
-      {/* ══════════════════════════════════════════════════
-          1. HERO
-          ══════════════════════════════════════════════════ */}
+      {/* 1. HERO */}
       {!hidden && (
         <section
           dir="rtl"
           style={{
             ...fadeStyle,
             paddingInline: PAD,
-            paddingTop: '4.5rem',
-            paddingBottom: '3.5rem',
+            paddingTop: '3.5rem',
+            paddingBottom: '2.5rem',
             background: 'radial-gradient(ellipse at 65% 35%, rgba(196,151,58,0.05) 0%, transparent 60%)',
           }}
         >
@@ -91,13 +87,13 @@ export function CoursePageShell() {
               lineHeight: 1.8,
               color: 'var(--muted)',
               letterSpacing: '-0.01em',
-              marginBottom: '2rem',
+              marginBottom: '1.75rem',
               maxWidth: '38ch',
             }}>
               چیزهایی که کاش قبل از رفتن می‌دانستی.
             </p>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap', marginBottom: '0.6rem' }}>
               <a
                 href="#form"
                 style={{
@@ -122,17 +118,15 @@ export function CoursePageShell() {
         </section>
       )}
 
-      {/* ══════════════════════════════════════════════════
-          2. CORE STATEMENT
-          ══════════════════════════════════════════════════ */}
+      {/* 2. CORE STATEMENT */}
       {!hidden && (
         <section
           dir="rtl"
           style={{
             ...fadeStyle,
             paddingInline: PAD,
-            paddingTop: '2.5rem',
-            paddingBottom: '2.5rem',
+            paddingTop: '2rem',
+            paddingBottom: '2rem',
             borderTop: '1px solid var(--border)',
           }}
         >
@@ -152,27 +146,38 @@ export function CoursePageShell() {
         </section>
       )}
 
-      {/* ══════════════════════════════════════════════════
-          3. MODULE LIST
-          ══════════════════════════════════════════════════ */}
+      {/* 3. MODULE LIST */}
       {!hidden && (
         <section
           dir="rtl"
           style={{
             ...fadeStyle,
             paddingInline: PAD,
-            paddingTop: '3rem',
-            paddingBottom: '3rem',
+            paddingTop: '2.5rem',
+            paddingBottom: '2.5rem',
             borderTop: '1px solid var(--border)',
             background: 'radial-gradient(ellipse at 30% 50%, rgba(196,151,58,0.04) 0%, transparent 65%)',
           }}
         >
+          {/* Credibility statement */}
+          <p style={{
+            fontSize: '0.8rem',
+            color: 'var(--subtle)',
+            lineHeight: 1.75,
+            marginBottom: '1.5rem',
+            maxWidth: '52ch',
+            opacity: 0.8,
+          }}>
+            این دوره حاصل سال‌ها تجربه زندگی، تحصیل، کار و گفتگو با مهاجران در کشورهای مختلف است.
+          </p>
+
+          {/* Framing line */}
           <p style={{
             fontSize: '0.72rem',
             letterSpacing: '0.06em',
             color: 'var(--subtle)',
-            marginBottom: '1.75rem',
-            opacity: 0.75,
+            marginBottom: '1.5rem',
+            opacity: 0.65,
           }}>
             چیزهایی که کسی قبل از رفتن به تو نمی‌گوید.
           </p>
@@ -187,8 +192,8 @@ export function CoursePageShell() {
                     display: 'flex',
                     alignItems: 'center',
                     gap: '1rem',
-                    paddingTop: '0.9rem',
-                    paddingBottom: '0.9rem',
+                    paddingTop: '0.8rem',
+                    paddingBottom: '0.8rem',
                     borderTop: '1px solid var(--border)',
                     borderBottom: i === MODULES.length - 1 ? '1px solid var(--border)' : 'none',
                   }}
@@ -215,21 +220,19 @@ export function CoursePageShell() {
         </section>
       )}
 
-      {/* ══════════════════════════════════════════════════
-          4. MID CTA
-          ══════════════════════════════════════════════════ */}
+      {/* 4. MID CTA */}
       {!hidden && (
         <section
           dir="rtl"
           style={{
             ...fadeStyle,
             paddingInline: PAD,
-            paddingTop: '3rem',
-            paddingBottom: '3rem',
+            paddingTop: '2rem',
+            paddingBottom: '2rem',
             borderTop: '1px solid var(--border)',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap', marginBottom: '0.6rem' }}>
             <a
               href="#form"
               style={{
@@ -253,17 +256,15 @@ export function CoursePageShell() {
         </section>
       )}
 
-      {/* ══════════════════════════════════════════════════
-          5. FORM / PAYMENT
-          ══════════════════════════════════════════════════ */}
+      {/* 5. FORM / PAYMENT */}
       <section
         id="form"
         ref={formRef as React.RefObject<HTMLElement>}
         dir="rtl"
         style={{
           paddingInline: PAD,
-          paddingTop:    hidden ? '4.5rem' : '3rem',
-          paddingBottom: '4rem',
+          paddingTop:    hidden ? '3.5rem' : '2.5rem',
+          paddingBottom: '3rem',
           borderTop: hidden ? 'none' : '1px solid var(--border)',
           transition: 'padding-top 0.3s ease',
         }}
@@ -286,7 +287,7 @@ export function CoursePageShell() {
               fontSize: '0.8rem',
               color: 'var(--subtle)',
               lineHeight: 1.8,
-              marginBottom: '2rem',
+              marginBottom: '1.75rem',
               maxWidth: '48ch',
             }}>
               پس از بررسی، اطلاعات پرداخت از طریق اینستاگرام ارسال می‌شود.
@@ -299,7 +300,7 @@ export function CoursePageShell() {
         {!hidden && (
           <p style={{
             ...fadeStyle,
-            marginTop: '1.75rem',
+            marginTop: '1.5rem',
             fontSize: '0.7rem',
             color: 'var(--subtle)',
             lineHeight: 1.75,
