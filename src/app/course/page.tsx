@@ -89,9 +89,14 @@ export default function CoursePage() {
             >
               درخواست دسترسی به دوره
             </a>
-            <span style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--accent)' }}>
-              ۱۴ میلیون تومان
-            </span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+              <span style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--accent)' }}>
+                ۹.۹ میلیون تومان
+              </span>
+              <span style={{ fontSize: '0.72rem', color: 'var(--subtle)' }}>
+                قیمت اولیه برای اولین گروه شرکت‌کنندگان
+              </span>
+            </div>
           </div>
         </div>
       </section>
