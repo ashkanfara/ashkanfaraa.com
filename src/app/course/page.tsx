@@ -4,11 +4,10 @@ import { CourseForm } from '@/components/sections/CourseForm'
 
 export const metadata: Metadata = {
   title: 'تله‌های پنهان مهاجرت — اشکان فارا',
-  description: 'قبل از هزینه کردن برای مهاجرت، اشتباه‌هایی را بشناس که خیلی‌ها دیر متوجه‌شان می‌شوند.',
+  description: 'قبل از مهاجرت، تصویر کامل‌تری از مسیر پیش رو داشته باش.',
 }
 
 const PAD = 'clamp(1rem, 5vw, 4rem)'
-const GAP = '3.5rem'   // tightened from 5.5rem
 
 function Eyebrow({ children }: { children: string }) {
   return (
@@ -21,64 +20,60 @@ function Eyebrow({ children }: { children: string }) {
   )
 }
 
-// Real audio modules from the Telegram course.
-// TODO: fill in actual durations (e.g. '۱۲:۳۰') once available.
+// TODO: fill in real durations once available, e.g. '۱۲:۳۰'
 const MODULES = [
-  { title: 'مقدمه',                                               duration: '' },
-  { title: 'دید باز و خلاصه‌ای از زندگیم و ویدیو من',             duration: '' },
-  { title: 'بررسی علت مهاجرت (پارت ۱)',                           duration: '' },
-  { title: 'بررسی علت مهاجرت (پارت ۲)',                           duration: '' },
-  { title: 'دام‌های احساسی',                                       duration: '' },
-  { title: 'دام‌های مالی',                                         duration: '' },
-  { title: 'دام‌های شغلی و تحصیلی',                               duration: '' },
-  { title: 'فرهنگ دوست‌یابی و تفاوت‌ها با ایران',                  duration: '' },
-  { title: 'فرهنگ ایرانی‌های خارج و چرا فاصله دارند',              duration: '' },
-  { title: 'پارتنر خارجی vs پارتنر ایرانی',                       duration: '' },
-  { title: 'تفاوت فرهنگی و قانونی کشور مقصد',                     duration: '' },
-  { title: 'جمع‌بندی',                                             duration: '' },
+  { title: 'مقدمه' },
+  { title: 'دید باز و خلاصه‌ای از زندگیم و ویدیو من' },
+  { title: 'بررسی علت مهاجرت (پارت ۱)' },
+  { title: 'بررسی علت مهاجرت (پارت ۲)' },
+  { title: 'دام‌های احساسی' },
+  { title: 'دام‌های مالی' },
+  { title: 'دام‌های شغلی و تحصیلی' },
+  { title: 'فرهنگ دوست‌یابی و تفاوت‌ها با ایران' },
+  { title: 'فرهنگ ایرانی‌های خارج و چرا فاصله دارند' },
+  { title: 'پارتنر خارجی vs پارتنر ایرانی' },
+  { title: 'تفاوت فرهنگی و قانونی کشور مقصد' },
+  { title: 'جمع‌بندی' },
 ]
+
+const statement: React.CSSProperties = {
+  fontSize: 'clamp(1.1rem, 1.9vw, 1.5rem)',
+  fontWeight: 500,
+  lineHeight: 1.75,
+  color: 'var(--foreground)',
+  letterSpacing: '-0.01em',
+  margin: 0,
+}
 
 export default function CoursePage() {
   return (
     <main className="w-full overflow-x-hidden">
 
       {/* ══════════════════════════════════════════════════
-          1 — HERO
+          HERO
           ══════════════════════════════════════════════════ */}
       <section
         dir="rtl"
         style={{
           paddingInline: PAD,
           paddingTop: '6.5rem',
-          paddingBottom: '3.5rem',
-          background: 'radial-gradient(ellipse at 65% 35%, rgba(196,151,58,0.055) 0%, transparent 60%)',
+          paddingBottom: '5rem',
+          background: 'radial-gradient(ellipse at 65% 35%, rgba(196,151,58,0.05) 0%, transparent 60%)',
         }}
       >
         <div style={{ maxWidth: '660px' }}>
           <Eyebrow>دوره آموزشی</Eyebrow>
 
           <h1 style={{
-            fontSize: 'clamp(2.2rem, 5vw, 3.8rem)',
+            fontSize: 'clamp(2.4rem, 5.5vw, 4.2rem)',
             fontWeight: 700,
-            lineHeight: 1.1,
-            letterSpacing: '-0.025em',
+            lineHeight: 1.08,
+            letterSpacing: '-0.03em',
             color: 'var(--foreground)',
-            marginBottom: '1.5rem',
+            marginBottom: '2.5rem',
           }}>
             تله‌های پنهان مهاجرت
           </h1>
-
-          <div style={{ width: '2.5rem', height: '1px', background: 'var(--accent)', opacity: 0.7, marginBottom: '1.5rem' }} />
-
-          <p style={{
-            fontSize: 'clamp(0.9rem, 1.2vw, 1rem)',
-            color: 'var(--muted)',
-            lineHeight: 1.9,
-            marginBottom: '2.25rem',
-            maxWidth: '50ch',
-          }}>
-            قبل از اینکه برای مهاجرت، اپلای، ویزا، کلاس زبان، وکیل یا مسیر اشتباه هزینه کنی، اشتباه‌هایی را بشناس که خیلی‌ها دیر متوجه‌شان می‌شوند.
-          </p>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
             <a
@@ -102,213 +97,121 @@ export default function CoursePage() {
       </section>
 
       {/* ══════════════════════════════════════════════════
-          2 — THREE KEY MISTAKES
+          WHY THIS EXISTS
           ══════════════════════════════════════════════════ */}
       <section
         dir="rtl"
         style={{
           paddingInline: PAD,
-          paddingTop: GAP,
-          paddingBottom: GAP,
+          paddingTop: '5rem',
+          paddingBottom: '5rem',
           borderTop: '1px solid var(--border)',
         }}
       >
-        <Eyebrow>چرا این دوره مهم است</Eyebrow>
-
-        <h2 style={{
-          fontSize: 'clamp(1.3rem, 2.2vw, 1.9rem)',
-          fontWeight: 600,
-          lineHeight: 1.3,
-          letterSpacing: '-0.015em',
-          color: 'var(--foreground)',
-          marginBottom: '2rem',
-          maxWidth: '38ch',
-        }}>
-          سه اشتباه که بیشترین هزینه را می‌سازند.
-        </h2>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0', maxWidth: '660px' }}>
-          {[
-            {
-              num: '۰۱',
-              title: 'اعتماد به کسی که «بله» می‌گوید',
-              desc: 'وکلا و مشاورانی که کارشان فروش است، نه راهنمایی. یاد می‌گیری تفاوت را چطور تشخیص بدهی — قبل از اینکه هزینه کنی.',
-            },
-            {
-              num: '۰۲',
-              title: 'هزینه در مسیر اشتباه',
-              desc: 'کلاس زبان، آزمون، ترجمه و مدرک برای کشور یا ویزایی که از ابتدا با شرایطت همخوانی نداشته.',
-            },
-            {
-              num: '۰۳',
-              title: 'تصمیم بدون تصویر کامل',
-              desc: 'هزینه واقعی زندگی، بازار کار، شرایط اقامت — اطلاعاتی که کسی ساده و صادقانه جمع‌شان نمی‌کند.',
-            },
-          ].map((item, i, arr) => (
-            <div
-              key={item.num}
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '2.75rem 1fr',
-                gap: '1rem',
-                paddingTop: '1.5rem',
-                paddingBottom: '1.5rem',
-                borderTop: '1px solid var(--border)',
-                borderBottom: i === arr.length - 1 ? '1px solid var(--border)' : 'none',
-                alignItems: 'start',
-              }}
-            >
-              <span style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--accent)', opacity: 0.45, lineHeight: 1, paddingTop: '0.2rem' }}>
-                {item.num}
-              </span>
-              <div>
-                <h3 style={{ fontSize: '0.925rem', fontWeight: 600, color: 'var(--foreground)', lineHeight: 1.4, marginBottom: '0.4rem' }}>
-                  {item.title}
-                </h3>
-                <p style={{ fontSize: '0.83rem', color: 'var(--muted)', lineHeight: 1.8, margin: 0 }}>
-                  {item.desc}
-                </p>
-              </div>
-            </div>
-          ))}
-        </div>
+        <p style={{ ...statement, maxWidth: '36ch' }}>
+          بیشتر اشتباهات مهاجرتی قبل از مهاجرت اتفاق نمی‌افتند.
+          <br />
+          بعد از آن اتفاق می‌افتند.
+        </p>
       </section>
 
       {/* ══════════════════════════════════════════════════
-          3 — AUDIO MODULES
+          WHAT THIS IS
           ══════════════════════════════════════════════════ */}
       <section
         dir="rtl"
         style={{
           paddingInline: PAD,
-          paddingTop: GAP,
-          paddingBottom: GAP,
+          paddingTop: '5rem',
+          paddingBottom: '5rem',
           borderTop: '1px solid var(--border)',
         }}
       >
-        <Eyebrow>محتوای دوره</Eyebrow>
+        <p style={{ ...statement, maxWidth: '32ch', color: 'var(--muted)' }}>
+          ۱۲ فایل صوتی.
+          <br />
+          سال‌ها تجربه زندگی، کار و تحصیل در کشورهای مختلف.
+          <br />
+          بدون فیلتر. بدون شعار.
+        </p>
+      </section>
 
-        <h2 style={{
-          fontSize: 'clamp(1.3rem, 2.2vw, 1.9rem)',
-          fontWeight: 600,
-          lineHeight: 1.3,
-          letterSpacing: '-0.015em',
-          color: 'var(--foreground)',
-          marginBottom: '2rem',
-          maxWidth: '36ch',
-        }}>
-          ۱۲ فایل صوتی. صادقانه و بدون فیلتر.
-        </h2>
-
-        <div style={{ maxWidth: '620px', display: 'flex', flexDirection: 'column', gap: '0' }}>
+      {/* ══════════════════════════════════════════════════
+          MODULE LIST
+          ══════════════════════════════════════════════════ */}
+      <section
+        dir="rtl"
+        style={{
+          paddingInline: PAD,
+          paddingTop: '4rem',
+          paddingBottom: '4rem',
+          borderTop: '1px solid var(--border)',
+        }}
+      >
+        <div style={{ maxWidth: '600px', display: 'flex', flexDirection: 'column', gap: '0' }}>
           {MODULES.map((mod, i) => (
             <div
               key={mod.title}
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'space-between',
                 gap: '1rem',
-                paddingTop: '0.9rem',
-                paddingBottom: '0.9rem',
+                paddingTop: '0.875rem',
+                paddingBottom: '0.875rem',
                 borderTop: '1px solid var(--border)',
                 borderBottom: i === MODULES.length - 1 ? '1px solid var(--border)' : 'none',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
-                <span style={{ fontSize: '0.7rem', color: 'var(--subtle)', opacity: 0.6, minWidth: '1.5rem', textAlign: 'left', fontVariantNumeric: 'tabular-nums' }}>
-                  {String(i + 1).padStart(2, '0')}
-                </span>
-                <span style={{ fontSize: '0.875rem', color: 'var(--foreground)', lineHeight: 1.5 }}>
-                  {mod.title}
-                </span>
-              </div>
-              {mod.duration && (
-                <span style={{ fontSize: '0.75rem', color: 'var(--subtle)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
-                  {mod.duration}
-                </span>
-              )}
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ══════════════════════════════════════════════════
-          4 — WHO THIS IS FOR
-          ══════════════════════════════════════════════════ */}
-      <section
-        dir="rtl"
-        style={{
-          paddingInline: PAD,
-          paddingTop: GAP,
-          paddingBottom: GAP,
-          borderTop: '1px solid var(--border)',
-        }}
-      >
-        <Eyebrow>این دوره مناسب چه کسانی است</Eyebrow>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxWidth: '560px', marginTop: '1.5rem' }}>
-          {[
-            'می‌خواهی قبل از هر هزینه‌ای، تصویر واقعی داشته باشی',
-            'از منابع مختلف اطلاعات متناقض گرفته‌ای و نمی‌دانی به کدام اعتماد کنی',
-            'نگران اشتباه کردن در مرحله‌ای هستی که جبرانش سخت است',
-            'قبل از مراجعه به وکیل یا مشاور، می‌خواهی خودت بفهمی چه می‌خواهی',
-            'به دنبال دیدگاه صادقانه‌ای هستی، نه تبلیغ یک مسیر خاص',
-          ].map((text) => (
-            <div key={text} style={{ display: 'flex', gap: '0.875rem', alignItems: 'flex-start' }}>
-              <div style={{
-                width: '16px', height: '16px', borderRadius: '50%',
-                border: '1px solid var(--accent)', flexShrink: 0, marginTop: '0.2rem',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              <span style={{
+                fontSize: '0.68rem', color: 'var(--subtle)', opacity: 0.55,
+                minWidth: '1.5rem', fontVariantNumeric: 'tabular-nums', flexShrink: 0,
               }}>
-                <div style={{ width: '5px', height: '5px', borderRadius: '50%', background: 'var(--accent)' }} />
-              </div>
-              <p style={{ fontSize: '0.875rem', color: 'var(--muted)', lineHeight: 1.75, margin: 0 }}>{text}</p>
+                {String(i + 1).padStart(2, '0')}
+              </span>
+              <span style={{ fontSize: '0.875rem', color: 'var(--foreground)', lineHeight: 1.5 }}>
+                {mod.title}
+              </span>
             </div>
           ))}
         </div>
       </section>
 
       {/* ══════════════════════════════════════════════════
-          5 — PRICE / ACCESS CTA
+          VALUE
           ══════════════════════════════════════════════════ */}
       <section
         dir="rtl"
         style={{
           paddingInline: PAD,
-          paddingTop: GAP,
-          paddingBottom: GAP,
+          paddingTop: '5rem',
+          paddingBottom: '5rem',
           borderTop: '1px solid var(--border)',
         }}
       >
-        <div style={{
-          background: 'var(--surface)',
-          border: '1px solid var(--border-strong)',
-          borderRadius: '1.25rem',
-          padding: 'clamp(1.75rem, 3.5vw, 2.75rem) clamp(1.5rem, 4vw, 3rem)',
-          backgroundImage: 'radial-gradient(ellipse at 80% 20%, rgba(196,151,58,0.065) 0%, transparent 55%)',
-          maxWidth: '660px',
-        }}>
-          <p style={{
-            fontSize: '0.65rem', letterSpacing: '0.26em', textTransform: 'uppercase',
-            color: 'var(--accent)', opacity: 0.8, marginBottom: '1rem',
-          }}>
-            دسترسی به دوره
-          </p>
+        <p style={{ ...statement, maxWidth: '38ch', color: 'var(--muted)' }}>
+          بعضی از این درس‌ها را در چند ساعت یاد می‌گیری.
+          <br />
+          بعضی افراد برای یاد گرفتنشان چند سال زمان می‌دهند.
+        </p>
+      </section>
 
-          <h2 style={{
-            fontSize: 'clamp(1.3rem, 2.5vw, 2rem)',
-            fontWeight: 700, lineHeight: 1.2, letterSpacing: '-0.02em',
-            color: 'var(--foreground)', marginBottom: '0.625rem',
-          }}>
-            تله‌های پنهان مهاجرت
-          </h2>
-
-          <p style={{
-            fontSize: '0.85rem', color: 'var(--muted)', lineHeight: 1.8,
-            marginBottom: '1.75rem', maxWidth: '44ch',
-          }}>
-            یک بار بخر، هر وقت نیاز داشتی برگرد.
+      {/* ══════════════════════════════════════════════════
+          FINAL CTA
+          ══════════════════════════════════════════════════ */}
+      <section
+        dir="rtl"
+        style={{
+          paddingInline: PAD,
+          paddingTop: '5rem',
+          paddingBottom: '5rem',
+          borderTop: '1px solid var(--border)',
+        }}
+      >
+        <div style={{ maxWidth: '660px' }}>
+          <p style={{ ...statement, maxWidth: '40ch', marginBottom: '3rem' }}>
+            قبل از اینکه چند سال از زندگی‌ات را روی یک تصمیم بزرگ سرمایه‌گذاری کنی،
+            <br />
+            تصویر کامل‌تری از مسیر پیش رو داشته باش.
           </p>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
@@ -333,52 +236,51 @@ export default function CoursePage() {
       </section>
 
       {/* ══════════════════════════════════════════════════
-          6 — FORM
+          FORM
           ══════════════════════════════════════════════════ */}
       <section
         id="form"
         dir="rtl"
         style={{
           paddingInline: PAD,
-          paddingTop: '3rem',
-          paddingBottom: '4.5rem',
+          paddingTop: '3.5rem',
+          paddingBottom: '5rem',
           borderTop: '1px solid var(--border)',
         }}
       >
         <Eyebrow>درخواست دسترسی</Eyebrow>
 
         <h2 style={{
-          fontSize: 'clamp(1.1rem, 1.8vw, 1.4rem)',
+          fontSize: 'clamp(1rem, 1.6vw, 1.3rem)',
           fontWeight: 600,
           lineHeight: 1.4,
-          letterSpacing: '-0.01em',
           color: 'var(--foreground)',
-          marginBottom: '0.875rem',
+          marginBottom: '0.75rem',
         }}>
           اطلاعات زیر را وارد کن.
         </h2>
 
         <p style={{
-          fontSize: '0.82rem',
+          fontSize: '0.8rem',
           color: 'var(--subtle)',
           lineHeight: 1.8,
           marginBottom: '2rem',
-          maxWidth: '52ch',
+          maxWidth: '48ch',
         }}>
-          پس از بررسی درخواست، اطلاعات پرداخت از طریق اینستاگرام ارسال می‌شود.
+          پس از بررسی، اطلاعات پرداخت از طریق اینستاگرام ارسال می‌شود.
         </p>
 
         <CourseForm />
 
         <p style={{
           marginTop: '1.75rem',
-          fontSize: '0.72rem',
+          fontSize: '0.7rem',
           color: 'var(--subtle)',
           lineHeight: 1.75,
-          maxWidth: '56ch',
-          opacity: 0.75,
+          maxWidth: '52ch',
+          opacity: 0.65,
         }}>
-          این دوره بر پایه تجربه شخصی، مشاهده و تحقیق تهیه شده است. جایگزین مشاوره حقوقی، مالی یا تخصصی نیست.
+          این دوره بر پایه تجربه شخصی است. جایگزین مشاوره حقوقی یا تخصصی نیست.
         </p>
       </section>
 
