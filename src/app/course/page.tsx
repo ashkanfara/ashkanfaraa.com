@@ -20,24 +20,23 @@ function Eyebrow({ children }: { children: string }) {
   )
 }
 
-// TODO: fill in real durations once available, e.g. '۱۲:۳۰'
 const MODULES = [
-  { title: 'مقدمه' },
-  { title: 'دید باز و خلاصه‌ای از زندگیم و ویدیو من' },
-  { title: 'بررسی علت مهاجرت (پارت ۱)' },
-  { title: 'بررسی علت مهاجرت (پارت ۲)' },
+  { title: 'چرا این دوره را ساختم' },
+  { title: 'مسیری که طی کردم' },
+  { title: 'دلیل واقعی مهاجرت' },
+  { title: 'مهاجرت آن چیزی نیست که فکر می‌کنی' },
   { title: 'دام‌های احساسی' },
   { title: 'دام‌های مالی' },
   { title: 'دام‌های شغلی و تحصیلی' },
-  { title: 'فرهنگ دوست‌یابی و تفاوت‌ها با ایران' },
-  { title: 'فرهنگ ایرانی‌های خارج و چرا فاصله دارند' },
+  { title: 'دوستی و روابط در کشور جدید' },
+  { title: 'ایرانی‌های خارج و فاصله‌ای که می‌گذارند' },
   { title: 'پارتنر خارجی vs پارتنر ایرانی' },
-  { title: 'تفاوت فرهنگی و قانونی کشور مقصد' },
-  { title: 'جمع‌بندی' },
+  { title: 'تفاوت‌های فرهنگی و قانونی کشور مقصد' },
+  { title: 'قبل از اینکه بروی' },
 ]
 
 const statement: React.CSSProperties = {
-  fontSize: 'clamp(1.1rem, 1.9vw, 1.5rem)',
+  fontSize: 'clamp(1rem, 1.6vw, 1.3rem)',
   fontWeight: 500,
   lineHeight: 1.75,
   color: 'var(--foreground)',
@@ -56,8 +55,8 @@ export default function CoursePage() {
         dir="rtl"
         style={{
           paddingInline: PAD,
-          paddingTop: '6.5rem',
-          paddingBottom: '5rem',
+          paddingTop: '4.5rem',
+          paddingBottom: '3rem',
           background: 'radial-gradient(ellipse at 65% 35%, rgba(196,151,58,0.05) 0%, transparent 60%)',
         }}
       >
@@ -70,10 +69,24 @@ export default function CoursePage() {
             lineHeight: 1.08,
             letterSpacing: '-0.03em',
             color: 'var(--foreground)',
-            marginBottom: '2.5rem',
+            marginBottom: '1.75rem',
           }}>
             تله‌های پنهان مهاجرت
           </h1>
+
+          <p style={{
+            fontSize: 'clamp(0.9rem, 1.3vw, 1.05rem)',
+            fontWeight: 400,
+            lineHeight: 1.85,
+            color: 'var(--muted)',
+            letterSpacing: '-0.01em',
+            marginBottom: '2.25rem',
+            maxWidth: '44ch',
+          }}>
+            بیشتر اشتباهات مهاجرتی قبل از مهاجرت اتفاق نمی‌افتند.
+            <br />
+            بعد از آن اتفاق می‌افتند.
+          </p>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
             <a
@@ -102,42 +115,23 @@ export default function CoursePage() {
       </section>
 
       {/* ══════════════════════════════════════════════════
-          WHY THIS EXISTS
+          CORE IDEA
           ══════════════════════════════════════════════════ */}
       <section
         dir="rtl"
         style={{
           paddingInline: PAD,
-          paddingTop: '5rem',
-          paddingBottom: '5rem',
-          borderTop: '1px solid var(--border)',
-        }}
-      >
-        <p style={{ ...statement, maxWidth: '36ch' }}>
-          بیشتر اشتباهات مهاجرتی قبل از مهاجرت اتفاق نمی‌افتند.
-          <br />
-          بعد از آن اتفاق می‌افتند.
-        </p>
-      </section>
-
-      {/* ══════════════════════════════════════════════════
-          WHAT THIS IS
-          ══════════════════════════════════════════════════ */}
-      <section
-        dir="rtl"
-        style={{
-          paddingInline: PAD,
-          paddingTop: '5rem',
-          paddingBottom: '5rem',
+          paddingTop: '3.5rem',
+          paddingBottom: '3.5rem',
           borderTop: '1px solid var(--border)',
         }}
       >
         <p style={{ ...statement, maxWidth: '32ch', color: 'var(--muted)' }}>
-          ۱۲ فایل صوتی.
+          بعضی از این درس‌ها را در چند ساعت یاد می‌گیری.
           <br />
-          سال‌ها تجربه زندگی، کار و تحصیل در کشورهای مختلف.
+          بعضی دیگر را بعد از چند سال زندگی در کشور جدید.
           <br />
-          بدون فیلتر. بدون شعار.
+          بعضی‌ها هم هزینه‌های سنگینی دارند.
         </p>
       </section>
 
@@ -148,11 +142,22 @@ export default function CoursePage() {
         dir="rtl"
         style={{
           paddingInline: PAD,
-          paddingTop: '4rem',
-          paddingBottom: '4rem',
+          paddingTop: '3rem',
+          paddingBottom: '3rem',
           borderTop: '1px solid var(--border)',
+          background: 'radial-gradient(ellipse at 30% 50%, rgba(196,151,58,0.04) 0%, transparent 65%)',
         }}
       >
+        <p style={{
+          fontSize: '0.72rem',
+          letterSpacing: '0.06em',
+          color: 'var(--subtle)',
+          marginBottom: '1.75rem',
+          opacity: 0.75,
+        }}>
+          چیزهایی که کسی قبل از رفتن به تو نمی‌گوید.
+        </p>
+
         <div style={{ maxWidth: '600px', display: 'flex', flexDirection: 'column', gap: '0' }}>
           {MODULES.map((mod, i) => (
             <div
@@ -161,19 +166,19 @@ export default function CoursePage() {
                 display: 'flex',
                 alignItems: 'center',
                 gap: '1rem',
-                paddingTop: '0.875rem',
-                paddingBottom: '0.875rem',
+                paddingTop: '0.9rem',
+                paddingBottom: '0.9rem',
                 borderTop: '1px solid var(--border)',
                 borderBottom: i === MODULES.length - 1 ? '1px solid var(--border)' : 'none',
               }}
             >
               <span style={{
-                fontSize: '0.68rem', color: 'var(--subtle)', opacity: 0.55,
+                fontSize: '0.65rem', color: 'var(--subtle)', opacity: 0.45,
                 minWidth: '1.5rem', fontVariantNumeric: 'tabular-nums', flexShrink: 0,
               }}>
                 {String(i + 1).padStart(2, '0')}
               </span>
-              <span style={{ fontSize: '0.875rem', color: 'var(--foreground)', lineHeight: 1.5 }}>
+              <span style={{ fontSize: '1rem', color: 'var(--foreground)', lineHeight: 1.5 }}>
                 {mod.title}
               </span>
             </div>
@@ -188,8 +193,8 @@ export default function CoursePage() {
         dir="rtl"
         style={{
           paddingInline: PAD,
-          paddingTop: '5rem',
-          paddingBottom: '5rem',
+          paddingTop: '3.5rem',
+          paddingBottom: '3.5rem',
           borderTop: '1px solid var(--border)',
         }}
       >
@@ -207,13 +212,13 @@ export default function CoursePage() {
         dir="rtl"
         style={{
           paddingInline: PAD,
-          paddingTop: '5rem',
-          paddingBottom: '5rem',
+          paddingTop: '3.5rem',
+          paddingBottom: '3.5rem',
           borderTop: '1px solid var(--border)',
         }}
       >
         <div style={{ maxWidth: '660px' }}>
-          <p style={{ ...statement, maxWidth: '40ch', marginBottom: '3rem' }}>
+          <p style={{ ...statement, maxWidth: '40ch', marginBottom: '2.25rem' }}>
             قبل از اینکه چند سال از زندگی‌ات را روی یک تصمیم بزرگ سرمایه‌گذاری کنی،
             <br />
             تصویر کامل‌تری از مسیر پیش رو داشته باش.
@@ -234,7 +239,7 @@ export default function CoursePage() {
               درخواست دسترسی به دوره
             </a>
             <span style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--accent)' }}>
-              ۱۴ میلیون تومان
+              ۹.۹ میلیون تومان
             </span>
           </div>
         </div>
@@ -248,8 +253,8 @@ export default function CoursePage() {
         dir="rtl"
         style={{
           paddingInline: PAD,
-          paddingTop: '3.5rem',
-          paddingBottom: '5rem',
+          paddingTop: '3rem',
+          paddingBottom: '4rem',
           borderTop: '1px solid var(--border)',
         }}
       >
@@ -262,7 +267,7 @@ export default function CoursePage() {
           color: 'var(--foreground)',
           marginBottom: '0.75rem',
         }}>
-          اطلاعات زیر را وارد کن.
+          برای دریافت دسترسی، اطلاعات زیر را بفرست.
         </h2>
 
         <p style={{
