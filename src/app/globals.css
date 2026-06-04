@@ -137,10 +137,13 @@ body {
 }
 
 .back-link {
-  transition: color 0.15s ease;
+  transition: color 0.18s ease, background 0.18s ease;
+  border-radius: 9999px;
+  padding: 0.72rem 0.875rem;
 }
 .back-link:hover {
-  color: var(--muted) !important;
+  color: var(--foreground) !important;
+  background: rgba(255, 255, 255, 0.055);
 }
 
 /* ═══════════════════════════════════════════════════════════════

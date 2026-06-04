@@ -97,12 +97,14 @@ export default function ConsultationPage() {
                 href="/"
                 className="back-link"
                 style={{
-                  display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
-                  fontSize: '0.78rem', color: 'var(--subtle)',
-                  textDecoration: 'none',
+                  display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+                  fontSize: '0.78rem', color: 'var(--muted)',
+                  textDecoration: 'none', opacity: 0.75,
                 }}
               >
-                <span style={{ fontSize: '0.85rem' }}>←</span>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M19 12H5M12 5l-7 7 7 7"/>
+                </svg>
                 بازگشت
               </a>
             </div>
