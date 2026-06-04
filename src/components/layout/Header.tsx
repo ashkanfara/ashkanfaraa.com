@@ -4,7 +4,6 @@ import { site, nav } from '@/data/content'
 export function Header() {
   return (
     <header className="fixed top-0 inset-x-0 z-50">
-      {/* dir=ltr so brand mark sits at physical left, nav at physical right */}
       <div className="px-site py-5 md:py-6 flex items-center justify-between" dir="ltr">
         {/* Brand */}
         <div className="flex flex-col gap-0.5">
@@ -18,25 +17,37 @@ export function Header() {
 
         {/* Nav */}
         <nav className="flex items-center gap-6">
-          {nav.links.map((link) =>
-            link.highlight ? (
-              <Link
-                key={link.label}
-                href={link.href}
-                className="hidden md:inline-flex items-center rounded-full border border-accent text-accent px-5 py-2 text-[12px] tracking-wide transition-colors duration-200 hover:bg-accent hover:text-accent-fg"
-              >
-                {link.label}
-              </Link>
-            ) : (
-              <a
-                key={link.label}
-                href={link.href}
-                className="hidden md:inline-block text-muted text-[12px] tracking-wide hover:text-foreground transition-colors duration-200"
-              >
-                {link.label}
-              </a>
-            )
-          )}
+          {nav.links.map((link) => (
+            <Link
+              key={link.label}
+              href={link.href}
+              className="hidden md:inline-block text-muted text-[12px] tracking-wide hover:text-foreground transition-colors duration-200"
+              style={{ fontWeight: 400 }}
+            >
+              {link.label}
+            </Link>
+          ))}
+
+          {/* Separator */}
+          <span
+            className="hidden md:block"
+            style={{ width: '1px', height: '0.85rem', background: 'var(--border-strong)', opacity: 0.6 }}
+          />
+
+          {/* Language switch */}
+          <span
+            className="hidden md:inline-block"
+            style={{
+              fontSize: '11px',
+              letterSpacing: '0.12em',
+              color: 'var(--subtle)',
+              fontWeight: 400,
+              cursor: 'default',
+              userSelect: 'none',
+            }}
+          >
+            EN
+          </span>
         </nav>
       </div>
     </header>

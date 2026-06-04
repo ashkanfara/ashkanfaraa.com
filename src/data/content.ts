@@ -5,8 +5,8 @@ export const site = {
 
 export const nav = {
   links: [
-    { label: 'خدمات', href: '#offers', highlight: false },
-    { label: 'درخواست جلسه', href: '/consultation', highlight: true },
+    { label: 'دوره',    href: '/course' },
+    { label: 'مشاوره', href: '/consultation' },
   ],
 }
 
