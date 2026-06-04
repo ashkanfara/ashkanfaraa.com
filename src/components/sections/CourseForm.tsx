@@ -372,7 +372,7 @@ function SuccessStep({ afCode }: { afCode: string }) {
       </p>
 
       <a
-        href="https://instagram.com/ashkanfaraa"
+        href="https://www.instagram.com/ashkanfaraa/"
         target="_blank" rel="noopener noreferrer"
         style={btn as React.CSSProperties}
       >
