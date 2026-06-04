@@ -383,7 +383,7 @@ function SuccessStep({ afCode }: { afCode: string }) {
 }
 
 // ── Controller ────────────────────────────────────────────────
-export function CourseForm() {
+export function CourseForm({ onPaymentMode }: { onPaymentMode?: () => void }) {
   const [step,    setStep]    = useState<Step>('application')
   const [appData, setAppData] = useState<AppData | null>(null)
   const [afCode,  setAfCode]  = useState('')
@@ -403,7 +403,12 @@ export function CourseForm() {
 
   return (
     <ApplicationStep
-      onNext={data => { setAppData(data); setStep('payment') }}
+      onNext={data => {
+        setAppData(data)
+        onPaymentMode?.()
+        // Switch to PaymentStep after sales sections have faded out
+        setTimeout(() => setStep('payment'), 420)
+      }}
     />
   )
 }
