@@ -22,8 +22,8 @@ function fmt(s: number): string {
   return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
 }
 
-function TestimonialCard({ name, label, src, id }: {
-  name: string; label: string; src: string; id: string
+function TestimonialCard({ name, label, quote, src, id }: {
+  name: string; label: string; quote: string; src: string; id: string
 }) {
   const audioRef  = useRef<HTMLAudioElement>(null)
   const [playing,  setPlaying]  = useState(false)
@@ -68,6 +68,17 @@ function TestimonialCard({ name, label, src, id }: {
         background: 'linear-gradient(90deg, transparent, var(--accent), transparent)',
         opacity: 0.38,
       }} />
+
+      {/* Quote — headline to encourage pressing play */}
+      <p dir="rtl" style={{
+        fontSize: '0.875rem',
+        color: 'var(--muted)',
+        lineHeight: 1.7,
+        margin: 0,
+        letterSpacing: '-0.01em',
+      }}>
+        «{quote}»
+      </p>
 
       {/* Controls row — always LTR */}
       <div dir="ltr" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -204,6 +215,7 @@ export function Testimonials() {
             id={item.id}
             name={item.name}
             label={item.label}
+            quote={item.quote}
             src={item.src}
           />
         ))}
