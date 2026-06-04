@@ -35,15 +35,6 @@ const MODULES = [
   { title: 'قبل از اینکه بروی' },
 ]
 
-const statement: React.CSSProperties = {
-  fontSize: 'clamp(1rem, 1.6vw, 1.3rem)',
-  fontWeight: 500,
-  lineHeight: 1.75,
-  color: 'var(--foreground)',
-  letterSpacing: '-0.01em',
-  margin: 0,
-}
-
 export default function CoursePage() {
   return (
     <main className="w-full overflow-x-hidden">
@@ -69,24 +60,10 @@ export default function CoursePage() {
             lineHeight: 1.08,
             letterSpacing: '-0.03em',
             color: 'var(--foreground)',
-            marginBottom: '1.75rem',
+            marginBottom: '2.25rem',
           }}>
             تله‌های پنهان مهاجرت
           </h1>
-
-          <p style={{
-            fontSize: 'clamp(0.9rem, 1.3vw, 1.05rem)',
-            fontWeight: 400,
-            lineHeight: 1.85,
-            color: 'var(--muted)',
-            letterSpacing: '-0.01em',
-            marginBottom: '2.25rem',
-            maxWidth: '44ch',
-          }}>
-            بیشتر اشتباهات مهاجرتی قبل از مهاجرت اتفاق نمی‌افتند.
-            <br />
-            بعد از آن اتفاق می‌افتند.
-          </p>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
             <a
@@ -115,7 +92,7 @@ export default function CoursePage() {
       </section>
 
       {/* ══════════════════════════════════════════════════
-          CORE IDEA
+          CORE STATEMENT
           ══════════════════════════════════════════════════ */}
       <section
         dir="rtl"
@@ -126,12 +103,18 @@ export default function CoursePage() {
           borderTop: '1px solid var(--border)',
         }}
       >
-        <p style={{ ...statement, maxWidth: '32ch', color: 'var(--muted)' }}>
-          بعضی از این درس‌ها را در چند ساعت یاد می‌گیری.
+        <p style={{
+          fontSize: 'clamp(1.2rem, 2.2vw, 1.7rem)',
+          fontWeight: 500,
+          lineHeight: 1.65,
+          letterSpacing: '-0.02em',
+          color: 'var(--foreground)',
+          maxWidth: '34ch',
+          margin: 0,
+        }}>
+          بیشتر اشتباهات مهاجرتی قبل از مهاجرت اتفاق نمی‌افتند.
           <br />
-          بعضی دیگر را بعد از چند سال زندگی در کشور جدید.
-          <br />
-          بعضی‌ها هم هزینه‌های سنگینی دارند.
+          بعد از آن اتفاق می‌افتند.
         </p>
       </section>
 
@@ -187,25 +170,6 @@ export default function CoursePage() {
       </section>
 
       {/* ══════════════════════════════════════════════════
-          VALUE
-          ══════════════════════════════════════════════════ */}
-      <section
-        dir="rtl"
-        style={{
-          paddingInline: PAD,
-          paddingTop: '3.5rem',
-          paddingBottom: '3.5rem',
-          borderTop: '1px solid var(--border)',
-        }}
-      >
-        <p style={{ ...statement, maxWidth: '38ch', color: 'var(--muted)' }}>
-          بعضی از این درس‌ها را در چند ساعت یاد می‌گیری.
-          <br />
-          بعضی افراد برای یاد گرفتنشان چند سال زمان می‌دهند.
-        </p>
-      </section>
-
-      {/* ══════════════════════════════════════════════════
           FINAL CTA
           ══════════════════════════════════════════════════ */}
       <section
@@ -217,31 +181,23 @@ export default function CoursePage() {
           borderTop: '1px solid var(--border)',
         }}
       >
-        <div style={{ maxWidth: '660px' }}>
-          <p style={{ ...statement, maxWidth: '40ch', marginBottom: '2.25rem' }}>
-            قبل از اینکه چند سال از زندگی‌ات را روی یک تصمیم بزرگ سرمایه‌گذاری کنی،
-            <br />
-            تصویر کامل‌تری از مسیر پیش رو داشته باش.
-          </p>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
-            <a
-              href="#form"
-              style={{
-                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                borderRadius: '9999px',
-                background: 'var(--accent)', color: 'var(--accent-fg)',
-                padding: '0.875rem 2.25rem',
-                fontSize: '0.875rem', fontWeight: 600, letterSpacing: '0.04em',
-                textDecoration: 'none', whiteSpace: 'nowrap',
-              }}
-            >
-              درخواست دسترسی به دوره
-            </a>
-            <span style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--accent)' }}>
-              ۹.۹ میلیون تومان
-            </span>
-          </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
+          <a
+            href="#form"
+            style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              borderRadius: '9999px',
+              background: 'var(--accent)', color: 'var(--accent-fg)',
+              padding: '0.875rem 2.25rem',
+              fontSize: '0.875rem', fontWeight: 600, letterSpacing: '0.04em',
+              textDecoration: 'none', whiteSpace: 'nowrap',
+            }}
+          >
+            درخواست دسترسی به دوره
+          </a>
+          <span style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--accent)' }}>
+            ۹.۹ میلیون تومان
+          </span>
         </div>
       </section>
 
