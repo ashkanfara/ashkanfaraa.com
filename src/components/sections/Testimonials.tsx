@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef, useState, useCallback, useMemo } from 'react'
-import { testimonials } from '@/data/content'
+import { testimonials as defaultContent } from '@/data/content'
 
 const BAR_COUNT = 34
 
@@ -11,7 +11,6 @@ function seededBars(seed: string): number[] {
   return Array.from({ length: BAR_COUNT }, (_, i) => {
     h = (h * 1664525 + 1013904223) >>> 0
     const raw = ((h >>> 16) & 0xff) / 255
-    // Natural envelope: taller in the middle, shorter at edges
     const env = Math.sin((i / (BAR_COUNT - 1)) * Math.PI) * 0.45 + 0.55
     return Math.max(0.12, raw * env)
   })
@@ -20,6 +19,18 @@ function seededBars(seed: string): number[] {
 function fmt(s: number): string {
   if (!isFinite(s) || s <= 0) return '—:——'
   return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
+}
+
+type TestimonialsContent = {
+  sectionLabel: string
+  subtext: string
+  items: ReadonlyArray<{
+    id: string
+    name: string
+    label: string
+    quote: string
+    src: string
+  }>
 }
 
 function TestimonialCard({ name, label, quote, src, id }: {
@@ -51,15 +62,10 @@ function TestimonialCard({ name, label, quote, src, id }: {
     <div
       className="card-lift"
       style={{
-        background: 'var(--surface)',
-        border: '1px solid var(--border)',
-        borderRadius: '1rem',
-        padding: '1.25rem',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '1rem',
-        position: 'relative',
-        overflow: 'hidden',
+        background: 'var(--surface)', border: '1px solid var(--border)',
+        borderRadius: '1rem', padding: '1.25rem',
+        display: 'flex', flexDirection: 'column', gap: '1rem',
+        position: 'relative', overflow: 'hidden',
       }}
     >
       {/* Top accent */}
@@ -69,29 +75,20 @@ function TestimonialCard({ name, label, quote, src, id }: {
         opacity: 0.38,
       }} />
 
-      {/* Quote — headline to encourage pressing play */}
-      <p dir="rtl" style={{
-        fontSize: '0.875rem',
-        color: 'var(--muted)',
-        lineHeight: 1.7,
-        margin: 0,
-        letterSpacing: '-0.01em',
-      }}>
+      {/* Quote */}
+      <p dir="rtl" style={{ fontSize: '0.875rem', color: 'var(--muted)', lineHeight: 1.7, margin: 0, letterSpacing: '-0.01em' }}>
         «{quote}»
       </p>
 
-      {/* Controls row — always LTR */}
+      {/* Controls — always LTR */}
       <div dir="ltr" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-
-        {/* Play / pause */}
         <button
           type="button"
           onClick={toggle}
           className="play-btn"
-          aria-label={playing ? 'توقف' : 'پخش'}
+          aria-label={playing ? 'Pause' : 'Play'}
           style={{
-            width: '2.75rem', height: '2.75rem',
-            borderRadius: '50%',
+            width: '2.75rem', height: '2.75rem', borderRadius: '50%',
             border: `1.5px solid ${playing ? 'var(--accent)' : 'var(--border-strong)'}`,
             background: playing ? 'var(--accent)' : 'rgba(255,255,255,0.025)',
             color: playing ? 'var(--accent-fg)' : 'var(--muted)',
@@ -114,14 +111,7 @@ function TestimonialCard({ name, label, quote, src, id }: {
         {/* Waveform */}
         <div
           className={[playing ? 'waveform-playing' : '', duration > 0 ? 'waveform-seekable' : ''].filter(Boolean).join(' ')}
-          style={{
-            flex: 1,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '2px',
-            height: '2.25rem',
-            overflow: 'hidden',
-          }}
+          style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '2px', height: '2.25rem', overflow: 'hidden' }}
         >
           {bars.map((h, i) => {
             const filled = i < filledCount
@@ -131,9 +121,7 @@ function TestimonialCard({ name, label, quote, src, id }: {
                 onClick={() => seekBar(i)}
                 className={filled ? 'waveform-bar-filled' : 'waveform-bar-empty'}
                 style={{
-                  flex: 1,
-                  height: `${Math.round(h * 100)}%`,
-                  minHeight: '3px',
+                  flex: 1, height: `${Math.round(h * 100)}%`, minHeight: '3px',
                   borderRadius: '9999px',
                   background: filled ? 'var(--accent)' : 'var(--border-strong)',
                   opacity: filled ? 0.9 : 0.45,
@@ -145,43 +133,22 @@ function TestimonialCard({ name, label, quote, src, id }: {
           })}
         </div>
 
-        {/* Time */}
         <span style={{
-          fontSize: '0.68rem',
-          color: 'var(--subtle)',
-          fontVariantNumeric: 'tabular-nums',
-          minWidth: '2.5rem',
-          textAlign: 'right',
-          flexShrink: 0,
-          letterSpacing: '0.02em',
+          fontSize: '0.68rem', color: 'var(--subtle)', fontVariantNumeric: 'tabular-nums',
+          minWidth: '2.5rem', textAlign: 'right', flexShrink: 0, letterSpacing: '0.02em',
         }}>
           {timeLabel}
         </span>
       </div>
 
-      {/* Identity — RTL */}
-      <div
-        dir="rtl"
-        style={{
-          borderTop: '1px solid var(--border)',
-          paddingTop: '0.875rem',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '0.25rem',
-        }}
-      >
-        <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--foreground)', lineHeight: 1.2 }}>
-          {name}
-        </span>
-        <span style={{ fontSize: '0.72rem', color: 'var(--muted)', opacity: 0.7, lineHeight: 1.45 }}>
-          {label}
-        </span>
+      {/* Identity */}
+      <div dir="rtl" style={{ borderTop: '1px solid var(--border)', paddingTop: '0.875rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+        <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--foreground)', lineHeight: 1.2 }}>{name}</span>
+        <span style={{ fontSize: '0.72rem', color: 'var(--muted)', opacity: 0.7, lineHeight: 1.45 }}>{label}</span>
       </div>
 
       <audio
-        ref={audioRef}
-        src={src}
-        preload="metadata"
+        ref={audioRef} src={src} preload="metadata"
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
         onEnded={() => { setPlaying(false); setCurrent(0) }}
@@ -192,7 +159,7 @@ function TestimonialCard({ name, label, quote, src, id }: {
   )
 }
 
-export function Testimonials() {
+export function Testimonials({ content = defaultContent }: { content?: TestimonialsContent }) {
   return (
     <section dir="rtl" style={{ paddingTop: '0.5rem', paddingBottom: '1.75rem' }}>
 
@@ -200,24 +167,17 @@ export function Testimonials() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', marginBottom: '0.5rem' }}>
           <div style={{ width: '2rem', height: '1px', background: 'var(--accent)', opacity: 0.65 }} />
           <p style={{ fontSize: '0.65rem', letterSpacing: '0.26em', textTransform: 'uppercase', color: 'var(--subtle)', margin: 0 }}>
-            {testimonials.sectionLabel}
+            {content.sectionLabel}
           </p>
         </div>
         <p style={{ fontSize: '0.82rem', color: 'var(--subtle)', lineHeight: 1.75, opacity: 0.8, paddingRight: '2.875rem' }}>
-          {testimonials.subtext}
+          {content.subtext}
         </p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3" style={{ gap: '1rem' }}>
-        {testimonials.items.map(item => (
-          <TestimonialCard
-            key={item.id}
-            id={item.id}
-            name={item.name}
-            label={item.label}
-            quote={item.quote}
-            src={item.src}
-          />
+        {content.items.map(item => (
+          <TestimonialCard key={item.id} id={item.id} name={item.name} label={item.label} quote={item.quote} src={item.src} />
         ))}
       </div>
 

@@ -2,10 +2,23 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { site, nav } from '@/data/content'
+import { site, nav }    from '@/data/content'
+import { nav as navEn } from '@/data/content.en'
+
+function getAltLocaleHref(pathname: string, isEn: boolean): string {
+  if (isEn) {
+    const stripped = pathname.replace(/^\/en/, '')
+    return stripped === '' ? '/' : stripped
+  }
+  return pathname === '/' ? '/en' : `/en${pathname}`
+}
 
 export function Header() {
   const pathname = usePathname()
+  const isEn     = pathname.startsWith('/en')
+  const links    = isEn ? navEn.links : nav.links
+  const homeHref = isEn ? '/en' : '/'
+  const altHref  = getAltLocaleHref(pathname, isEn)
 
   return (
     <header
@@ -19,7 +32,7 @@ export function Header() {
     >
       <div className="px-site py-4 md:py-5 flex items-center justify-between" dir="ltr">
         {/* Brand */}
-        <Link href="/" style={{ textDecoration: 'none' }}>
+        <Link href={homeHref} style={{ textDecoration: 'none' }}>
           <div className="flex flex-col gap-0.5">
             <span className="text-foreground tracking-[0.4em] uppercase text-[12px] md:text-[14px] font-light">
               {site.name}
@@ -30,9 +43,9 @@ export function Header() {
           </div>
         </Link>
 
-        {/* Nav */}
+        {/* Nav + lang toggle */}
         <nav className="flex items-center gap-5 md:gap-7">
-          {nav.links.map((link) => {
+          {links.map((link) => {
             const active = pathname === link.href
             return (
               <Link
@@ -48,6 +61,11 @@ export function Header() {
               </Link>
             )
           })}
+
+          {/* Language toggle */}
+          <Link href={altHref} className="lang-toggle">
+            {isEn ? 'FA' : 'EN'}
+          </Link>
         </nav>
       </div>
     </header>
