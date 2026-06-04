@@ -47,11 +47,35 @@ export default function CoursePage() {
         style={{
           paddingInline: PAD,
           paddingTop: '4.5rem',
-          paddingBottom: '3rem',
+          paddingBottom: '3.5rem',
           background: 'radial-gradient(ellipse at 65% 35%, rgba(196,151,58,0.05) 0%, transparent 60%)',
+          position: 'relative',
+          overflow: 'hidden',
         }}
       >
-        <div style={{ maxWidth: '660px' }}>
+        {/* Editorial number — visual anchor for the empty left */}
+        <div
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            left: 'clamp(2rem, 8vw, 7rem)',
+            top: '50%',
+            transform: 'translateY(-50%)',
+            fontSize: 'clamp(9rem, 24vw, 22rem)',
+            fontWeight: 800,
+            color: 'var(--foreground)',
+            opacity: 0.035,
+            lineHeight: 1,
+            letterSpacing: '-0.05em',
+            userSelect: 'none',
+            pointerEvents: 'none',
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
+          ۱۲
+        </div>
+
+        <div style={{ position: 'relative', maxWidth: '580px' }}>
           <Eyebrow>دوره آموزشی</Eyebrow>
 
           <h1 style={{
@@ -60,10 +84,44 @@ export default function CoursePage() {
             lineHeight: 1.08,
             letterSpacing: '-0.03em',
             color: 'var(--foreground)',
-            margin: 0,
+            marginBottom: '1.25rem',
           }}>
             تله‌های پنهان مهاجرت
           </h1>
+
+          <p style={{
+            fontSize: 'clamp(0.9rem, 1.3vw, 1.05rem)',
+            fontWeight: 400,
+            lineHeight: 1.8,
+            color: 'var(--muted)',
+            letterSpacing: '-0.01em',
+            marginBottom: '2rem',
+            maxWidth: '38ch',
+          }}>
+            چیزهایی که کاش قبل از رفتن می‌دانستی.
+          </p>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+            <a
+              href="#form"
+              style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                borderRadius: '9999px',
+                background: 'var(--accent)', color: 'var(--accent-fg)',
+                padding: '0.8rem 2rem',
+                fontSize: '0.85rem', fontWeight: 600, letterSpacing: '0.04em',
+                textDecoration: 'none', whiteSpace: 'nowrap',
+              }}
+            >
+              درخواست دسترسی به دوره
+            </a>
+            <span style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--accent)' }}>
+              ۹.۹ میلیون تومان
+            </span>
+          </div>
+          <p style={{ fontSize: '0.68rem', color: 'var(--subtle)', margin: 0, opacity: 0.75 }}>
+            قیمت اولیه برای اولین گروه شرکت‌کنندگان
+          </p>
         </div>
       </section>
 
@@ -74,8 +132,8 @@ export default function CoursePage() {
         dir="rtl"
         style={{
           paddingInline: PAD,
-          paddingTop: '3.5rem',
-          paddingBottom: '3.5rem',
+          paddingTop: '2.5rem',
+          paddingBottom: '2.5rem',
           borderTop: '1px solid var(--border)',
         }}
       >
@@ -152,30 +210,30 @@ export default function CoursePage() {
         dir="rtl"
         style={{
           paddingInline: PAD,
-          paddingTop: '3.5rem',
-          paddingBottom: '3.5rem',
+          paddingTop: '3rem',
+          paddingBottom: '3rem',
           borderTop: '1px solid var(--border)',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap', marginBottom: '0.9rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
           <a
             href="#form"
             style={{
               display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
               borderRadius: '9999px',
               background: 'var(--accent)', color: 'var(--accent-fg)',
-              padding: '0.875rem 2.25rem',
-              fontSize: '0.875rem', fontWeight: 600, letterSpacing: '0.04em',
+              padding: '0.8rem 2rem',
+              fontSize: '0.85rem', fontWeight: 600, letterSpacing: '0.04em',
               textDecoration: 'none', whiteSpace: 'nowrap',
             }}
           >
             درخواست دسترسی به دوره
           </a>
-          <span style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--accent)' }}>
+          <span style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--accent)' }}>
             ۹.۹ میلیون تومان
           </span>
         </div>
-        <p style={{ fontSize: '0.72rem', color: 'var(--subtle)', margin: 0 }}>
+        <p style={{ fontSize: '0.68rem', color: 'var(--subtle)', margin: 0, opacity: 0.75 }}>
           قیمت اولیه برای اولین گروه شرکت‌کنندگان
         </p>
       </section>
