@@ -40,7 +40,7 @@ export default function CoursePage() {
     <main className="w-full overflow-x-hidden">
 
       {/* ══════════════════════════════════════════════════
-          HERO
+          1. HERO
           ══════════════════════════════════════════════════ */}
       <section
         dir="rtl"
@@ -60,39 +60,15 @@ export default function CoursePage() {
             lineHeight: 1.08,
             letterSpacing: '-0.03em',
             color: 'var(--foreground)',
-            marginBottom: '2.25rem',
+            margin: 0,
           }}>
             تله‌های پنهان مهاجرت
           </h1>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
-            <a
-              href="#form"
-              style={{
-                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                borderRadius: '9999px',
-                background: 'var(--accent)', color: 'var(--accent-fg)',
-                padding: '0.875rem 2.25rem',
-                fontSize: '0.875rem', fontWeight: 600, letterSpacing: '0.04em',
-                textDecoration: 'none', whiteSpace: 'nowrap',
-              }}
-            >
-              درخواست دسترسی به دوره
-            </a>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-              <span style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--accent)' }}>
-                ۹.۹ میلیون تومان
-              </span>
-              <span style={{ fontSize: '0.72rem', color: 'var(--subtle)' }}>
-                قیمت اولیه برای اولین گروه شرکت‌کنندگان
-              </span>
-            </div>
-          </div>
         </div>
       </section>
 
       {/* ══════════════════════════════════════════════════
-          CORE STATEMENT
+          2. CORE STATEMENT
           ══════════════════════════════════════════════════ */}
       <section
         dir="rtl"
@@ -119,7 +95,7 @@ export default function CoursePage() {
       </section>
 
       {/* ══════════════════════════════════════════════════
-          MODULE LIST
+          3. MODULE LIST
           ══════════════════════════════════════════════════ */}
       <section
         dir="rtl"
@@ -170,7 +146,7 @@ export default function CoursePage() {
       </section>
 
       {/* ══════════════════════════════════════════════════
-          FINAL CTA
+          4. CTA / PRICE
           ══════════════════════════════════════════════════ */}
       <section
         dir="rtl"
@@ -181,7 +157,7 @@ export default function CoursePage() {
           borderTop: '1px solid var(--border)',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap', marginBottom: '0.9rem' }}>
           <a
             href="#form"
             style={{
@@ -199,10 +175,13 @@ export default function CoursePage() {
             ۹.۹ میلیون تومان
           </span>
         </div>
+        <p style={{ fontSize: '0.72rem', color: 'var(--subtle)', margin: 0 }}>
+          قیمت اولیه برای اولین گروه شرکت‌کنندگان
+        </p>
       </section>
 
       {/* ══════════════════════════════════════════════════
-          FORM
+          5. FORM
           ══════════════════════════════════════════════════ */}
       <section
         id="form"
