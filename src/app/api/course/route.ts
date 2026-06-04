@@ -15,18 +15,17 @@ const SUBMISSIONS    = path.join(DATA_DIR, 'course-submissions.json')
 const SCREENSHOT_DIR = path.join(DATA_DIR, 'screenshots')
 
 export interface Submission {
-  id:          string                      // AF-XXXX
-  name:        string
-  instagram:   string
-  telegram:    string
-  email:       string
-  location:    string
-  destination: string
-  reason:      string
-  proofType:   'screenshot' | 'tracking'
-  proofValue:  string                      // filename or tracking number
-  timestamp:   string
-  status:      'pending' | 'approved' | 'rejected'
+  id:        string                      // AF-XXXX
+  name:      string
+  instagram: string
+  email:     string
+  phone:     string
+  telegram:  string
+  location:  string
+  proofType:  'screenshot' | 'tracking'
+  proofValue: string                     // filename or tracking number
+  timestamp:  string
+  status:     'pending' | 'approved' | 'rejected'
 }
 
 async function readSubmissions(): Promise<Submission[]> {
@@ -70,16 +69,15 @@ export async function POST(req: NextRequest) {
 
   const get = (key: string) => (fd.get(key) as string | null)?.trim() ?? ''
 
-  const name        = get('name')
-  const instagram   = get('instagram')
-  const telegram    = get('telegram')
-  const email       = get('email')
-  const location    = get('location')
-  const destination = get('destination')
-  const reason      = get('reason')
-  const proofType   = get('proofType') as 'screenshot' | 'tracking' | ''
+  const name      = get('name')
+  const instagram = get('instagram')
+  const email     = get('email')
+  const phone     = get('phone')
+  const telegram  = get('telegram')
+  const location  = get('location')
+  const proofType = get('proofType') as 'screenshot' | 'tracking' | ''
 
-  if (!name || !email || !location || !destination || !reason) {
+  if (!name || !instagram || !email || !phone) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 422 })
   }
   if (proofType !== 'screenshot' && proofType !== 'tracking') {
@@ -105,8 +103,7 @@ export async function POST(req: NextRequest) {
   }
 
   const submission: Submission = {
-    id: afCode, name, instagram, telegram, email,
-    location, destination, reason,
+    id: afCode, name, instagram, email, phone, telegram, location,
     proofType, proofValue,
     timestamp: new Date().toISOString(),
     status:    'pending',

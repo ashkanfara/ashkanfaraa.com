@@ -6,13 +6,12 @@ import { useState, FormEvent, useRef, Fragment } from 'react'
 type Step = 'application' | 'payment' | 'success'
 
 interface AppData {
-  name:        string
-  instagram:   string
-  telegram:    string
-  email:       string
-  location:    string
-  destination: string
-  reason:      string
+  name:      string
+  instagram: string
+  email:     string
+  phone:     string
+  telegram:  string
+  location:  string
 }
 
 // ── Shared styles ─────────────────────────────────────────────
@@ -109,35 +108,33 @@ function StepIndicator({ current }: { current: 2 | 3 }) {
 
 // ── Application step ──────────────────────────────────────────
 const APP_FIELDS = [
-  { id: 'name',        label: 'نام و نام خانوادگی', type: 'text',  placeholder: '',  required: true  },
-  { id: 'instagram',   label: 'آیدی اینستاگرام',    type: 'text',  placeholder: '@', required: false },
-  { id: 'telegram',    label: 'آیدی تلگرام',         type: 'text',  placeholder: '@', required: false },
-  { id: 'email',       label: 'ایمیل',               type: 'email', placeholder: '',  required: true  },
-  { id: 'location',    label: 'شهر و کشور فعلی',    type: 'text',  placeholder: '',  required: true  },
-  { id: 'destination', label: 'مقصد مورد نظر',       type: 'text',  placeholder: '',  required: true  },
+  { id: 'name',      label: 'نام و نام خانوادگی', type: 'text',  placeholder: '',  required: true  },
+  { id: 'instagram', label: 'آیدی اینستاگرام',    type: 'text',  placeholder: '@', required: true  },
+  { id: 'email',     label: 'ایمیل',               type: 'email', placeholder: '',  required: true  },
+  { id: 'phone',     label: 'شماره موبایل',        type: 'tel',   placeholder: '',  required: true  },
+  { id: 'telegram',  label: 'آیدی تلگرام',         type: 'text',  placeholder: '@', required: false },
+  { id: 'location',  label: 'شهر و کشور فعلی',    type: 'text',  placeholder: '',  required: false },
 ] as const
 
 function ApplicationStep({ onNext }: { onNext: (data: AppData) => void }) {
-  const [values,        setValues]        = useState<Record<string, string>>({})
-  const [focused,       setFocused]       = useState<string | null>(null)
-  const [reasonFocused, setReasonFocused] = useState(false)
+  const [values,  setValues]  = useState<Record<string, string>>({})
+  const [focused, setFocused] = useState<string | null>(null)
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault()
     onNext({
-      name:        values.name        ?? '',
-      instagram:   values.instagram   ?? '',
-      telegram:    values.telegram    ?? '',
-      email:       values.email       ?? '',
-      location:    values.location    ?? '',
-      destination: values.destination ?? '',
-      reason:      values.reason      ?? '',
+      name:      values.name      ?? '',
+      instagram: values.instagram ?? '',
+      email:     values.email     ?? '',
+      phone:     values.phone     ?? '',
+      telegram:  values.telegram  ?? '',
+      location:  values.location  ?? '',
     })
   }
 
   return (
     <form onSubmit={handleSubmit} noValidate style={{ maxWidth: '560px' }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
         {APP_FIELDS.map(f => (
           <div key={f.id}>
             <label htmlFor={f.id} style={lbl}>
@@ -155,24 +152,6 @@ function ApplicationStep({ onNext }: { onNext: (data: AppData) => void }) {
             />
           </div>
         ))}
-
-        <div>
-          <label htmlFor="reason" style={lbl}>
-            دلیل مهاجرت
-            <span style={{ color: 'var(--accent)', marginRight: '0.2rem', opacity: 0.8 }}>*</span>
-          </label>
-          <textarea
-            id="reason" name="reason" required rows={3}
-            value={values.reason ?? ''}
-            onChange={e => setValues(p => ({ ...p, reason: e.target.value }))}
-            onFocus={() => setReasonFocused(true)}
-            onBlur={() => setReasonFocused(false)}
-            style={{
-              ...input, resize: 'none',
-              borderColor: reasonFocused ? 'var(--accent)' : 'var(--border)',
-            }}
-          />
-        </div>
       </div>
 
       <button type="submit" style={{ ...btn, marginTop: '2rem' }}>
