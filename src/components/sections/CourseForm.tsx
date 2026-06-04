@@ -39,7 +39,7 @@ const lbl: React.CSSProperties = {
   letterSpacing: '0.02em',
 }
 
-const btn: React.CSSProperties = {
+const primaryBtn: React.CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
@@ -58,19 +58,34 @@ const btn: React.CSSProperties = {
   textDecoration: 'none',
 }
 
+const ghostBtn: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  borderRadius: '9999px',
+  background: 'transparent',
+  border: '1px solid var(--border-strong)',
+  color: 'var(--subtle)',
+  padding: '0.9rem 1.75rem',
+  fontSize: '0.9rem',
+  fontWeight: 500,
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+  whiteSpace: 'nowrap',
+  textDecoration: 'none',
+  transition: 'border-color 0.15s, color 0.15s',
+}
+
 const CARD_HOLDER = process.env.NEXT_PUBLIC_CARD_HOLDER ?? 'اشکان فارا'
 const CARD_NUMBER = process.env.NEXT_PUBLIC_CARD_NUMBER ?? '— — — —'
 const CARD_SHEBA  = process.env.NEXT_PUBLIC_CARD_SHEBA  ?? ''
 
-// ── Step indicator ─────────────────────────────────────────────
+// ── Step indicator ────────────────────────────────────────────
 const STEP_LABELS = ['پرسشنامه', 'پرداخت', 'کد دسترسی']
 
 function StepIndicator({ current }: { current: 2 | 3 }) {
   return (
-    <div dir="rtl" style={{
-      display: 'flex', alignItems: 'flex-start',
-      marginBottom: '2.25rem',
-    }}>
+    <div dir="rtl" style={{ display: 'flex', alignItems: 'flex-start', marginBottom: '2.25rem' }}>
       {STEP_LABELS.map((label, i) => {
         const n      = i + 1
         const done   = n < current
@@ -125,8 +140,7 @@ function validateField(id: string, val: string): string | null {
     }
     case 'email':
       return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val.trim())
-        ? null
-        : 'یک ایمیل معتبر وارد کن'
+        ? null : 'یک ایمیل معتبر وارد کن'
     case 'telegram': {
       const clean = val.replace(/^@/, '').trim()
       if (clean.length === 0) return 'آیدی تلگرام الزامی است'
@@ -157,16 +171,26 @@ const APP_FIELDS = [
   { id: 'location',  label: 'شهر و کشور فعلی',    type: 'text', placeholder: '',  required: false },
 ] as const
 
-function ApplicationStep({ onNext }: { onNext: (data: AppData) => void }) {
-  const [values,  setValues]  = useState<Record<string, string>>({})
+function ApplicationStep({
+  onNext,
+  initialValues,
+}: {
+  onNext:         (data: AppData) => void
+  initialValues?: Partial<AppData>
+}) {
+  const [values,  setValues]  = useState<Record<string, string>>(initialValues ?? {})
   const [focused, setFocused] = useState<string | null>(null)
-  const [touched, setTouched] = useState<Set<string>>(new Set())
+  // Pre-mark fields that came back with data as touched so errors show on invalid state
+  const [touched, setTouched] = useState<Set<string>>(
+    initialValues
+      ? new Set(Object.keys(initialValues).filter(k => !!(initialValues as Record<string, string>)[k]))
+      : new Set()
+  )
 
   const isValid = REQUIRED_FIELDS.every(id => validateField(id, values[id] ?? '') === null)
 
   function handleChange(id: string, val: string) {
     if (id === 'phone') {
-      // Strip spaces/dashes; allow only Persian and English digits
       const cleaned = val
         .replace(/[\s\-]/g, '')
         .split('').filter(c => /[\d۰-۹]/.test(c)).join('')
@@ -198,7 +222,7 @@ function ApplicationStep({ onNext }: { onNext: (data: AppData) => void }) {
     <form onSubmit={handleSubmit} noValidate style={{ maxWidth: '560px' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
         {APP_FIELDS.map(f => {
-          const error    = validateField(f.id, values[f.id] ?? '')
+          const error     = validateField(f.id, values[f.id] ?? '')
           const showError = touched.has(f.id) && error !== null
           return (
             <div key={f.id}>
@@ -237,7 +261,7 @@ function ApplicationStep({ onNext }: { onNext: (data: AppData) => void }) {
         type="submit"
         disabled={!isValid}
         style={{
-          ...btn, marginTop: '2rem',
+          ...primaryBtn, marginTop: '2rem',
           opacity: isValid ? 1 : 0.4,
           cursor:  isValid ? 'pointer' : 'not-allowed',
         }}
@@ -354,7 +378,7 @@ function PaymentStep({
         </div>
       </div>
 
-      {/* Proof upload */}
+      {/* Proof */}
       <form onSubmit={handleSubmit}>
         <div style={{
           display: 'flex', gap: '0.4rem', marginBottom: '1.25rem',
@@ -415,7 +439,7 @@ function PaymentStep({
         )}
 
         {status === 'error' && (
-          <p style={{ marginTop: '0.75rem', fontSize: '0.8rem', color: 'var(--subtle)', lineHeight: 1.7 }}>
+          <p style={{ marginTop: '0.75rem', fontSize: '0.8rem', color: 'rgba(200,110,70,0.9)', lineHeight: 1.7 }}>
             مشکلی پیش آمد. دوباره امتحان کن.
           </p>
         )}
@@ -425,7 +449,7 @@ function PaymentStep({
             type="submit"
             disabled={status === 'submitting'}
             style={{
-              ...btn,
+              ...primaryBtn,
               opacity: status === 'submitting' ? 0.65 : 1,
               cursor:  status === 'submitting' ? 'wait' : 'pointer',
             }}
@@ -433,22 +457,8 @@ function PaymentStep({
             {status === 'submitting' ? '...' : 'ثبت پرداخت'}
           </button>
 
-          <button
-            type="button"
-            onClick={onBack}
-            style={{
-              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-              borderRadius: '9999px',
-              background: 'transparent',
-              border: '1px solid var(--border-strong)',
-              color: 'var(--subtle)',
-              padding: '0.9rem 1.75rem',
-              fontSize: '0.9rem', fontWeight: 500,
-              cursor: 'pointer', fontFamily: 'inherit',
-              whiteSpace: 'nowrap', transition: 'border-color 0.15s, color 0.15s',
-            }}
-          >
-            بازگشت
+          <button type="button" onClick={onBack} style={ghostBtn}>
+            ویرایش اطلاعات
           </button>
         </div>
       </form>
@@ -457,7 +467,7 @@ function PaymentStep({
 }
 
 // ── Success step ──────────────────────────────────────────────
-function SuccessStep({ afCode, onBack }: { afCode: string; onBack: () => void }) {
+function SuccessStep({ afCode }: { afCode: string }) {
   const [copied, setCopied] = useState(false)
 
   function copyCode() {
@@ -471,17 +481,15 @@ function SuccessStep({ afCode, onBack }: { afCode: string; onBack: () => void })
     <div dir="rtl" style={{ maxWidth: '520px' }}>
       <StepIndicator current={3} />
 
-      {/* Accent rule */}
       <div style={{ width: '2rem', height: '1px', background: 'var(--accent)', opacity: 0.65, marginBottom: '1.75rem' }} />
 
       <p style={{
         fontSize: 'clamp(1rem, 1.8vw, 1.2rem)', fontWeight: 500,
         color: 'var(--foreground)', lineHeight: 1.5, marginBottom: '2.5rem',
       }}>
-        دسترسی شما ثبت شد.
+        درخواست شما ثبت شد.
       </p>
 
-      {/* AF Code — centrepiece */}
       <p style={{ fontSize: '0.65rem', letterSpacing: '0.18em', color: 'var(--subtle)', marginBottom: '0.75rem' }}>
         کد دسترسی اختصاصی شما
       </p>
@@ -512,10 +520,8 @@ function SuccessStep({ afCode, onBack }: { afCode: string; onBack: () => void })
         </button>
       </div>
 
-      {/* Divider */}
       <div style={{ height: '1px', background: 'var(--border)', margin: '2rem 0' }} />
 
-      {/* Instructions */}
       <p style={{ fontSize: '0.9rem', color: 'var(--muted)', lineHeight: 2, marginBottom: '0.75rem' }}>
         این کد را در اینستاگرام برای{' '}
         <span style={{ color: 'var(--accent)', fontWeight: 600 }}>@ashkanfaraa</span>{' '}
@@ -530,28 +536,14 @@ function SuccessStep({ afCode, onBack }: { afCode: string; onBack: () => void })
         <a
           href="https://www.instagram.com/ashkanfaraa/"
           target="_blank" rel="noopener noreferrer"
-          style={btn as React.CSSProperties}
+          style={primaryBtn as React.CSSProperties}
         >
           رفتن به اینستاگرام
         </a>
 
-        <button
-          type="button"
-          onClick={onBack}
-          style={{
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            borderRadius: '9999px',
-            background: 'transparent',
-            border: '1px solid var(--border-strong)',
-            color: 'var(--subtle)',
-            padding: '0.9rem 1.75rem',
-            fontSize: '0.9rem', fontWeight: 500,
-            cursor: 'pointer', fontFamily: 'inherit',
-            whiteSpace: 'nowrap', transition: 'border-color 0.15s, color 0.15s',
-          }}
-        >
-          بازگشت
-        </button>
+        <a href="/course" style={ghostBtn as React.CSSProperties}>
+          بازگشت به دوره
+        </a>
       </div>
     </div>
   )
@@ -564,7 +556,7 @@ export function CourseForm({ onPaymentMode }: { onPaymentMode?: () => void }) {
   const [afCode,  setAfCode]  = useState('')
 
   if (step === 'success') {
-    return <SuccessStep afCode={afCode} onBack={() => setStep('payment')} />
+    return <SuccessStep afCode={afCode} />
   }
 
   if (step === 'payment' && appData) {
@@ -579,6 +571,7 @@ export function CourseForm({ onPaymentMode }: { onPaymentMode?: () => void }) {
 
   return (
     <ApplicationStep
+      initialValues={appData ?? undefined}
       onNext={data => {
         setAppData(data)
         onPaymentMode?.()
