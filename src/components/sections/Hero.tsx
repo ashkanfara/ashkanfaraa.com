@@ -37,7 +37,7 @@ export function Hero() {
           <div className="flex flex-wrap gap-3">
             <a
               href="/course"
-              className="inline-flex items-center rounded-full text-[0.82rem] font-semibold tracking-[0.04em] whitespace-nowrap"
+              className="btn-gold inline-flex items-center rounded-full text-[0.82rem] font-semibold tracking-[0.04em] whitespace-nowrap"
               style={{
                 background: 'var(--accent)',
                 color: 'var(--accent-fg)',

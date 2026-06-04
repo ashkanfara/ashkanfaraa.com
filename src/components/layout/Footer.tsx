@@ -3,7 +3,7 @@ import { site, footer } from '@/data/content'
 export function Footer() {
   return (
     <footer className="border-t border-border">
-      <div className="py-12 md:py-16" style={{ paddingInline: 'clamp(1rem, 2.2vw, 2rem)' }}>
+      <div className="px-site py-12 md:py-16">
         <div className="grid grid-cols-1 gap-10 md:grid-cols-3 md:gap-6">
 
           {/* Column 1 — brand (inline-start in RTL = rightmost on desktop) */}

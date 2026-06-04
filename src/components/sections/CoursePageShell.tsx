@@ -7,7 +7,7 @@ const PAD = 'clamp(1rem, 5vw, 4rem)'
 
 function Eyebrow({ children }: { children: string }) {
   return (
-    <div dir="rtl" style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', marginBottom: '1.1rem' }}>
+    <div dir="rtl" style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', marginBottom: '0.75rem' }}>
       <div style={{ width: '2rem', height: '1px', background: 'var(--accent)', opacity: 0.65, flexShrink: 0 }} />
       <p style={{ fontSize: '0.65rem', letterSpacing: '0.26em', textTransform: 'uppercase', color: 'var(--subtle)', margin: 0 }}>
         {children}
@@ -16,7 +16,6 @@ function Eyebrow({ children }: { children: string }) {
   )
 }
 
-// Indices of modules 03, 05, 06, 08 (0-based: 2, 4, 5, 7)
 const HIGHLIGHTED = new Set([2, 4, 5, 7])
 
 const MODULES = [
@@ -55,23 +54,6 @@ export function CoursePageShell() {
 
   return (
     <>
-      {/* Back button */}
-      {!hidden && (
-        <div dir="rtl" style={{ paddingInline: PAD, paddingTop: '5rem' }}>
-          <a
-            href="/"
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
-              fontSize: '0.78rem', color: 'var(--subtle)',
-              textDecoration: 'none', transition: 'color 0.15s',
-            }}
-          >
-            <span style={{ fontSize: '0.85rem' }}>←</span>
-            بازگشت
-          </a>
-        </div>
-      )}
-
       {/* 1. HERO */}
       {!hidden && (
         <section
@@ -79,8 +61,8 @@ export function CoursePageShell() {
           style={{
             ...fadeStyle,
             paddingInline: PAD,
-            paddingTop: '1.5rem',
-            paddingBottom: '2.5rem',
+            paddingTop: '5rem',
+            paddingBottom: '2rem',
             background: 'radial-gradient(ellipse at 65% 35%, rgba(196,151,58,0.05) 0%, transparent 60%)',
           }}
         >
@@ -93,7 +75,7 @@ export function CoursePageShell() {
               lineHeight: 1.08,
               letterSpacing: '-0.03em',
               color: 'var(--foreground)',
-              marginBottom: '1.25rem',
+              marginBottom: '1rem',
             }}>
               تله‌های پنهان مهاجرت
             </h1>
@@ -104,15 +86,17 @@ export function CoursePageShell() {
               lineHeight: 1.8,
               color: 'var(--muted)',
               letterSpacing: '-0.01em',
-              marginBottom: '1.75rem',
+              marginBottom: '1.25rem',
               maxWidth: '38ch',
             }}>
               چیزهایی که کاش قبل از رفتن می‌دانستی.
             </p>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap', marginBottom: '0.6rem' }}>
+            {/* CTA row: primary action + back link */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
               <a
                 href="#form"
+                className="btn-gold"
                 style={{
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                   borderRadius: '9999px',
@@ -124,12 +108,21 @@ export function CoursePageShell() {
               >
                 درخواست دسترسی به دوره
               </a>
-              <span style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--accent)' }}>
-                ۹.۹ میلیون تومان
-              </span>
+              <a
+                href="/"
+                className="back-link"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                  fontSize: '0.78rem', color: 'var(--subtle)',
+                  textDecoration: 'none',
+                }}
+              >
+                <span style={{ fontSize: '0.85rem' }}>←</span>
+                بازگشت
+              </a>
             </div>
-            <p style={{ fontSize: '0.68rem', color: 'var(--subtle)', margin: 0, opacity: 0.75 }}>
-              قیمت اولیه برای اولین گروه شرکت‌کنندگان
+            <p style={{ fontSize: '0.75rem', color: 'var(--subtle)', margin: 0, opacity: 0.8 }}>
+              ۹.۹ میلیون تومان · قیمت اولیه برای اولین گروه
             </p>
           </div>
         </section>
@@ -176,7 +169,6 @@ export function CoursePageShell() {
             background: 'radial-gradient(ellipse at 30% 50%, rgba(196,151,58,0.04) 0%, transparent 65%)',
           }}
         >
-          {/* Credibility statement */}
           <p style={{
             fontSize: '0.8rem',
             color: 'var(--subtle)',
@@ -188,7 +180,6 @@ export function CoursePageShell() {
             این دوره حاصل سال‌ها تجربه زندگی، تحصیل، کار و گفتگو با مهاجران در کشورهای مختلف است.
           </p>
 
-          {/* Framing line */}
           <p style={{
             fontSize: '0.72rem',
             letterSpacing: '0.06em',
@@ -249,9 +240,10 @@ export function CoursePageShell() {
             borderTop: '1px solid var(--border)',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap', marginBottom: '0.6rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
             <a
               href="#form"
+              className="btn-gold"
               style={{
                 display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                 borderRadius: '9999px',
@@ -263,12 +255,9 @@ export function CoursePageShell() {
             >
               درخواست دسترسی به دوره
             </a>
-            <span style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--accent)' }}>
-              ۹.۹ میلیون تومان
-            </span>
           </div>
-          <p style={{ fontSize: '0.68rem', color: 'var(--subtle)', margin: 0, opacity: 0.75 }}>
-            قیمت اولیه برای اولین گروه شرکت‌کنندگان
+          <p style={{ fontSize: '0.75rem', color: 'var(--subtle)', margin: 0, opacity: 0.8 }}>
+            ۹.۹ میلیون تومان · قیمت اولیه برای اولین گروه
           </p>
         </section>
       )}

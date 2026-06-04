@@ -10,7 +10,7 @@ export function Offers() {
   return (
     <section
       id="offers"
-      style={{ paddingTop: '3rem', paddingBottom: '3rem' }}
+      style={{ paddingTop: '2rem', paddingBottom: '2rem' }}
     >
       {/* Two equal cards */}
       <div
@@ -20,7 +20,7 @@ export function Offers() {
         {offers.map((offer) => (
           <div
             key={offer.id}
-            className="flex flex-col rounded-2xl border border-border bg-surface overflow-hidden"
+            className="card-lift flex flex-col rounded-2xl border border-border bg-surface overflow-hidden"
           >
             {/* Card image */}
             <div style={{ position: 'relative', height: '280px', flexShrink: 0 }}>
@@ -90,6 +90,7 @@ export function Offers() {
             <div style={{ padding: '0 1.4rem 1.4rem' }}>
               <a
                 href={offer.href}
+                className="btn-gold"
                 {...(offer.href.startsWith('http') ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
                 style={{
                   display: 'flex',
@@ -105,7 +106,6 @@ export function Offers() {
                   letterSpacing: '0.04em',
                   textDecoration: 'none',
                   boxSizing: 'border-box',
-                  transition: 'background-color 0.2s',
                 }}
               >
                 {offer.action}

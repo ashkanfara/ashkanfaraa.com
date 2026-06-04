@@ -3,8 +3,6 @@ import { Offers } from '@/components/sections/OfferCards'
 import { Testimonials } from '@/components/sections/Testimonials'
 import { Footer } from '@/components/layout/Footer'
 
-const PAD = 'clamp(1rem, 5vw, 4rem)'
-
 const CREDENTIALS = [
   'زندگی در چند کشور',
   'مهاجرت شخصی',
@@ -20,10 +18,10 @@ export default function Home() {
       {/* ── Credibility ───────────────────────────────────── */}
       <section
         dir="rtl"
+        className="px-site"
         style={{
-          paddingInline: PAD,
-          paddingTop: '2.5rem',
-          paddingBottom: '2.5rem',
+          paddingTop: '1.75rem',
+          paddingBottom: '1.75rem',
           borderTop: '1px solid var(--border)',
         }}
       >
@@ -47,7 +45,7 @@ export default function Home() {
       </section>
 
       {/* ── Offers + Testimonials ─────────────────────────── */}
-      <section className="w-full" style={{ paddingInline: 'clamp(1rem, 2.2vw, 2rem)' }}>
+      <section className="w-full px-site">
         <Offers />
         <Testimonials />
       </section>

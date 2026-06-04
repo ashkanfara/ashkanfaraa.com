@@ -25,37 +25,13 @@ export default function ConsultationPage() {
   return (
     <main className="w-full overflow-x-hidden">
 
-      {/* ══════════════════════════════════════════════════
-          HERO — image left, text right
-          ══════════════════════════════════════════════════ */}
-      {/* Back button */}
-      <div dir="rtl" style={{ paddingInline: PAD, paddingTop: '5rem', paddingBottom: '1rem' }}>
-        <a
-          href="/"
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
-            fontSize: '0.78rem', color: 'var(--subtle)',
-            textDecoration: 'none', transition: 'color 0.15s',
-          }}
-        >
-          <span style={{ fontSize: '0.85rem' }}>←</span>
-          بازگشت
-        </a>
-      </div>
-
-      <section style={{ paddingInline: PAD, paddingTop: '1.5rem', paddingBottom: '3rem' }}>
-
-        {/*
-          dir="ltr" on the grid so column order is physical left→right
-          regardless of the document's RTL direction.
-          The text column gets its own dir="rtl".
-        */}
+      {/* ── Hero: image left, text right ── */}
+      <section style={{ paddingInline: PAD, paddingTop: '6.5rem', paddingBottom: '3rem' }}>
         <div
           dir="ltr"
           className="grid grid-cols-1 md:grid-cols-[45fr_55fr] items-center gap-10 md:gap-14"
         >
-
-          {/* ── Left: image ── */}
+          {/* Left: image */}
           <div
             className="w-full aspect-[16/9] md:aspect-[4/5]"
             style={{ position: 'relative', borderRadius: '0.875rem', overflow: 'hidden' }}
@@ -70,7 +46,7 @@ export default function ConsultationPage() {
             />
           </div>
 
-          {/* ── Right: text ── */}
+          {/* Right: text */}
           <div dir="rtl" style={{ display: 'flex', flexDirection: 'column' }}>
             <Eyebrow>جلسه خصوصی تصمیم‌گیری</Eyebrow>
 
@@ -101,9 +77,11 @@ export default function ConsultationPage() {
               هدف این جلسه ارائه نسخه آماده نیست. هدف این است که قبل از صرف زمان، پول و انرژی، تصمیم آگاهانه‌تری بگیری.
             </p>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
+            {/* CTA row: primary action + back link */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
               <a
                 href="#form"
+                className="btn-gold"
                 style={{
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                   borderRadius: '9999px',
@@ -115,18 +93,28 @@ export default function ConsultationPage() {
               >
                 ارسال درخواست
               </a>
-              <span style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--accent)' }}>
-                جلسات از ۲۵۰ دلار استرالیا آغاز می‌شوند.
-              </span>
+              <a
+                href="/"
+                className="back-link"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                  fontSize: '0.78rem', color: 'var(--subtle)',
+                  textDecoration: 'none',
+                }}
+              >
+                <span style={{ fontSize: '0.85rem' }}>←</span>
+                بازگشت
+              </a>
             </div>
+            <p style={{ fontSize: '0.75rem', color: 'var(--subtle)', margin: 0, opacity: 0.8 }}>
+              جلسات از ۲۵۰ دلار استرالیا آغاز می‌شوند.
+            </p>
           </div>
 
         </div>
       </section>
 
-      {/* ══════════════════════════════════════════════════
-          FORM
-          ══════════════════════════════════════════════════ */}
+      {/* ── Form ── */}
       <section
         id="form"
         dir="rtl"
