@@ -457,7 +457,7 @@ function PaymentStep({
 }
 
 // ── Success step ──────────────────────────────────────────────
-function SuccessStep({ afCode }: { afCode: string }) {
+function SuccessStep({ afCode, onBack }: { afCode: string; onBack: () => void }) {
   const [copied, setCopied] = useState(false)
 
   function copyCode() {
@@ -526,13 +526,33 @@ function SuccessStep({ afCode }: { afCode: string }) {
         معمولاً کمتر از ۲۴ ساعت پاسخ دریافت می‌کنید.
       </p>
 
-      <a
-        href="https://www.instagram.com/ashkanfaraa/"
-        target="_blank" rel="noopener noreferrer"
-        style={btn as React.CSSProperties}
-      >
-        رفتن به اینستاگرام
-      </a>
+      <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+        <a
+          href="https://www.instagram.com/ashkanfaraa/"
+          target="_blank" rel="noopener noreferrer"
+          style={btn as React.CSSProperties}
+        >
+          رفتن به اینستاگرام
+        </a>
+
+        <button
+          type="button"
+          onClick={onBack}
+          style={{
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            borderRadius: '9999px',
+            background: 'transparent',
+            border: '1px solid var(--border-strong)',
+            color: 'var(--subtle)',
+            padding: '0.9rem 1.75rem',
+            fontSize: '0.9rem', fontWeight: 500,
+            cursor: 'pointer', fontFamily: 'inherit',
+            whiteSpace: 'nowrap', transition: 'border-color 0.15s, color 0.15s',
+          }}
+        >
+          بازگشت
+        </button>
+      </div>
     </div>
   )
 }
@@ -544,7 +564,7 @@ export function CourseForm({ onPaymentMode }: { onPaymentMode?: () => void }) {
   const [afCode,  setAfCode]  = useState('')
 
   if (step === 'success') {
-    return <SuccessStep afCode={afCode} />
+    return <SuccessStep afCode={afCode} onBack={() => setStep('payment')} />
   }
 
   if (step === 'payment' && appData) {
