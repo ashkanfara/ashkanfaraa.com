@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, FormEvent, useRef } from 'react'
+import { useState, FormEvent, useRef, Fragment } from 'react'
 
 // ── Types ─────────────────────────────────────────────────────
 type Step = 'application' | 'payment' | 'success'
@@ -63,6 +63,50 @@ const CARD_HOLDER = process.env.NEXT_PUBLIC_CARD_HOLDER ?? 'اشکان فارا'
 const CARD_NUMBER = process.env.NEXT_PUBLIC_CARD_NUMBER ?? '— — — —'
 const CARD_SHEBA  = process.env.NEXT_PUBLIC_CARD_SHEBA  ?? ''
 
+// ── Step indicator ─────────────────────────────────────────────
+const STEP_LABELS = ['پرسشنامه', 'پرداخت', 'کد دسترسی']
+
+function StepIndicator({ current }: { current: 2 | 3 }) {
+  return (
+    <div dir="rtl" style={{
+      display: 'flex', alignItems: 'flex-start',
+      marginBottom: '2.25rem',
+    }}>
+      {STEP_LABELS.map((label, i) => {
+        const n      = i + 1
+        const done   = n < current
+        const active = n === current
+        return (
+          <Fragment key={label}>
+            {i > 0 && (
+              <div style={{
+                flex: 1, height: '1px', marginTop: '3px',
+                background: done ? 'var(--accent)' : 'var(--border)',
+                opacity: done ? 0.45 : 0.6,
+              }} />
+            )}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.35rem' }}>
+              <div style={{
+                width: '6px', height: '6px', borderRadius: '50%',
+                background: active || done ? 'var(--accent)' : 'transparent',
+                border: `1px solid ${active || done ? 'var(--accent)' : 'var(--border-strong)'}`,
+                opacity: done ? 0.5 : 1,
+              }} />
+              <span style={{
+                fontSize: '0.57rem', letterSpacing: '0.04em', whiteSpace: 'nowrap',
+                color: active ? 'var(--accent)' : 'var(--subtle)',
+                opacity: done ? 0.5 : 1,
+              }}>
+                {label}
+              </span>
+            </div>
+          </Fragment>
+        )
+      })}
+    </div>
+  )
+}
+
 // ── Application step ──────────────────────────────────────────
 const APP_FIELDS = [
   { id: 'name',        label: 'نام و نام خانوادگی', type: 'text',  placeholder: '',  required: true  },
@@ -74,8 +118,8 @@ const APP_FIELDS = [
 ] as const
 
 function ApplicationStep({ onNext }: { onNext: (data: AppData) => void }) {
-  const [values,       setValues]       = useState<Record<string, string>>({})
-  const [focused,      setFocused]      = useState<string | null>(null)
+  const [values,        setValues]        = useState<Record<string, string>>({})
+  const [focused,       setFocused]       = useState<string | null>(null)
   const [reasonFocused, setReasonFocused] = useState(false)
 
   function handleSubmit(e: FormEvent) {
@@ -142,20 +186,22 @@ function ApplicationStep({ onNext }: { onNext: (data: AppData) => void }) {
 function PaymentStep({
   appData,
   onSuccess,
+  onBack,
 }: {
   appData:   AppData
   onSuccess: (afCode: string) => void
+  onBack:    () => void
 }) {
-  const [proofType,      setProofType]      = useState<'screenshot' | 'tracking'>('screenshot')
-  const [file,           setFile]           = useState<File | null>(null)
-  const [tracking,       setTracking]       = useState('')
-  const [status,         setStatus]         = useState<'idle' | 'submitting' | 'error'>('idle')
+  const [proofType,       setProofType]       = useState<'screenshot' | 'tracking'>('screenshot')
+  const [file,            setFile]            = useState<File | null>(null)
+  const [tracking,        setTracking]        = useState('')
+  const [status,          setStatus]          = useState<'idle' | 'submitting' | 'error'>('idle')
   const [trackingFocused, setTrackingFocused] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    if (proofType === 'screenshot' && !file)          return
+    if (proofType === 'screenshot' && !file)           return
     if (proofType === 'tracking'   && !tracking.trim()) return
 
     setStatus('submitting')
@@ -163,8 +209,8 @@ function PaymentStep({
       const fd = new FormData()
       Object.entries(appData).forEach(([k, v]) => fd.append(k, v))
       fd.append('proofType', proofType)
-      if (proofType === 'screenshot' && file)   fd.append('screenshot', file)
-      if (proofType === 'tracking')             fd.append('tracking', tracking.trim())
+      if (proofType === 'screenshot' && file) fd.append('screenshot', file)
+      if (proofType === 'tracking')           fd.append('tracking', tracking.trim())
 
       const res = await fetch('/api/course', { method: 'POST', body: fd })
       if (!res.ok) throw new Error('failed')
@@ -177,8 +223,23 @@ function PaymentStep({
 
   return (
     <div dir="rtl" style={{ maxWidth: '560px' }}>
+      <StepIndicator current={2} />
 
-      {/* ── Payment card ─────────────────────────────────── */}
+      {/* Back */}
+      <button
+        type="button" onClick={onBack}
+        style={{
+          background: 'none', border: 'none', cursor: 'pointer',
+          fontFamily: 'inherit', fontSize: '0.8rem', color: 'var(--subtle)',
+          padding: 0, marginBottom: '1.75rem', display: 'flex', alignItems: 'center',
+          gap: '0.35rem', transition: 'color 0.15s', direction: 'rtl',
+        }}
+      >
+        <span style={{ fontSize: '0.9rem', lineHeight: 1 }}>←</span>
+        بازگشت
+      </button>
+
+      {/* Payment card */}
       <div style={{
         background: 'linear-gradient(135deg, var(--surface-raised) 0%, var(--surface) 100%)',
         border: '1px solid var(--border-strong)',
@@ -241,7 +302,7 @@ function PaymentStep({
         </div>
       </div>
 
-      {/* ── Proof upload ──────────────────────────────────── */}
+      {/* Proof upload */}
       <form onSubmit={handleSubmit}>
         <div style={{
           display: 'flex', gap: '0.4rem', marginBottom: '1.25rem',
@@ -325,50 +386,72 @@ function PaymentStep({
 
 // ── Success step ──────────────────────────────────────────────
 function SuccessStep({ afCode }: { afCode: string }) {
+  const [copied, setCopied] = useState(false)
+
+  function copyCode() {
+    navigator.clipboard.writeText(afCode).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
   return (
-    <div
-      dir="rtl"
-      style={{
-        maxWidth: '480px',
-        padding: '2.5rem 2rem',
-        background: 'var(--surface)',
-        border: '1px solid var(--border)',
-        borderRadius: '1rem',
-        position: 'relative',
-        overflow: 'hidden',
-      }}
-    >
-      <div style={{
-        position: 'absolute', top: 0, left: 0, right: 0, height: '2px',
-        background: 'linear-gradient(90deg, transparent, var(--accent), transparent)',
-        opacity: 0.6,
-      }} />
+    <div dir="rtl" style={{ maxWidth: '520px' }}>
+      <StepIndicator current={3} />
 
-      <div style={{ width: '2rem', height: '1px', background: 'var(--accent)', opacity: 0.65, marginBottom: '1.5rem' }} />
+      {/* Accent rule */}
+      <div style={{ width: '2rem', height: '1px', background: 'var(--accent)', opacity: 0.65, marginBottom: '1.75rem' }} />
 
-      <h3 style={{
-        fontSize: 'clamp(1.1rem, 2vw, 1.3rem)', fontWeight: 600,
-        lineHeight: 1.35, color: 'var(--foreground)', marginBottom: '1.5rem',
-      }}>
-        پرداخت شما ثبت شد.
-      </h3>
-
-      <p style={{ fontSize: '0.72rem', color: 'var(--subtle)', letterSpacing: '0.06em', marginBottom: '0.5rem' }}>
-        شناسه شما
-      </p>
       <p style={{
-        fontSize: 'clamp(1.6rem, 4vw, 2.1rem)', fontWeight: 700,
-        color: 'var(--accent)', letterSpacing: '0.12em',
-        fontVariantNumeric: 'tabular-nums', marginBottom: '2rem', lineHeight: 1,
+        fontSize: 'clamp(1rem, 1.8vw, 1.2rem)', fontWeight: 500,
+        color: 'var(--foreground)', lineHeight: 1.5, marginBottom: '2.5rem',
       }}>
-        {afCode}
+        دسترسی شما ثبت شد.
       </p>
 
-      <p style={{ fontSize: '0.9rem', color: 'var(--muted)', lineHeight: 2, marginBottom: '2rem' }}>
-        برای فعال‌سازی دسترسی،<br />
-        این شناسه را در اینستاگرام برای<br />
-        <span style={{ color: 'var(--accent)', fontWeight: 600 }}>@ashkanfaraa</span><br />
+      {/* AF Code — centrepiece */}
+      <p style={{ fontSize: '0.65rem', letterSpacing: '0.18em', color: 'var(--subtle)', marginBottom: '0.75rem' }}>
+        کد دسترسی اختصاصی شما
+      </p>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+        <p style={{
+          fontSize: 'clamp(2.8rem, 8vw, 4.5rem)', fontWeight: 700,
+          color: 'var(--accent)', letterSpacing: '0.1em',
+          fontVariantNumeric: 'tabular-nums', lineHeight: 1, margin: 0,
+        }}>
+          {afCode}
+        </p>
+
+        <button
+          onClick={copyCode}
+          style={{
+            background: 'var(--surface-raised)',
+            border: `1px solid ${copied ? 'var(--accent)' : 'var(--border)'}`,
+            borderRadius: '0.5rem',
+            padding: '0.45rem 0.9rem',
+            fontSize: '0.72rem', fontWeight: 500,
+            color: copied ? 'var(--accent)' : 'var(--subtle)',
+            cursor: 'pointer', fontFamily: 'inherit',
+            transition: 'all 0.2s', whiteSpace: 'nowrap',
+          }}
+        >
+          {copied ? '✓ کپی شد' : 'کپی کد'}
+        </button>
+      </div>
+
+      {/* Divider */}
+      <div style={{ height: '1px', background: 'var(--border)', margin: '2rem 0' }} />
+
+      {/* Instructions */}
+      <p style={{ fontSize: '0.9rem', color: 'var(--muted)', lineHeight: 2, marginBottom: '0.75rem' }}>
+        این کد را در اینستاگرام برای{' '}
+        <span style={{ color: 'var(--accent)', fontWeight: 600 }}>@ashkanfaraa</span>{' '}
         ارسال کنید.
+      </p>
+
+      <p style={{ fontSize: '0.78rem', color: 'var(--subtle)', marginBottom: '2rem', lineHeight: 1.7 }}>
+        معمولاً کمتر از ۲۴ ساعت پاسخ دریافت می‌کنید.
       </p>
 
       <a
@@ -397,6 +480,7 @@ export function CourseForm({ onPaymentMode }: { onPaymentMode?: () => void }) {
       <PaymentStep
         appData={appData}
         onSuccess={code => { setAfCode(code); setStep('success') }}
+        onBack={() => setStep('application')}
       />
     )
   }
@@ -406,7 +490,6 @@ export function CourseForm({ onPaymentMode }: { onPaymentMode?: () => void }) {
       onNext={data => {
         setAppData(data)
         onPaymentMode?.()
-        // Switch to PaymentStep after sales sections have faded out
         setTimeout(() => setStep('payment'), 420)
       }}
     />

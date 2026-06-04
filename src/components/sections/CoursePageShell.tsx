@@ -16,6 +16,9 @@ function Eyebrow({ children }: { children: string }) {
   )
 }
 
+// Indices of modules 03, 05, 06, 08 (0-based: 2, 4, 5, 7)
+const HIGHLIGHTED = new Set([2, 4, 5, 7])
+
 const MODULES = [
   { title: 'چرا این دوره را ساختم' },
   { title: 'مسیری که طی کردم' },
@@ -198,30 +201,39 @@ export function CoursePageShell() {
           </p>
 
           <div style={{ maxWidth: '600px', display: 'flex', flexDirection: 'column' }}>
-            {MODULES.map((mod, i) => (
-              <div
-                key={mod.title}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '1rem',
-                  paddingTop: '0.9rem',
-                  paddingBottom: '0.9rem',
-                  borderTop: '1px solid var(--border)',
-                  borderBottom: i === MODULES.length - 1 ? '1px solid var(--border)' : 'none',
-                }}
-              >
-                <span style={{
-                  fontSize: '0.65rem', color: 'var(--subtle)', opacity: 0.45,
-                  minWidth: '1.5rem', fontVariantNumeric: 'tabular-nums', flexShrink: 0,
-                }}>
-                  {String(i + 1).padStart(2, '0')}
-                </span>
-                <span style={{ fontSize: '1rem', color: 'var(--foreground)', lineHeight: 1.5 }}>
-                  {mod.title}
-                </span>
-              </div>
-            ))}
+            {MODULES.map((mod, i) => {
+              const hi = HIGHLIGHTED.has(i)
+              return (
+                <div
+                  key={mod.title}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '1rem',
+                    paddingTop: '0.9rem',
+                    paddingBottom: '0.9rem',
+                    borderTop: '1px solid var(--border)',
+                    borderBottom: i === MODULES.length - 1 ? '1px solid var(--border)' : 'none',
+                  }}
+                >
+                  <span style={{
+                    fontSize: '0.65rem',
+                    color: hi ? 'var(--accent)' : 'var(--subtle)',
+                    opacity: hi ? 0.7 : 0.45,
+                    minWidth: '1.5rem', fontVariantNumeric: 'tabular-nums', flexShrink: 0,
+                  }}>
+                    {String(i + 1).padStart(2, '0')}
+                  </span>
+                  <span style={{
+                    fontSize: '1rem', lineHeight: 1.5,
+                    color: hi ? '#f5ede0' : 'var(--foreground)',
+                    fontWeight: hi ? 600 : 400,
+                  }}>
+                    {mod.title}
+                  </span>
+                </div>
+              )
+            })}
           </div>
         </section>
       )}
