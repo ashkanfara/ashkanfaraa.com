@@ -41,13 +41,34 @@ export function Hero() {
               {hero.subtext}
             </p>
 
-            <div>
+            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
               <a
-                href={hero.ctaHref}
-                className="inline-flex items-center rounded-full border border-accent text-accent transition-colors duration-200 hover:bg-accent hover:text-accent-fg"
-                style={{ padding: '0.75rem 1.75rem', fontSize: '0.875rem', fontWeight: 500, letterSpacing: '0.04em' }}
+                href="/course"
+                style={{
+                  display: 'inline-flex', alignItems: 'center',
+                  borderRadius: '9999px',
+                  background: 'var(--accent)', color: 'var(--accent-fg)',
+                  padding: '0.7rem 1.5rem',
+                  fontSize: '0.82rem', fontWeight: 600, letterSpacing: '0.04em',
+                  textDecoration: 'none', whiteSpace: 'nowrap',
+                }}
               >
-                {hero.cta}
+                تله‌های پنهان مهاجرت
+              </a>
+              <a
+                href="/consultation"
+                style={{
+                  display: 'inline-flex', alignItems: 'center',
+                  borderRadius: '9999px',
+                  background: 'transparent',
+                  border: '1px solid var(--border-strong)',
+                  color: 'var(--muted)',
+                  padding: '0.7rem 1.5rem',
+                  fontSize: '0.82rem', fontWeight: 500, letterSpacing: '0.04em',
+                  textDecoration: 'none', whiteSpace: 'nowrap',
+                }}
+              >
+                درخواست مشاوره
               </a>
             </div>
           </div>
