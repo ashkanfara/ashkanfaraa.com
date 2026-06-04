@@ -225,20 +225,6 @@ function PaymentStep({
     <div dir="rtl" style={{ maxWidth: '560px' }}>
       <StepIndicator current={2} />
 
-      {/* Back */}
-      <button
-        type="button" onClick={onBack}
-        style={{
-          background: 'none', border: 'none', cursor: 'pointer',
-          fontFamily: 'inherit', fontSize: '0.8rem', color: 'var(--subtle)',
-          padding: 0, marginBottom: '1.75rem', display: 'flex', alignItems: 'center',
-          gap: '0.35rem', transition: 'color 0.15s', direction: 'rtl',
-        }}
-      >
-        <span style={{ fontSize: '0.9rem', lineHeight: 1 }}>←</span>
-        بازگشت
-      </button>
-
       {/* Payment card */}
       <div style={{
         background: 'linear-gradient(135deg, var(--surface-raised) 0%, var(--surface) 100%)',
@@ -368,17 +354,37 @@ function PaymentStep({
           </p>
         )}
 
-        <button
-          type="submit"
-          disabled={status === 'submitting'}
-          style={{
-            ...btn, marginTop: '1.5rem',
-            opacity: status === 'submitting' ? 0.65 : 1,
-            cursor:  status === 'submitting' ? 'wait' : 'pointer',
-          }}
-        >
-          {status === 'submitting' ? '...' : 'ثبت پرداخت'}
-        </button>
+        <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem', flexWrap: 'wrap' }}>
+          <button
+            type="submit"
+            disabled={status === 'submitting'}
+            style={{
+              ...btn,
+              opacity: status === 'submitting' ? 0.65 : 1,
+              cursor:  status === 'submitting' ? 'wait' : 'pointer',
+            }}
+          >
+            {status === 'submitting' ? '...' : 'ثبت پرداخت'}
+          </button>
+
+          <button
+            type="button"
+            onClick={onBack}
+            style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              borderRadius: '9999px',
+              background: 'transparent',
+              border: '1px solid var(--border-strong)',
+              color: 'var(--subtle)',
+              padding: '0.9rem 1.75rem',
+              fontSize: '0.9rem', fontWeight: 500,
+              cursor: 'pointer', fontFamily: 'inherit',
+              whiteSpace: 'nowrap', transition: 'border-color 0.15s, color 0.15s',
+            }}
+          >
+            بازگشت
+          </button>
+        </div>
       </form>
     </div>
   )
