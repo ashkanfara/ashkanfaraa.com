@@ -127,6 +127,12 @@ function validateField(id: string, val: string): string | null {
       return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val.trim())
         ? null
         : 'یک ایمیل معتبر وارد کن'
+    case 'telegram': {
+      const clean = val.replace(/^@/, '').trim()
+      if (clean.length === 0) return 'آیدی تلگرام الزامی است'
+      if (clean.length < 2)  return 'آیدی باید حداقل ۲ کاراکتر باشد'
+      return null
+    }
     case 'phone': {
       const digits = normalizePhone(val)
       if (digits.length === 0)   return 'شماره موبایل الزامی است'
@@ -139,7 +145,7 @@ function validateField(id: string, val: string): string | null {
   }
 }
 
-const REQUIRED_FIELDS = ['name', 'instagram', 'email', 'phone']
+const REQUIRED_FIELDS = ['name', 'instagram', 'email', 'phone', 'telegram']
 
 // ── Application step ──────────────────────────────────────────
 const APP_FIELDS = [
@@ -147,7 +153,7 @@ const APP_FIELDS = [
   { id: 'instagram', label: 'آیدی اینستاگرام',    type: 'text', placeholder: '@', required: true  },
   { id: 'email',     label: 'ایمیل',               type: 'text', placeholder: '',  required: true  },
   { id: 'phone',     label: 'شماره موبایل',        type: 'tel',  placeholder: '',  required: true  },
-  { id: 'telegram',  label: 'آیدی تلگرام',         type: 'text', placeholder: '@', required: false },
+  { id: 'telegram',  label: 'آیدی تلگرام',         type: 'text', placeholder: '@', required: true  },
   { id: 'location',  label: 'شهر و کشور فعلی',    type: 'text', placeholder: '',  required: false },
 ] as const
 

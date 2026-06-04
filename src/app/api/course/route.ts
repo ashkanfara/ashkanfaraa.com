@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
   const location  = get('location')
   const proofType = get('proofType') as 'screenshot' | 'tracking' | ''
 
-  if (!name || !instagram || !email || !phone) {
+  if (!name || !instagram || !email || !phone || !telegram) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 422 })
   }
   if (proofType !== 'screenshot' && proofType !== 'tracking') {
