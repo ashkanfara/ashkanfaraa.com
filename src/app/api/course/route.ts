@@ -1,46 +1,121 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { writeFile, readFile, mkdir } from 'fs/promises'
+import { existsSync }                 from 'fs'
+import path                           from 'path'
 
-// ─────────────────────────────────────────────────────────
-// TODO: Connect storage.
-// Same integration point as /api/consultation.
-// Options: Google Sheets, Airtable, Notion, email via Resend.
-// ─────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// Storage — JSON file + screenshot files on disk.
+// Swap readSubmissions / writeSubmissions / saveScreenshot for
+// Notion / Airtable / Supabase when moving to production.
+// AF code is the primary lookup key for Instagram AI flow.
+// ─────────────────────────────────────────────────────────────
 
-export interface CourseSubmission {
-  name: string
-  instagram: string
-  telegram: string
-  email: string
-  location: string
+const DATA_DIR       = path.join(process.cwd(), 'data')
+const SUBMISSIONS    = path.join(DATA_DIR, 'course-submissions.json')
+const SCREENSHOT_DIR = path.join(DATA_DIR, 'screenshots')
+
+export interface Submission {
+  id:          string                      // AF-XXXX
+  name:        string
+  instagram:   string
+  telegram:    string
+  email:       string
+  location:    string
   destination: string
-  submittedAt: string
+  reason:      string
+  proofType:   'screenshot' | 'tracking'
+  proofValue:  string                      // filename or tracking number
+  timestamp:   string
+  status:      'pending' | 'approved' | 'rejected'
 }
 
-export async function POST(req: NextRequest) {
-  let body: Partial<CourseSubmission>
-
+async function readSubmissions(): Promise<Submission[]> {
   try {
-    body = await req.json()
+    return JSON.parse(await readFile(SUBMISSIONS, 'utf-8'))
   } catch {
-    return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+    return []
+  }
+}
+
+async function writeSubmissions(rows: Submission[]): Promise<void> {
+  if (!existsSync(DATA_DIR)) await mkdir(DATA_DIR, { recursive: true })
+  await writeFile(SUBMISSIONS, JSON.stringify(rows, null, 2), 'utf-8')
+}
+
+async function saveScreenshot(afCode: string, file: File): Promise<string> {
+  const ext      = file.name.split('.').pop()?.toLowerCase() || 'jpg'
+  const filename = `${afCode}.${ext}`
+  if (!existsSync(SCREENSHOT_DIR)) await mkdir(SCREENSHOT_DIR, { recursive: true })
+  await writeFile(path.join(SCREENSHOT_DIR, filename), Buffer.from(await file.arrayBuffer()))
+  return filename
+}
+
+function generateAfCode(existing: Submission[]): string {
+  const used = new Set(existing.map(s => s.id))
+  let code: string
+  do {
+    code = `AF-${Math.floor(1000 + Math.random() * 9000)}`
+  } while (used.has(code))
+  return code
+}
+
+// ─────────────────────────────────────────────────────────────
+export async function POST(req: NextRequest) {
+  let fd: FormData
+  try {
+    fd = await req.formData()
+  } catch {
+    return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
   }
 
-  const { name, email, location, destination } = body
-  if (!name?.trim() || !email?.trim() || !location?.trim() || !destination?.trim()) {
+  const get = (key: string) => (fd.get(key) as string | null)?.trim() ?? ''
+
+  const name        = get('name')
+  const instagram   = get('instagram')
+  const telegram    = get('telegram')
+  const email       = get('email')
+  const location    = get('location')
+  const destination = get('destination')
+  const reason      = get('reason')
+  const proofType   = get('proofType') as 'screenshot' | 'tracking' | ''
+
+  if (!name || !email || !location || !destination || !reason) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 422 })
   }
-
-  const submission: CourseSubmission = {
-    name:        body.name!.trim(),
-    instagram:   body.instagram?.trim() ?? '',
-    telegram:    body.telegram?.trim()  ?? '',
-    email:       body.email!.trim(),
-    location:    body.location!.trim(),
-    destination: body.destination!.trim(),
-    submittedAt: new Date().toISOString(),
+  if (proofType !== 'screenshot' && proofType !== 'tracking') {
+    return NextResponse.json({ error: 'Invalid proof type' }, { status: 422 })
   }
 
-  console.log('[course] new submission:', submission)
+  const submissions = await readSubmissions()
+  const afCode      = generateAfCode(submissions)
 
-  return NextResponse.json({ ok: true }, { status: 200 })
+  let proofValue = ''
+
+  if (proofType === 'screenshot') {
+    const file = fd.get('screenshot') as File | null
+    if (!file || file.size === 0) {
+      return NextResponse.json({ error: 'Screenshot required' }, { status: 422 })
+    }
+    proofValue = await saveScreenshot(afCode, file)
+  } else {
+    proofValue = get('tracking')
+    if (!proofValue) {
+      return NextResponse.json({ error: 'Tracking number required' }, { status: 422 })
+    }
+  }
+
+  const submission: Submission = {
+    id: afCode, name, instagram, telegram, email,
+    location, destination, reason,
+    proofType, proofValue,
+    timestamp: new Date().toISOString(),
+    status:    'pending',
+  }
+
+  submissions.push(submission)
+  await writeSubmissions(submissions)
+
+  console.log(`[course] ${afCode} — ${name} (${email})`)
+
+  return NextResponse.json({ ok: true, afCode }, { status: 201 })
 }
