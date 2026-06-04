@@ -61,6 +61,7 @@ const btn: React.CSSProperties = {
 
 const CARD_HOLDER = process.env.NEXT_PUBLIC_CARD_HOLDER ?? 'اشکان فارا'
 const CARD_NUMBER = process.env.NEXT_PUBLIC_CARD_NUMBER ?? '— — — —'
+const CARD_SHEBA  = process.env.NEXT_PUBLIC_CARD_SHEBA  ?? ''
 
 // ── Application step ──────────────────────────────────────────
 const APP_FIELDS = [
@@ -224,6 +225,19 @@ function PaymentStep({
               {CARD_NUMBER}
             </p>
           </div>
+          {CARD_SHEBA && (
+            <div>
+              <p style={{ fontSize: '0.6rem', letterSpacing: '0.14em', color: 'var(--subtle)', marginBottom: '0.3rem' }}>
+                شبا / ساتنا
+              </p>
+              <p style={{
+                fontSize: '0.82rem', fontWeight: 500, color: 'var(--muted)',
+                letterSpacing: '0.06em', fontVariantNumeric: 'tabular-nums', direction: 'ltr',
+              }}>
+                {CARD_SHEBA}
+              </p>
+            </div>
+          )}
         </div>
       </div>
 
