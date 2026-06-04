@@ -55,6 +55,23 @@ export function CoursePageShell() {
 
   return (
     <>
+      {/* Back button */}
+      {!hidden && (
+        <div dir="rtl" style={{ paddingInline: PAD, paddingTop: '5rem' }}>
+          <a
+            href="/"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+              fontSize: '0.78rem', color: 'var(--subtle)',
+              textDecoration: 'none', transition: 'color 0.15s',
+            }}
+          >
+            <span style={{ fontSize: '0.85rem' }}>←</span>
+            بازگشت
+          </a>
+        </div>
+      )}
+
       {/* 1. HERO */}
       {!hidden && (
         <section
@@ -62,7 +79,7 @@ export function CoursePageShell() {
           style={{
             ...fadeStyle,
             paddingInline: PAD,
-            paddingTop: '3.5rem',
+            paddingTop: '1.5rem',
             paddingBottom: '2.5rem',
             background: 'radial-gradient(ellipse at 65% 35%, rgba(196,151,58,0.05) 0%, transparent 60%)',
           }}

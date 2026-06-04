@@ -28,7 +28,22 @@ export default function ConsultationPage() {
       {/* ══════════════════════════════════════════════════
           HERO — image left, text right
           ══════════════════════════════════════════════════ */}
-      <section style={{ paddingInline: PAD, paddingTop: '4.5rem', paddingBottom: '3rem' }}>
+      {/* Back button */}
+      <div dir="rtl" style={{ paddingInline: PAD, paddingTop: '5rem', paddingBottom: '1rem' }}>
+        <a
+          href="/"
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+            fontSize: '0.78rem', color: 'var(--subtle)',
+            textDecoration: 'none', transition: 'color 0.15s',
+          }}
+        >
+          <span style={{ fontSize: '0.85rem' }}>←</span>
+          بازگشت
+        </a>
+      </div>
+
+      <section style={{ paddingInline: PAD, paddingTop: '1.5rem', paddingBottom: '3rem' }}>
 
         {/*
           dir="ltr" on the grid so column order is physical left→right

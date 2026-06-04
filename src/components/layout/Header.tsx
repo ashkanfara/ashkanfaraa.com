@@ -15,8 +15,8 @@ export function Header() {
           </span>
         </div>
 
-        {/* Nav — visible at all sizes */}
-        <nav className="flex items-center gap-4 md:gap-6">
+        {/* Nav */}
+        <nav className="flex items-center gap-5 md:gap-7">
           {nav.links.map((link) => (
             <Link
               key={link.label}
@@ -27,26 +27,6 @@ export function Header() {
               {link.label}
             </Link>
           ))}
-
-          {/* Separator */}
-          <span
-            className="block"
-            style={{ width: '1px', height: '0.75rem', background: 'var(--border-strong)', opacity: 0.5 }}
-          />
-
-          {/* Language switch */}
-          <span
-            style={{
-              fontSize: '10px',
-              letterSpacing: '0.12em',
-              color: 'var(--subtle)',
-              fontWeight: 400,
-              cursor: 'default',
-              userSelect: 'none',
-            }}
-          >
-            EN
-          </span>
         </nav>
       </div>
     </header>

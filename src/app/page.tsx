@@ -5,6 +5,13 @@ import { Footer } from '@/components/layout/Footer'
 
 const PAD = 'clamp(1rem, 5vw, 4rem)'
 
+const CREDENTIALS = [
+  'زندگی در چند کشور',
+  'مهاجرت شخصی',
+  'سال‌ها مشاوره با ایرانیان',
+  'تجربه تصمیم‌هایی که روی کاغذ دیده نمی‌شوند',
+]
+
 export default function Home() {
   return (
     <main className="w-full overflow-x-hidden">
@@ -15,31 +22,28 @@ export default function Home() {
         dir="rtl"
         style={{
           paddingInline: PAD,
-          paddingTop: '3.5rem',
-          paddingBottom: '3.5rem',
+          paddingTop: '2.5rem',
+          paddingBottom: '2.5rem',
           borderTop: '1px solid var(--border)',
         }}
       >
-        <h2 style={{
-          fontSize: 'clamp(0.95rem, 1.4vw, 1.1rem)',
-          fontWeight: 600,
-          letterSpacing: '-0.01em',
-          color: 'var(--foreground)',
+        <p style={{
+          fontSize: '0.62rem',
+          letterSpacing: '0.22em',
+          textTransform: 'uppercase',
+          color: 'var(--subtle)',
           marginBottom: '1rem',
         }}>
-          چرا اشکان؟
-        </h2>
-        <p style={{
-          fontSize: '0.9rem',
-          color: 'var(--muted)',
-          lineHeight: 1.95,
-          maxWidth: '52ch',
-          margin: 0,
-        }}>
-          مهاجرت را زندگی کرده‌ام، نه فقط درباره آن صحبت کرده‌ام.
-          <br /><br />
-          سال‌ها زندگی، تحصیل و کار در کشورهای مختلف، تجربه‌ای ساخته که بسیاری از افراد تنها بعد از مهاجرت به دست می‌آورند.
+          تجربه واقعی
         </p>
+        <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          {CREDENTIALS.map(c => (
+            <li key={c} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              <span style={{ width: '3px', height: '3px', borderRadius: '50%', background: 'var(--accent)', opacity: 0.6, flexShrink: 0 }} />
+              <span style={{ fontSize: '0.875rem', color: 'var(--muted)', lineHeight: 1.6 }}>{c}</span>
+            </li>
+          ))}
+        </ul>
       </section>
 
       {/* ── Offers + Testimonials ─────────────────────────── */}
