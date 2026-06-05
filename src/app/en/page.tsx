@@ -5,7 +5,7 @@ import { Testimonials } from '@/components/sections/Testimonials'
 import { Footer }       from '@/components/layout/Footer'
 import {
   hero,
-  credentials,
+  credibilitySection,
   offers,
   offersMeta,
   testimonials,
@@ -13,43 +13,54 @@ import {
 } from '@/data/content.en'
 
 export const metadata: Metadata = {
-  title: 'Ashkan Faraa — Migration Strategy',
-  description: 'Before the big decisions, see the picture most people miss. Private strategy sessions and courses for Iranians navigating major life choices.',
+  title: 'Ashkan Faraa — Private Strategy Sessions',
+  description:
+    "Before the big decisions, see the full picture. Private strategy sessions for people navigating migration, relocation, business, education, and major life decisions.",
 }
 
 export default function EnHomePage() {
   return (
     <main className="w-full overflow-x-hidden">
+
+      {/* 1 — Hero */}
       <Hero
         content={hero}
-        primaryCta={{ label: 'Migration: The Full Picture', href: '/en/course' }}
-        secondaryCta={{ label: 'Request a Session', href: '/en/consultation' }}
+        primaryCta={{ label: 'Request a Strategy Session', href: '/en/consultation' }}
+        secondaryCta={{ label: 'Explore The Hidden Traps of Migration', href: '/en/course' }}
       />
 
-      {/* Credibility */}
+      {/* 2 — Credibility */}
       <section
         className="px-site"
-        style={{ paddingTop: '1.75rem', paddingBottom: '1.75rem', borderTop: '1px solid var(--border)' }}
+        style={{ paddingTop: '2rem', paddingBottom: '2rem', borderTop: '1px solid var(--border)' }}
       >
-        <p style={{ fontSize: '0.62rem', letterSpacing: '0.22em', textTransform: 'uppercase', color: 'var(--subtle)', marginBottom: '1rem' }}>
-          Real Experience
+        <p style={{
+          fontSize: '0.62rem', letterSpacing: '0.22em',
+          textTransform: 'uppercase', color: 'var(--subtle)', marginBottom: '1.25rem',
+        }}>
+          {credibilitySection.eyebrow}
         </p>
-        <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          {credentials.map(c => (
-            <li key={c} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-              <span style={{ width: '3px', height: '3px', borderRadius: '50%', background: 'var(--accent)', opacity: 0.6, flexShrink: 0 }} />
-              <span style={{ fontSize: '0.875rem', color: 'var(--muted)', lineHeight: 1.6 }}>{c}</span>
+        <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+          {credibilitySection.points.map(point => (
+            <li key={point} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.7rem' }}>
+              <span style={{ width: '3px', height: '3px', borderRadius: '50%', background: 'var(--accent)', opacity: 0.6, flexShrink: 0, marginTop: '0.5em' }} />
+              <span style={{ fontSize: '0.875rem', color: 'var(--muted)', lineHeight: 1.65 }}>{point}</span>
             </li>
           ))}
         </ul>
       </section>
 
-      {/* Offers + Testimonials */}
+      {/* 3 — Offers (consultation first) */}
       <section className="w-full px-site">
         <Offers offers={offers as any} meta={offersMeta} />
-        <Testimonials content={testimonials} />
       </section>
 
+      {/* 4 — Testimonials */}
+      <section className="w-full px-site">
+        <Testimonials content={testimonials} locale="en" />
+      </section>
+
+      {/* 5 — Footer */}
       <Footer content={footer} />
     </main>
   )

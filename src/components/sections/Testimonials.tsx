@@ -33,8 +33,8 @@ type TestimonialsContent = {
   }>
 }
 
-function TestimonialCard({ name, label, quote, src, id }: {
-  name: string; label: string; quote: string; src: string; id: string
+function TestimonialCard({ name, label, quote, src, id, locale = 'fa' }: {
+  name: string; label: string; quote: string; src: string; id: string; locale?: 'fa' | 'en'
 }) {
   const audioRef  = useRef<HTMLAudioElement>(null)
   const [playing,  setPlaying]  = useState(false)
@@ -76,8 +76,8 @@ function TestimonialCard({ name, label, quote, src, id }: {
       }} />
 
       {/* Quote */}
-      <p dir="rtl" style={{ fontSize: '0.875rem', color: 'var(--muted)', lineHeight: 1.7, margin: 0, letterSpacing: '-0.01em' }}>
-        «{quote}»
+      <p style={{ fontSize: '0.875rem', color: 'var(--muted)', lineHeight: 1.7, margin: 0, letterSpacing: '-0.01em' }}>
+        {locale === 'en' ? quote : `«${quote}»`}
       </p>
 
       {/* Controls — always LTR */}
@@ -142,7 +142,7 @@ function TestimonialCard({ name, label, quote, src, id }: {
       </div>
 
       {/* Identity */}
-      <div dir="rtl" style={{ borderTop: '1px solid var(--border)', paddingTop: '0.875rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+      <div dir={locale === 'en' ? 'ltr' : 'rtl'} style={{ borderTop: '1px solid var(--border)', paddingTop: '0.875rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
         <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--foreground)', lineHeight: 1.2 }}>{name}</span>
         <span style={{ fontSize: '0.72rem', color: 'var(--muted)', opacity: 0.7, lineHeight: 1.45 }}>{label}</span>
       </div>
@@ -159,9 +159,12 @@ function TestimonialCard({ name, label, quote, src, id }: {
   )
 }
 
-export function Testimonials({ content = defaultContent }: { content?: TestimonialsContent }) {
+export function Testimonials({ content = defaultContent, locale = 'fa' }: { content?: TestimonialsContent; locale?: 'fa' | 'en' }) {
+  const dir = locale === 'en' ? 'ltr' : 'rtl'
+  const subtextPadding = locale === 'en' ? { paddingLeft: '2.875rem' } : { paddingRight: '2.875rem' }
+
   return (
-    <section dir="rtl" style={{ paddingTop: '0.5rem', paddingBottom: '1.75rem' }}>
+    <section dir={dir} style={{ paddingTop: '0.5rem', paddingBottom: '1.75rem' }}>
 
       <div style={{ marginBottom: '1.25rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', marginBottom: '0.5rem' }}>
@@ -170,14 +173,14 @@ export function Testimonials({ content = defaultContent }: { content?: Testimoni
             {content.sectionLabel}
           </p>
         </div>
-        <p style={{ fontSize: '0.82rem', color: 'var(--subtle)', lineHeight: 1.75, opacity: 0.8, paddingRight: '2.875rem' }}>
+        <p style={{ fontSize: '0.82rem', color: 'var(--subtle)', lineHeight: 1.75, opacity: 0.8, ...subtextPadding }}>
           {content.subtext}
         </p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3" style={{ gap: '1rem' }}>
         {content.items.map(item => (
-          <TestimonialCard key={item.id} id={item.id} name={item.name} label={item.label} quote={item.quote} src={item.src} />
+          <TestimonialCard key={item.id} id={item.id} name={item.name} label={item.label} quote={item.quote} src={item.src} locale={locale} />
         ))}
       </div>
 

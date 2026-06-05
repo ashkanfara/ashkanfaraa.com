@@ -43,7 +43,7 @@ export function Header() {
           </div>
         </Link>
 
-        {/* Nav + lang toggle */}
+        {/* Nav + language switch */}
         <nav className="flex items-center gap-5 md:gap-7">
           {links.map((link) => {
             const active = pathname === link.href
@@ -62,10 +62,22 @@ export function Header() {
             )
           })}
 
-          {/* Language toggle */}
-          <Link href={altHref} className="lang-toggle">
-            {isEn ? 'FA' : 'EN'}
-          </Link>
+          {/* Language switch — luxury inline text, no badge */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.68rem', letterSpacing: '0.05em' }}>
+            {isEn ? (
+              <>
+                <span style={{ color: 'var(--muted)' }}>English</span>
+                <span style={{ color: 'var(--border-strong)' }}>·</span>
+                <Link href={altHref} className="lang-inactive">فارسی</Link>
+              </>
+            ) : (
+              <>
+                <Link href={altHref} className="lang-inactive">English</Link>
+                <span style={{ color: 'var(--border-strong)' }}>·</span>
+                <span style={{ color: 'var(--muted)' }}>فارسی</span>
+              </>
+            )}
+          </div>
         </nav>
       </div>
     </header>

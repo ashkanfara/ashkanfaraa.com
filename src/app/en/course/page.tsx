@@ -4,8 +4,9 @@ import { CoursePageShellEn } from '@/components/sections/CoursePageShellEn'
 import { footer }            from '@/data/content.en'
 
 export const metadata: Metadata = {
-  title: 'Migration: The Full Picture — Ashkan Faraa',
-  description: "What no one tells you honestly before you go. A course built from years of personal migration experience.",
+  title: 'The Hidden Traps of Migration — Ashkan Faraa',
+  description:
+    "What no one tells you honestly before you go. A structured course covering the emotional, financial, cultural and practical realities of moving countries. $99 USD.",
 }
 
 export default function EnCoursePage() {
