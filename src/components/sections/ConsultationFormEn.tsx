@@ -20,36 +20,33 @@ const inputStyle: React.CSSProperties = {
 
 const labelStyle: React.CSSProperties = {
   display: 'block',
-  fontSize: '0.78rem',
+  fontSize: '0.75rem',
   color: 'var(--muted)',
   marginBottom: '0.5rem',
   letterSpacing: '0.02em',
 }
 
+const sectionLabel: React.CSSProperties = {
+  fontSize: '0.6rem',
+  letterSpacing: '0.2em',
+  textTransform: 'uppercase',
+  color: 'var(--subtle)',
+  marginBottom: '1.1rem',
+}
+
 function validate(id: string, val: string): string | null {
   switch (id) {
-    case 'name':     return val.trim().length < 2         ? 'Name is required' : null
-    case 'email':    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val.trim()) ? null : 'Enter a valid email address'
-    case 'country':  return val.trim().length === 0        ? 'Country is required' : null
-    case 'decision': return val.trim().length < 10         ? 'Please describe your decision' : null
-    case 'options':  return val.trim().length < 10         ? 'Please describe your options' : null
-    case 'outcome':  return val.trim().length < 10         ? 'Please describe your ideal outcome' : null
+    case 'name':     return val.trim().length < 2                                    ? 'Name is required' : null
+    case 'email':    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val.trim())           ? null : 'Enter a valid email address'
+    case 'country':  return val.trim().length === 0                                  ? 'Country is required' : null
+    case 'decision': return val.trim().length < 10                                   ? 'Please describe your decision' : null
+    case 'options':  return val.trim().length < 10                                   ? 'Please describe your options' : null
+    case 'outcome':  return val.trim().length < 10                                   ? 'Please describe your ideal outcome' : null
     default:         return null
   }
 }
 
 const REQUIRED = ['name', 'email', 'country', 'decision', 'options', 'outcome']
-
-const FIELDS = [
-  { id: 'name',      label: 'Full name',                                   type: 'text'     as const, required: true,  rows: undefined },
-  { id: 'email',     label: 'Email address',                               type: 'email'    as const, required: true,  rows: undefined },
-  { id: 'country',   label: 'Country you are currently based in',          type: 'text'     as const, required: true,  rows: undefined },
-  { id: 'instagram', label: 'Instagram handle (optional)',                  type: 'text'     as const, required: false, rows: undefined },
-  { id: 'decision',  label: 'What decision are you trying to make?',       type: 'textarea' as const, required: true,  rows: 3 },
-  { id: 'options',   label: 'What options are you considering?',           type: 'textarea' as const, required: true,  rows: 3 },
-  { id: 'outcome',   label: 'What would a successful outcome look like?',  type: 'textarea' as const, required: true,  rows: 3 },
-  { id: 'notes',     label: 'Anything else I should know? (optional)',     type: 'textarea' as const, required: false, rows: 3 },
-]
 
 export function ConsultationFormEn() {
   const [values,  setValues]  = useState<Record<string, string>>({})
@@ -59,9 +56,44 @@ export function ConsultationFormEn() {
 
   const isValid = REQUIRED.every(id => validate(id, values[id] ?? '') === null)
 
-  function handleBlur(id: string) {
-    setFocused(null)
-    setTouched(prev => new Set([...prev, id]))
+  function field(id: string) {
+    const error     = validate(id, values[id] ?? '')
+    const showError = touched.has(id) && error !== null
+    const borderColor = showError
+      ? 'rgba(192,100,60,0.7)'
+      : focused === id ? 'var(--accent)' : 'var(--border)'
+    return { error, showError, borderColor }
+  }
+
+  function renderError(id: string) {
+    const { showError, error } = field(id)
+    return showError ? (
+      <p style={{ marginTop: '0.4rem', fontSize: '0.72rem', color: 'rgba(200,110,70,0.9)', lineHeight: 1.5 }}>{error}</p>
+    ) : null
+  }
+
+  function inputProps(id: string, type: string) {
+    const { borderColor } = field(id)
+    return {
+      id, name: id, type,
+      value: values[id] ?? '',
+      onChange: (e: React.ChangeEvent<HTMLInputElement>) => setValues(p => ({ ...p, [id]: e.target.value })),
+      onFocus: () => setFocused(id),
+      onBlur: () => { setFocused(null); setTouched(p => new Set([...p, id])) },
+      style: { ...inputStyle, borderColor },
+    }
+  }
+
+  function textareaProps(id: string) {
+    const { borderColor } = field(id)
+    return {
+      id, name: id, rows: 3,
+      value: values[id] ?? '',
+      onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => setValues(p => ({ ...p, [id]: e.target.value })),
+      onFocus: () => setFocused(id),
+      onBlur: () => { setFocused(null); setTouched(p => new Set([...p, id])) },
+      style: { ...inputStyle, resize: 'vertical' as const, minHeight: '96px', borderColor },
+    }
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -80,10 +112,10 @@ export function ConsultationFormEn() {
           email:     values.email     ?? '',
           subject:   values.decision  ?? '',
           message:   [
-            values.decision  ? `Decision: ${values.decision}`  : '',
-            values.options   ? `Options: ${values.options}`    : '',
-            values.outcome   ? `Outcome: ${values.outcome}`    : '',
-            values.notes     ? `Notes: ${values.notes}`        : '',
+            `Decision: ${values.decision  ?? ''}`,
+            `Options: ${values.options    ?? ''}`,
+            `Outcome: ${values.outcome    ?? ''}`,
+            values.notes ? `Notes: ${values.notes}` : '',
           ].filter(Boolean).join('\n\n'),
         }),
       })
@@ -118,55 +150,76 @@ export function ConsultationFormEn() {
   /* ── Form ── */
   return (
     <form onSubmit={handleSubmit} noValidate style={{ maxWidth: '560px' }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-        {FIELDS.map((field) => {
-          const error     = validate(field.id, values[field.id] ?? '')
-          const showError = touched.has(field.id) && error !== null
-          const borderColor = showError
-            ? 'rgba(192,100,60,0.7)'
-            : focused === field.id ? 'var(--accent)' : 'var(--border)'
 
-          return (
-            <div key={field.id}>
-              <label htmlFor={field.id} style={labelStyle}>
-                {field.label}
-                {field.required && <span style={{ color: 'var(--accent)', marginLeft: '0.2rem', opacity: 0.8 }}>*</span>}
-              </label>
+      {/* ── Section 1: Contact ── */}
+      <p style={sectionLabel}>Your Information</p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', marginBottom: '2.5rem' }}>
 
-              {field.type === 'textarea' ? (
-                <textarea
-                  id={field.id} name={field.id} rows={field.rows ?? 3}
-                  required={field.required}
-                  value={values[field.id] ?? ''}
-                  onChange={e => setValues(p => ({ ...p, [field.id]: e.target.value }))}
-                  onFocus={() => setFocused(field.id)}
-                  onBlur={() => handleBlur(field.id)}
-                  style={{ ...inputStyle, resize: 'vertical', minHeight: '96px', borderColor }}
-                />
-              ) : (
-                <input
-                  id={field.id} name={field.id} type={field.type}
-                  required={field.required}
-                  value={values[field.id] ?? ''}
-                  onChange={e => setValues(p => ({ ...p, [field.id]: e.target.value }))}
-                  onFocus={() => setFocused(field.id)}
-                  onBlur={() => handleBlur(field.id)}
-                  style={{ ...inputStyle, borderColor }}
-                />
-              )}
+        <div>
+          <label htmlFor="name" style={labelStyle}>Full name <span style={{ color: 'var(--accent)', opacity: 0.8 }}>*</span></label>
+          <input {...inputProps('name', 'text')} />
+          {renderError('name')}
+        </div>
 
-              {showError && (
-                <p style={{ marginTop: '0.4rem', fontSize: '0.72rem', color: 'rgba(200,110,70,0.9)', lineHeight: 1.5 }}>
-                  {error}
-                </p>
-              )}
-            </div>
-          )
-        })}
+        <div>
+          <label htmlFor="email" style={labelStyle}>Email address <span style={{ color: 'var(--accent)', opacity: 0.8 }}>*</span></label>
+          <input {...inputProps('email', 'email')} />
+          {renderError('email')}
+        </div>
+
+        <div>
+          <label htmlFor="country" style={labelStyle}>Country you are currently based in <span style={{ color: 'var(--accent)', opacity: 0.8 }}>*</span></label>
+          <input {...inputProps('country', 'text')} />
+          {renderError('country')}
+        </div>
+
+        <div>
+          <label htmlFor="instagram" style={labelStyle}>Instagram handle (optional)</label>
+          <input {...inputProps('instagram', 'text')} placeholder="@" />
+        </div>
+
+      </div>
+
+      {/* ── Section divider ── */}
+      <div style={{ height: '1px', background: 'var(--border)', marginBottom: '2.5rem' }} />
+
+      {/* ── Section 2: Decision context ── */}
+      <p style={sectionLabel}>About Your Decision</p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.75rem', marginBottom: '2.5rem' }}>
+
+        <div>
+          <label htmlFor="decision" style={labelStyle}>
+            What decision are you trying to make? <span style={{ color: 'var(--accent)', opacity: 0.8 }}>*</span>
+          </label>
+          <textarea {...textareaProps('decision')} />
+          {renderError('decision')}
+        </div>
+
+        <div>
+          <label htmlFor="options" style={labelStyle}>
+            What options are you considering? <span style={{ color: 'var(--accent)', opacity: 0.8 }}>*</span>
+          </label>
+          <textarea {...textareaProps('options')} />
+          {renderError('options')}
+        </div>
+
+        <div>
+          <label htmlFor="outcome" style={labelStyle}>
+            What would a successful outcome look like? <span style={{ color: 'var(--accent)', opacity: 0.8 }}>*</span>
+          </label>
+          <textarea {...textareaProps('outcome')} />
+          {renderError('outcome')}
+        </div>
+
+        <div>
+          <label htmlFor="notes" style={labelStyle}>Anything else I should know? (optional)</label>
+          <textarea {...textareaProps('notes')} />
+        </div>
+
       </div>
 
       {status === 'error' && (
-        <p style={{ marginTop: '1rem', fontSize: '0.8rem', color: 'var(--subtle)', lineHeight: 1.6 }}>
+        <p style={{ marginBottom: '1rem', fontSize: '0.8rem', color: 'var(--subtle)', lineHeight: 1.6 }}>
           Something went wrong. Please try again.
         </p>
       )}
@@ -175,7 +228,6 @@ export function ConsultationFormEn() {
         type="submit"
         disabled={!isValid || status === 'submitting'}
         style={{
-          marginTop: '2.25rem',
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
           borderRadius: '9999px', background: 'var(--accent)', color: 'var(--accent-fg)',
           padding: '0.9rem 2.5rem', fontSize: '0.9rem', fontWeight: 600,

@@ -13,6 +13,72 @@ function getAltLocaleHref(pathname: string, isEn: boolean): string {
   return pathname === '/' ? '/en' : `/en${pathname}`
 }
 
+// ── Segmented EN / FA toggle ──────────────────────────────────
+// Looks like a small OS-style segment control, not a nav link pair.
+function LocaleToggle({ isEn, altHref }: { isEn: boolean; altHref: string }) {
+  return (
+    <div
+      style={{
+        display: 'inline-flex',
+        background: 'rgba(255,255,255,0.04)',
+        border: '1px solid var(--border)',
+        borderRadius: '0.3rem',
+        overflow: 'hidden',
+        fontSize: '0.6rem',
+        letterSpacing: '0.12em',
+        fontWeight: 600,
+        flexShrink: 0,
+      }}
+    >
+      {/* EN segment */}
+      {isEn ? (
+        <span style={{
+          padding: '0.26rem 0.55rem',
+          background: 'rgba(255,255,255,0.1)',
+          color: 'var(--foreground)',
+          borderRight: '1px solid var(--border)',
+          userSelect: 'none',
+        }}>
+          EN
+        </span>
+      ) : (
+        <Link href={altHref} style={{
+          padding: '0.26rem 0.55rem',
+          color: 'var(--subtle)',
+          textDecoration: 'none',
+          borderRight: '1px solid var(--border)',
+          transition: 'color 0.15s, background 0.15s',
+          display: 'block',
+        }}>
+          EN
+        </Link>
+      )}
+
+      {/* FA segment */}
+      {!isEn ? (
+        <span style={{
+          padding: '0.26rem 0.55rem',
+          background: 'rgba(255,255,255,0.1)',
+          color: 'var(--foreground)',
+          userSelect: 'none',
+        }}>
+          FA
+        </span>
+      ) : (
+        <Link href={altHref} style={{
+          padding: '0.26rem 0.55rem',
+          color: 'var(--subtle)',
+          textDecoration: 'none',
+          transition: 'color 0.15s, background 0.15s',
+          display: 'block',
+        }}>
+          FA
+        </Link>
+      )}
+    </div>
+  )
+}
+
 export function Header() {
   const pathname = usePathname()
   const isEn     = pathname.startsWith('/en')
@@ -43,7 +109,7 @@ export function Header() {
           </div>
         </Link>
 
-        {/* Nav + language switch */}
+        {/* Nav + locale toggle */}
         <nav className="flex items-center gap-5 md:gap-7">
           {links.map((link) => {
             const active = pathname === link.href
@@ -62,22 +128,7 @@ export function Header() {
             )
           })}
 
-          {/* Language switch — luxury inline text, no badge */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.68rem', letterSpacing: '0.05em' }}>
-            {isEn ? (
-              <>
-                <span style={{ color: 'var(--muted)' }}>English</span>
-                <span style={{ color: 'var(--border-strong)' }}>·</span>
-                <Link href={altHref} className="lang-inactive">فارسی</Link>
-              </>
-            ) : (
-              <>
-                <Link href={altHref} className="lang-inactive">English</Link>
-                <span style={{ color: 'var(--border-strong)' }}>·</span>
-                <span style={{ color: 'var(--muted)' }}>فارسی</span>
-              </>
-            )}
-          </div>
+          <LocaleToggle isEn={isEn} altHref={altHref} />
         </nav>
       </div>
     </header>

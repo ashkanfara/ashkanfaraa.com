@@ -2,11 +2,20 @@
 
 import { useState, FormEvent, Fragment } from 'react'
 
-type Step = 'details' | 'payment' | 'confirmed'
+// ── Payment gateway config check ─────────────────────────────
+// Set these in .env.local to activate real payment:
+//   NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_live_...
+//   NEXT_PUBLIC_PAYPAL_CLIENT_ID=...
+const STRIPE_KEY  = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+const PAYPAL_ID   = process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID
+const PAYMENT_READY = Boolean(STRIPE_KEY || PAYPAL_ID)
+
+type Step = 'details' | 'payment'  // 'confirmed' is ONLY reachable via real payment callback
 
 interface PurchaserData {
-  name:  string
-  email: string
+  name:      string
+  email:     string
+  instagram: string
 }
 
 const input: React.CSSProperties = {
@@ -34,9 +43,9 @@ const lbl: React.CSSProperties = {
 }
 
 // ── Step indicator ────────────────────────────────────────────
-const STEP_LABELS = ['Your Details', 'Payment', 'Confirmation']
+const STEP_LABELS = ['Your Details', 'Payment']
 
-function StepIndicator({ current }: { current: 1 | 2 | 3 }) {
+function StepIndicator({ current }: { current: 1 | 2 }) {
   return (
     <div style={{ display: 'flex', alignItems: 'flex-start', marginBottom: '2.25rem' }}>
       {STEP_LABELS.map((label, i) => {
@@ -66,37 +75,43 @@ function StepIndicator({ current }: { current: 1 | 2 | 3 }) {
 
 // ── Step 1: Details ───────────────────────────────────────────
 function DetailsStep({ onNext }: { onNext: (d: PurchaserData) => void }) {
-  const [name,  setName]  = useState('')
-  const [email, setEmail] = useState('')
+  const [values,  setValues]  = useState({ name: '', email: '', instagram: '' })
   const [touched, setTouched] = useState({ name: false, email: false })
   const [focused, setFocused] = useState('')
 
-  const nameErr  = name.trim().length < 2 ? 'Name is required' : null
-  const emailErr = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) ? null : 'Enter a valid email address'
+  const nameErr  = values.name.trim().length < 2 ? 'Name is required' : null
+  const emailErr = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email.trim()) ? null : 'Enter a valid email address'
   const valid    = !nameErr && !emailErr
 
   function submit(e: FormEvent) {
     e.preventDefault()
     setTouched({ name: true, email: true })
-    if (valid) onNext({ name: name.trim(), email: email.trim() })
+    if (valid) onNext({ name: values.name.trim(), email: values.email.trim(), instagram: values.instagram.trim() })
   }
+
+  const fields = [
+    { id: 'name',      label: 'Full name',              type: 'text'  as const, required: true,  err: nameErr,  touch: touched.name },
+    { id: 'email',     label: 'Email address',          type: 'email' as const, required: true,  err: emailErr, touch: touched.email },
+    { id: 'instagram', label: 'Instagram (optional)',   type: 'text'  as const, required: false, err: null,     touch: false },
+  ]
 
   return (
     <form onSubmit={submit} noValidate style={{ maxWidth: '480px' }}>
       <StepIndicator current={1} />
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-        {[
-          { id: 'name',  label: 'Full name',      value: name,  set: setName,  err: nameErr,  touch: touched.name  },
-          { id: 'email', label: 'Email address',  value: email, set: setEmail, err: emailErr, touch: touched.email },
-        ].map(f => (
+        {fields.map(f => (
           <div key={f.id}>
-            <label htmlFor={f.id} style={lbl}>{f.label} <span style={{ color: 'var(--accent)', opacity: 0.8 }}>*</span></label>
+            <label htmlFor={f.id} style={lbl}>
+              {f.label}
+              {f.required && <span style={{ color: 'var(--accent)', marginLeft: '0.2rem', opacity: 0.8 }}>*</span>}
+            </label>
             <input
-              id={f.id} type={f.id === 'email' ? 'email' : 'text'}
-              value={f.value}
-              onChange={e => f.set(e.target.value)}
+              id={f.id} type={f.type}
+              placeholder={f.id === 'instagram' ? '@' : ''}
+              value={values[f.id as keyof typeof values]}
+              onChange={e => setValues(p => ({ ...p, [f.id]: e.target.value }))}
               onFocus={() => setFocused(f.id)}
-              onBlur={() => { setFocused(''); setTouched(p => ({ ...p, [f.id]: true })) }}
+              onBlur={() => { setFocused(''); if (f.id in touched) setTouched(p => ({ ...p, [f.id]: true })) }}
               style={{ ...input, borderColor: f.touch && f.err ? 'rgba(192,100,60,0.7)' : focused === f.id ? 'var(--accent)' : 'var(--border)' }}
             />
             {f.touch && f.err && (
@@ -122,19 +137,10 @@ function DetailsStep({ onNext }: { onNext: (d: PurchaserData) => void }) {
 }
 
 // ── Step 2: Payment ───────────────────────────────────────────
-function PaymentStep({ data, onSuccess, onBack }: {
+function PaymentStep({ data, onBack }: {
   data: PurchaserData
-  onSuccess: () => void
   onBack: () => void
 }) {
-  const [status, setStatus] = useState<'idle' | 'processing'>('idle')
-
-  function simulatePayment() {
-    // TODO: Replace this simulation with real payment integration.
-    // See integration notes below.
-    setStatus('processing')
-    setTimeout(() => onSuccess(), 1800)
-  }
 
   return (
     <div style={{ maxWidth: '480px' }}>
@@ -153,84 +159,82 @@ function PaymentStep({ data, onSuccess, onBack }: {
         <p style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--accent)', letterSpacing: '-0.02em' }}>$99</p>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-
-        {/*
-          ── TODO: PayPal Integration ─────────────────────────────────────────
-          1.  npm install @paypal/react-paypal-js
-          2.  Add to .env.local:  NEXT_PUBLIC_PAYPAL_CLIENT_ID=your_client_id
-          3.  Wrap with <PayPalScriptProvider options={{ clientId: process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID, currency: 'USD' }}>
-          4.  Replace placeholder below with:
-              <PayPalButtons
-                style={{ layout: 'vertical', color: 'gold', shape: 'pill' }}
-                createOrder={async () => {
-                  const res = await fetch('/api/paypal/create-order', { method: 'POST' })
-                  return (await res.json()).id
-                }}
-                onApprove={async (d) => {
-                  await fetch('/api/paypal/capture-order', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ orderID: d.orderID, name: data.name, email: data.email }),
-                  })
-                  onSuccess()
-                }}
-              />
-          5.  Create API routes:
-              /api/paypal/create-order  → PayPal Orders v2 API, returns { id }
-              /api/paypal/capture-order → capture + send course access email
-          ───────────────────────────────────────────────────────────────────── */}
-
-        <button
-          type="button"
-          onClick={simulatePayment}
-          disabled={status === 'processing'}
-          style={{
-            width: '100%', background: status === 'processing' ? '#0070ba99' : '#0070ba',
-            color: '#fff', border: 'none', borderRadius: '0.5rem',
-            padding: '0.9rem 1rem', fontSize: '0.95rem', fontWeight: 600,
-            cursor: status === 'processing' ? 'wait' : 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem',
-            fontFamily: 'inherit', transition: 'background 0.15s',
-          }}
-        >
-          {status === 'processing' ? 'Processing…' : 'Pay with PayPal'}
-        </button>
-
-        {/* Divider */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
-          <span style={{ fontSize: '0.72rem', color: 'var(--subtle)' }}>or</span>
-          <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
+      {PAYMENT_READY ? (
+        // ── PAYMENT ACTIVE ────────────────────────────────────────────────
+        // TODO: Replace these with real Stripe / PayPal implementations.
+        //
+        // STRIPE (redirect-based checkout — recommended):
+        //   1. npm install stripe
+        //   2. Create /api/en/checkout/route.ts using STRIPE_SECRET_KEY
+        //      → creates a Stripe Checkout Session and returns { url }
+        //   3. POST to /api/en/checkout with { name, email, instagram }
+        //   4. router.push(url) to redirect to Stripe's hosted checkout
+        //   5. Set successUrl to /en/course?success=true&session_id={CHECKOUT_SESSION_ID}
+        //   6. Create /app/en/course/success/page.tsx that verifies the session_id
+        //      server-side before showing confirmation
+        //
+        // PAYPAL (in-page SDK):
+        //   1. npm install @paypal/react-paypal-js
+        //   2. Wrap with <PayPalScriptProvider options={{ clientId: NEXT_PUBLIC_PAYPAL_CLIENT_ID }}>
+        //   3. <PayPalButtons
+        //        createOrder={() => fetch('/api/en/paypal/create-order').then(r=>r.json()).then(d=>d.id)}
+        //        onApprove={(d) => fetch('/api/en/paypal/capture-order', {
+        //          method: 'POST', body: JSON.stringify({ orderID: d.orderID, ...data })
+        //        }).then(() => router.push('/en/course?success=true'))}
+        //      />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          <button
+            type="button"
+            style={{
+              width: '100%', background: '#0070ba', color: '#fff',
+              border: 'none', borderRadius: '0.5rem', padding: '0.9rem 1rem',
+              fontSize: '0.95rem', fontWeight: 600, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem',
+              fontFamily: 'inherit',
+            }}
+          >
+            Pay with PayPal
+          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
+            <span style={{ fontSize: '0.72rem', color: 'var(--subtle)' }}>or</span>
+            <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
+          </div>
+          <button
+            type="button"
+            style={{
+              width: '100%', background: 'transparent', color: 'var(--muted)',
+              border: '1px solid var(--border-strong)', borderRadius: '0.5rem',
+              padding: '0.9rem 1rem', fontSize: '0.9rem', fontWeight: 400,
+              cursor: 'pointer', fontFamily: 'inherit', transition: 'border-color 0.15s',
+            }}
+          >
+            Pay with Credit / Debit Card
+          </button>
         </div>
-
-        {/*
-          ── TODO: Stripe / Card Integration ──────────────────────────────────
-          Option A — Stripe Elements:
-            1.  npm install @stripe/react-stripe-js @stripe/stripe-js
-            2.  Add NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY to .env.local
-            3.  Create /api/stripe/create-payment-intent (server-side secret key)
-            4.  Render <Elements stripe={stripePromise}><PaymentElement /></Elements>
-
-          Option B — PayPal Card Fields (same provider, no Stripe needed):
-            Use PayPalHostedFields inside the same PayPalScriptProvider.
-          ───────────────────────────────────────────────────────────────────── */}
-
-        <button
-          type="button"
-          onClick={simulatePayment}
-          disabled={status === 'processing'}
-          style={{
-            width: '100%', background: 'transparent', color: 'var(--muted)',
-            border: '1px solid var(--border-strong)', borderRadius: '0.5rem',
-            padding: '0.9rem 1rem', fontSize: '0.9rem', fontWeight: 400,
-            cursor: status === 'processing' ? 'wait' : 'pointer', fontFamily: 'inherit',
-            transition: 'border-color 0.15s',
-          }}
-        >
-          Pay with Credit / Debit Card
-        </button>
-      </div>
+      ) : (
+        // ── PAYMENT NOT YET CONFIGURED ────────────────────────────────────
+        // Remove this block once NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY or
+        // NEXT_PUBLIC_PAYPAL_CLIENT_ID is added to .env.local
+        <div style={{
+          background: 'var(--surface)', border: '1px solid var(--border)',
+          borderRadius: '0.75rem', padding: '1.75rem',
+        }}>
+          <p style={{ fontSize: '0.72rem', letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--subtle)', marginBottom: '1rem' }}>
+            Payment Setup In Progress
+          </p>
+          <p style={{ fontSize: '0.9rem', color: 'var(--muted)', lineHeight: 1.9, marginBottom: '1.25rem' }}>
+            Online payment is being configured. To complete your purchase now, email{' '}
+            <a href="mailto:hello@ashkanfaraa.com" style={{ color: 'var(--accent)', textDecoration: 'none' }}>
+              hello@ashkanfaraa.com
+            </a>{' '}
+            with your name and the subject <em>Course Purchase</em>.
+          </p>
+          <p style={{ fontSize: '0.72rem', color: 'var(--subtle)', lineHeight: 1.7, opacity: 0.8 }}>
+            Price: $99 USD · The Hidden Traps of Migration
+          </p>
+        </div>
+      )}
 
       <button
         type="button" onClick={onBack}
@@ -242,58 +246,16 @@ function PaymentStep({ data, onSuccess, onBack }: {
   )
 }
 
-// ── Step 3: Confirmation ──────────────────────────────────────
-function ConfirmationStep({ data }: { data: PurchaserData }) {
-  return (
-    <div style={{ maxWidth: '480px' }}>
-      <StepIndicator current={3} />
-
-      <div style={{ width: '2rem', height: '1px', background: 'var(--accent)', opacity: 0.65, marginBottom: '1.75rem' }} />
-
-      <h3 style={{ fontSize: 'clamp(1.1rem, 2vw, 1.3rem)', fontWeight: 600, color: 'var(--foreground)', lineHeight: 1.4, marginBottom: '1.25rem' }}>
-        Purchase confirmed.
-      </h3>
-
-      <p style={{ fontSize: '0.9rem', color: 'var(--muted)', lineHeight: 1.9, marginBottom: '0.75rem' }}>
-        {/* TODO: Send access email via Resend / SendGrid to {data.email}
-            Include course access link and onboarding instructions. */}
-        A confirmation has been sent to <span style={{ color: 'var(--foreground)', fontWeight: 500 }}>{data.email}</span>.
-      </p>
-      <p style={{ fontSize: '0.78rem', color: 'var(--subtle)', lineHeight: 1.75, marginBottom: '2rem', opacity: 0.85 }}>
-        You'll receive course access details within a few minutes. Check your spam folder if it doesn't arrive.
-      </p>
-
-      <a
-        href="/en"
-        style={{
-          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-          borderRadius: '9999px', border: '1px solid var(--border-strong)',
-          color: 'var(--muted)', padding: '0.875rem 2rem', fontSize: '0.875rem',
-          fontWeight: 400, textDecoration: 'none', letterSpacing: '0.03em',
-          transition: 'border-color 0.15s, color 0.15s',
-        }}
-      >
-        Back to home
-      </a>
-    </div>
-  )
-}
-
 // ── Controller ────────────────────────────────────────────────
+// NOTE: There is no client-side 'confirmed' step.
+// Confirmation is only shown after a verified payment callback
+// from Stripe (via /en/course?success=true&session_id=...) or PayPal.
 export function CourseFormEn({ onPaymentMode }: { onPaymentMode?: () => void }) {
   const [step, setStep] = useState<Step>('details')
   const [data, setData] = useState<PurchaserData | null>(null)
 
-  if (step === 'confirmed' && data) return <ConfirmationStep data={data} />
-
   if (step === 'payment' && data) {
-    return (
-      <PaymentStep
-        data={data}
-        onSuccess={() => setStep('confirmed')}
-        onBack={() => setStep('details')}
-      />
-    )
+    return <PaymentStep data={data} onBack={() => setStep('details')} />
   }
 
   return (
