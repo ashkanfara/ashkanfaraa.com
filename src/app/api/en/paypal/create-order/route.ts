@@ -1,105 +1,78 @@
 /**
  * POST /api/en/paypal/create-order
  *
- * Creates a PayPal Order for the English course ($99 USD) and returns
- * the approval URL to redirect the user to PayPal's hosted checkout.
+ * Course purchase flow (English site only):
+ *   1. Validates customer details from request body
+ *   2. Creates a pending record in Notion (Course Purchases DB)
+ *   3. Creates a PayPal order with customId = Notion page ID
+ *   4. Returns { url } — the PayPal approval URL to redirect the user to
  *
- * Required environment variables (.env.local):
- *   PAYPAL_CLIENT_ID           = your PayPal client ID
- *   PAYPAL_CLIENT_SECRET       = your PayPal client secret
- *   NEXT_PUBLIC_BASE_URL       = https://yourdomain.com
+ * After payment, PayPal redirects to /en/course/success?token=ORDER_ID&PayerID=xxx
+ * That page captures the order and marks the Notion record as paid.
  *
- * For sandbox testing, set PAYPAL_SANDBOX=true in .env.local.
- *
- * After payment, PayPal redirects to:
- *   return_url: NEXT_PUBLIC_BASE_URL/en/course/success
- *   cancel_url: NEXT_PUBLIC_BASE_URL/en/course
- *
- * On the success page, capture the order using the token query param:
- *   POST https://api-m.paypal.com/v2/checkout/orders/{token}/capture
+ * Required env vars:
+ *   PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, PAYPAL_BASE_URL
+ *   NOTION_TOKEN, NOTION_COURSE_DB_ID
+ *   NEXT_PUBLIC_BASE_URL
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { createCoursePurchase }      from '@/lib/notion-en'
+import { createPayPalOrder }         from '@/lib/paypal'
 
-const PAYPAL_BASE = process.env.PAYPAL_SANDBOX === 'true'
-  ? 'https://api-m.sandbox.paypal.com'
-  : 'https://api-m.paypal.com'
-
-async function getAccessToken(clientId: string, clientSecret: string): Promise<string> {
-  const res = await fetch(`${PAYPAL_BASE}/v1/oauth2/token`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString('base64')}`,
-    },
-    body: 'grant_type=client_credentials',
-  })
-  if (!res.ok) throw new Error('Failed to obtain PayPal access token')
-  const data = await res.json()
-  return data.access_token as string
-}
+const REQUIRED_ENV = [
+  'PAYPAL_CLIENT_ID',
+  'PAYPAL_CLIENT_SECRET',
+  'PAYPAL_BASE_URL',
+  'NOTION_TOKEN',
+  'NOTION_COURSE_DB_ID',
+  'NEXT_PUBLIC_BASE_URL',
+]
 
 export async function POST(req: NextRequest) {
-  const clientId     = process.env.PAYPAL_CLIENT_ID
-  const clientSecret = process.env.PAYPAL_CLIENT_SECRET
-
-  if (!clientId || !clientSecret) {
-    console.error('[PayPal] PAYPAL_CLIENT_ID or PAYPAL_CLIENT_SECRET is not set.')
-    return NextResponse.json(
-      { error: 'Payment is currently unavailable. Please try again later.' },
-      { status: 503 }
-    )
+  const missing = REQUIRED_ENV.filter(k => !process.env[k])
+  if (missing.length) {
+    console.error('[en/course/create-order] Missing env vars:', missing)
+    return NextResponse.json({ error: 'Payment service is not configured.' }, { status: 503 })
   }
 
-  const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, '') ?? 'http://localhost:3000'
+  let body: { name?: string; email?: string; instagram?: string; telegram?: string; phone?: string }
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 })
+  }
+
+  const { name = '', email = '', instagram = '', telegram = '', phone = '' } = body
+
+  if (!name.trim() || !email.trim()) {
+    return NextResponse.json({ error: 'Name and email are required.' }, { status: 422 })
+  }
 
   try {
-    const body = await req.json()
-    const { name = '', instagram = '', telegram = '', phone = '' } = body
-
-    const token = await getAccessToken(clientId, clientSecret)
-
-    const res = await fetch(`${PAYPAL_BASE}/v2/checkout/orders`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-        'PayPal-Request-Id': `ashkanfaraa-${Date.now()}`,
-      },
-      body: JSON.stringify({
-        intent: 'CAPTURE',
-        purchase_units: [
-          {
-            amount:      { currency_code: 'USD', value: '99.00' },
-            description: 'The Hidden Traps of Migration — Ashkan Faraa',
-            custom_id:   JSON.stringify({ name, instagram, telegram, phone }),
-          },
-        ],
-        application_context: {
-          brand_name:          'Ashkan Faraa',
-          locale:              'en-AU',
-          landing_page:        'BILLING',
-          user_action:         'PAY_NOW',
-          return_url:          `${BASE_URL}/en/course/success`,
-          cancel_url:          `${BASE_URL}/en/course`,
-          shipping_preference: 'NO_SHIPPING',
-        },
-      }),
+    const notionPageId = await createCoursePurchase({
+      name:      name.trim(),
+      email:     email.trim(),
+      instagram: instagram.trim(),
+      telegram:  telegram.trim(),
+      mobile:    phone.trim(),
     })
 
-    const order = await res.json()
-    const approveLink = (order.links as Array<{ rel: string; href: string }>)
-      ?.find(l => l.rel === 'approve')?.href
+    const BASE = process.env.NEXT_PUBLIC_BASE_URL!.replace(/\/$/, '')
 
-    if (!approveLink) {
-      console.error('[PayPal] No approve link in response:', order)
-      throw new Error('PayPal order creation failed')
-    }
+    const approveUrl = await createPayPalOrder({
+      amount:      '99.00',
+      currency:    'USD',
+      description: 'The Hidden Traps of Migration — Ashkan Faraa',
+      customId:    notionPageId,
+      returnUrl:   `${BASE}/en/course/success`,
+      cancelUrl:   `${BASE}/en/course`,
+    })
 
-    return NextResponse.json({ url: approveLink })
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Order creation failed'
-    console.error('[PayPal] Error:', message)
-    return NextResponse.json({ error: message }, { status: 500 })
+    return NextResponse.json({ url: approveUrl })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Unknown error'
+    console.error('[en/course/create-order]', msg)
+    return NextResponse.json({ error: 'Payment setup failed. Please try again.' }, { status: 500 })
   }
 }
