@@ -4,7 +4,7 @@
 
 export const site = {
   name: 'ASHKAN FARAA',
-  tagline: 'MIGRATION · LIFE · STRATEGY',
+  tagline: 'STRATEGY · PERSPECTIVE · CLARITY',
 }
 
 export const nav = {
@@ -20,19 +20,19 @@ export const hero = {
     'see the full picture.',
   ],
   subtext:
-    "Migration, business, education, relocation, investment, relationships, and life abroad all have consequences most people don't discover until later. I help people see those consequences before they commit.",
+    "Every major decision — relocation, education, career, business, investment, and life abroad — carries consequences most people don't discover until after they've committed. I help people see those consequences clearly before they act.",
 }
 
 // ── Credibility section ────────────────────────────────────────
 export const credibilitySection = {
   eyebrow: 'The Perspective',
   points: [
-    'Australian citizen',
-    'Lived, studied, and worked across multiple countries',
+    'Australian citizen with firsthand migration experience',
+    'Lived, studied and worked across multiple countries',
     'Years helping people make migration and relocation decisions',
-    '120,000+ audience across social media',
-    'Hundreds of conversations with migrants, students, professionals, and business owners',
-    'Real-world experience, not theory',
+    'Hundreds of conversations with migrants, students and professionals',
+    'Experience across migration, education, business and relocation',
+    'Real-world perspective, not theory',
   ],
 }
 
@@ -43,7 +43,7 @@ export const offers = [
     title: 'Private Strategy Session',
     description:
       'A focused one-on-one conversation for people facing a major decision — migration, relocation, business, study, property, or other high-stakes life choices. One hour. Clear thinking before commitment.',
-    price: 'AUD 450',
+    price: 'AUD 499',
     priceSub: '60 minutes',
     action: 'Request a Session',
     href: '/en/consultation',
@@ -106,7 +106,7 @@ export const footer = {
   partnerships: {
     label: 'Partnerships',
     text: 'For brand collaboration and sponsorship.',
-    email: 'hello@ashkanfaraa.com',
+    email: 'info@ashkanfaraa.com',
   },
 }
 
@@ -156,15 +156,15 @@ export const consultationContent = {
   eyebrow: 'Private Strategy Session',
   titleLines: ['Before the big decisions,', 'see the full picture.'],
   body: [
-    "If you're facing an important decision, this session is designed to help you see it more clearly. From migration and education to business, investment, property in Australia, or choosing your next path.",
-    "The goal isn't a ready-made answer. It's to help you make a more informed decision before you commit time, money, and energy.",
+    "This session is for people facing a significant decision — one where the wrong call costs real time, money, or years. Relocation, education, career change, business, investment, or any high-stakes commitment.",
+    "The goal is clarity. Not a ready-made answer — a sharper understanding of what you are actually deciding, what the consequences look like, and what most people miss before they commit.",
   ],
   ctaLabel: 'Apply for a Session',
-  price: 'AUD 450',
+  price: 'AUD 499',
   duration: '60 Minutes',
-  formHeading: 'Before you apply, tell me a little about your situation.',
+  formHeading: 'Tell me about the decision you are facing.',
   formSubtext:
-    'Not every application is accepted. The goal is to ensure the session is a good fit for both sides.',
+    'Not every application leads to a session. The goal is to ensure the conversation is worth the hour for both sides.',
   disclaimer:
     'This session is based on personal experience, observation, and years of conversation. It is not a substitute for legal, financial, or professional advice.',
 }

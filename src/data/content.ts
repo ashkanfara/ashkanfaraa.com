@@ -82,6 +82,6 @@ export const footer = {
   partnerships: {
     label: 'همکاری برند',
     text: 'برای اسپانسرشیپ و همکاری تجاری در تماس باشید.',
-    email: 'hello@ashkanfaraa.com',
+    email: 'info@ashkanfaraa.com',
   },
 }
