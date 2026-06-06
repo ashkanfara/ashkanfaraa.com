@@ -20,19 +20,17 @@ export const hero = {
     'see the full picture.',
   ],
   subtext:
-    "Every major decision — relocation, education, career, business, investment, and life abroad — carries consequences most people don't discover until after they've committed. I help people see those consequences clearly before they act.",
+    "The decisions that matter most are usually made with the least amount of real perspective. I work with people who want to see clearly before they commit.",
 }
 
 // ── Credibility section ────────────────────────────────────────
 export const credibilitySection = {
   eyebrow: 'The Perspective',
   points: [
-    'Australian citizen with firsthand experience of migration and life abroad',
-    'Lived, studied and worked across multiple countries',
-    'Years helping people navigate major decisions — relocation, business, education and life abroad',
-    'Hundreds of conversations with people facing significant life decisions',
-    'Experience across relocation, education, business and major life transitions',
-    'Real-world perspective, not theory',
+    'Most costly decisions don\'t fail because of bad luck. They fail because of incomplete perspective.',
+    'Years of living across countries, and watching how people navigate major commitments, reveals patterns most people only see in hindsight.',
+    'The questions you don\'t know to ask are consistently the most expensive ones.',
+    'The right conversation, before the wrong commitment, changes outcomes.',
   ],
 }
 
