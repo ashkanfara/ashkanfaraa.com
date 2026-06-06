@@ -20,7 +20,7 @@ type OffersProps = {
 }
 
 const cardImageSrc: Record<string, { src: string; alt: string; objectPosition: string }> = {
-  consultation: { src: '/images/card-consultation-landscape.png', alt: 'Private strategy session', objectPosition: 'center 30%' },
+  consultation: { src: '/images/card-consultation.png', alt: 'Private strategy session', objectPosition: 'center 30%' },
   course:       { src: '/images/card-course.png',                 alt: 'Migration course',         objectPosition: 'center 45%' },
 }
 
