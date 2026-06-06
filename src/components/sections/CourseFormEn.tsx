@@ -1,24 +1,8 @@
 'use client'
 
-import { useState, FormEvent, Fragment } from 'react'
+import { useState } from 'react'
 
-// ── Payment gateway config check ─────────────────────────────
-// Set these in .env.local to activate real payment:
-//   NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_live_...
-//   NEXT_PUBLIC_PAYPAL_CLIENT_ID=...
-const STRIPE_KEY  = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
-const PAYPAL_ID   = process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID
-const PAYMENT_READY = Boolean(STRIPE_KEY || PAYPAL_ID)
-
-type Step = 'details' | 'payment'  // 'confirmed' is ONLY reachable via real payment callback
-
-interface PurchaserData {
-  name:      string
-  email:     string
-  instagram: string
-}
-
-const input: React.CSSProperties = {
+const inputStyle: React.CSSProperties = {
   width: '100%',
   background: 'var(--surface-raised)',
   border: '1px solid var(--border)',
@@ -34,237 +18,209 @@ const input: React.CSSProperties = {
   boxSizing: 'border-box',
 }
 
-const lbl: React.CSSProperties = {
+const labelStyle: React.CSSProperties = {
   display: 'block',
-  fontSize: '0.78rem',
+  fontSize: '0.75rem',
   color: 'var(--muted)',
   marginBottom: '0.5rem',
   letterSpacing: '0.02em',
 }
 
-// ── Step indicator ────────────────────────────────────────────
-const STEP_LABELS = ['Your Details', 'Payment']
-
-function StepIndicator({ current }: { current: 1 | 2 }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'flex-start', marginBottom: '2.25rem' }}>
-      {STEP_LABELS.map((label, i) => {
-        const n = i + 1; const done = n < current; const active = n === current
-        return (
-          <Fragment key={label}>
-            {i > 0 && (
-              <div style={{ flex: 1, height: '1px', marginTop: '3px', background: done ? 'var(--accent)' : 'var(--border)', opacity: done ? 0.45 : 0.6 }} />
-            )}
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.35rem' }}>
-              <div style={{
-                width: '6px', height: '6px', borderRadius: '50%',
-                background: active || done ? 'var(--accent)' : 'transparent',
-                border: `1px solid ${active || done ? 'var(--accent)' : 'var(--border-strong)'}`,
-                opacity: done ? 0.5 : 1,
-              }} />
-              <span style={{ fontSize: '0.57rem', letterSpacing: '0.04em', whiteSpace: 'nowrap', color: active ? 'var(--accent)' : 'var(--subtle)', opacity: done ? 0.5 : 1 }}>
-                {label}
-              </span>
-            </div>
-          </Fragment>
-        )
-      })}
-    </div>
-  )
+function validate(id: string, val: string): string | null {
+  if (id === 'name')  return val.trim().length < 2 ? 'Name is required' : null
+  if (id === 'email') return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val.trim()) ? null : 'Enter a valid email address'
+  if (id === 'phone') return val.trim().length < 5  ? 'Mobile number is required' : null
+  return null
 }
 
-// ── Step 1: Details ───────────────────────────────────────────
-function DetailsStep({ onNext }: { onNext: (d: PurchaserData) => void }) {
-  const [values,  setValues]  = useState({ name: '', email: '', instagram: '' })
-  const [touched, setTouched] = useState({ name: false, email: false })
-  const [focused, setFocused] = useState('')
+const REQUIRED = ['name', 'email', 'phone']
 
-  const nameErr  = values.name.trim().length < 2 ? 'Name is required' : null
-  const emailErr = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email.trim()) ? null : 'Enter a valid email address'
-  const valid    = !nameErr && !emailErr
+const FIELDS = [
+  { id: 'name',      label: 'Full name',        type: 'text'  as const, required: true,  placeholder: '' },
+  { id: 'email',     label: 'Email address',    type: 'email' as const, required: true,  placeholder: '' },
+  { id: 'instagram', label: 'Instagram handle', type: 'text'  as const, required: false, placeholder: '@' },
+  { id: 'telegram',  label: 'Telegram username', type: 'text' as const, required: false, placeholder: '@' },
+  { id: 'phone',     label: 'Mobile number',    type: 'tel'   as const, required: true,  placeholder: '+61 ...' },
+]
 
-  function submit(e: FormEvent) {
-    e.preventDefault()
-    setTouched({ name: true, email: true })
-    if (valid) onNext({ name: values.name.trim(), email: values.email.trim(), instagram: values.instagram.trim() })
+export function CourseFormEn() {
+  const [values,  setValues]  = useState<Record<string, string>>({})
+  const [touched, setTouched] = useState<Set<string>>(new Set())
+  const [focused, setFocused] = useState<string | null>(null)
+  const [loading, setLoading] = useState<'stripe' | 'paypal' | null>(null)
+  const [error,   setError]   = useState<string | null>(null)
+
+  const isValid = REQUIRED.every(id => validate(id, values[id] ?? '') === null)
+
+  function touchAll() {
+    setTouched(new Set(REQUIRED))
   }
 
-  const fields = [
-    { id: 'name',      label: 'Full name',              type: 'text'  as const, required: true,  err: nameErr,  touch: touched.name },
-    { id: 'email',     label: 'Email address',          type: 'email' as const, required: true,  err: emailErr, touch: touched.email },
-    { id: 'instagram', label: 'Instagram (optional)',   type: 'text'  as const, required: false, err: null,     touch: false },
-  ]
+  async function redirectTo(provider: 'stripe' | 'paypal') {
+    touchAll()
+    if (!isValid) return
 
-  return (
-    <form onSubmit={submit} noValidate style={{ maxWidth: '480px' }}>
-      <StepIndicator current={1} />
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-        {fields.map(f => (
-          <div key={f.id}>
-            <label htmlFor={f.id} style={lbl}>
-              {f.label}
-              {f.required && <span style={{ color: 'var(--accent)', marginLeft: '0.2rem', opacity: 0.8 }}>*</span>}
-            </label>
-            <input
-              id={f.id} type={f.type}
-              placeholder={f.id === 'instagram' ? '@' : ''}
-              value={values[f.id as keyof typeof values]}
-              onChange={e => setValues(p => ({ ...p, [f.id]: e.target.value }))}
-              onFocus={() => setFocused(f.id)}
-              onBlur={() => { setFocused(''); if (f.id in touched) setTouched(p => ({ ...p, [f.id]: true })) }}
-              style={{ ...input, borderColor: f.touch && f.err ? 'rgba(192,100,60,0.7)' : focused === f.id ? 'var(--accent)' : 'var(--border)' }}
-            />
-            {f.touch && f.err && (
-              <p style={{ marginTop: '0.4rem', fontSize: '0.72rem', color: 'rgba(200,110,70,0.9)', lineHeight: 1.5 }}>{f.err}</p>
-            )}
-          </div>
-        ))}
-      </div>
-      <button
-        type="submit"
-        style={{
-          marginTop: '2rem', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-          borderRadius: '9999px', background: 'var(--accent)', color: 'var(--accent-fg)',
-          padding: '0.9rem 2.25rem', fontSize: '0.9rem', fontWeight: 600,
-          letterSpacing: '0.04em', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
-          whiteSpace: 'nowrap', transition: 'opacity 0.15s',
-        }}
-      >
-        Continue to Payment
-      </button>
-    </form>
-  )
-}
+    setLoading(provider)
+    setError(null)
 
-// ── Step 2: Payment ───────────────────────────────────────────
-function PaymentStep({ data, onBack }: {
-  data: PurchaserData
-  onBack: () => void
-}) {
+    const endpoint = provider === 'stripe'
+      ? '/api/en/stripe/checkout'
+      : '/api/en/paypal/create-order'
+
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name:      values.name      ?? '',
+          email:     values.email     ?? '',
+          instagram: values.instagram ?? '',
+          telegram:  values.telegram  ?? '',
+          phone:     values.phone     ?? '',
+        }),
+      })
+
+      const data = await res.json().catch(() => ({}))
+
+      if (!res.ok || !data.url) {
+        throw new Error(data.error ?? 'Payment is currently unavailable. Please try again.')
+      }
+
+      // Real redirect to Stripe / PayPal hosted checkout
+      window.location.href = data.url
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Something went wrong. Please try again.'
+      setError(msg)
+      setLoading(null)
+    }
+  }
 
   return (
     <div style={{ maxWidth: '480px' }}>
-      <StepIndicator current={2} />
 
-      {/* Order summary */}
-      <div style={{
-        background: 'var(--surface)', border: '1px solid var(--border)',
-        borderRadius: '0.875rem', padding: '1.25rem 1.5rem',
-        marginBottom: '1.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-      }}>
-        <div>
-          <p style={{ fontSize: '0.82rem', color: 'var(--muted)', marginBottom: '0.2rem' }}>The Hidden Traps of Migration</p>
-          <p style={{ fontSize: '0.72rem', color: 'var(--subtle)', opacity: 0.75 }}>{data.email}</p>
-        </div>
-        <p style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--accent)', letterSpacing: '-0.02em' }}>$99</p>
+      {/* Fields */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', marginBottom: '2rem' }}>
+        {FIELDS.map(f => {
+          const err     = validate(f.id, values[f.id] ?? '')
+          const showErr = touched.has(f.id) && err !== null
+          const borderColor = showErr
+            ? 'rgba(192,100,60,0.7)'
+            : focused === f.id ? 'var(--accent)' : 'var(--border)'
+          return (
+            <div key={f.id}>
+              <label htmlFor={f.id} style={labelStyle}>
+                {f.label}
+                {f.required && <span style={{ color: 'var(--accent)', marginLeft: '0.2rem', opacity: 0.8 }}>*</span>}
+              </label>
+              <input
+                id={f.id} name={f.id} type={f.type}
+                placeholder={f.placeholder}
+                value={values[f.id] ?? ''}
+                onChange={e => setValues(p => ({ ...p, [f.id]: e.target.value }))}
+                onFocus={() => setFocused(f.id)}
+                onBlur={() => { setFocused(null); setTouched(p => new Set([...p, f.id])) }}
+                style={{ ...inputStyle, borderColor }}
+              />
+              {showErr && (
+                <p style={{ marginTop: '0.4rem', fontSize: '0.72rem', color: 'rgba(200,110,70,0.9)', lineHeight: 1.5 }}>
+                  {err}
+                </p>
+              )}
+            </div>
+          )
+        })}
       </div>
 
-      {PAYMENT_READY ? (
-        // ── PAYMENT ACTIVE ────────────────────────────────────────────────
-        // TODO: Replace these with real Stripe / PayPal implementations.
-        //
-        // STRIPE (redirect-based checkout — recommended):
-        //   1. npm install stripe
-        //   2. Create /api/en/checkout/route.ts using STRIPE_SECRET_KEY
-        //      → creates a Stripe Checkout Session and returns { url }
-        //   3. POST to /api/en/checkout with { name, email, instagram }
-        //   4. router.push(url) to redirect to Stripe's hosted checkout
-        //   5. Set successUrl to /en/course?success=true&session_id={CHECKOUT_SESSION_ID}
-        //   6. Create /app/en/course/success/page.tsx that verifies the session_id
-        //      server-side before showing confirmation
-        //
-        // PAYPAL (in-page SDK):
-        //   1. npm install @paypal/react-paypal-js
-        //   2. Wrap with <PayPalScriptProvider options={{ clientId: NEXT_PUBLIC_PAYPAL_CLIENT_ID }}>
-        //   3. <PayPalButtons
-        //        createOrder={() => fetch('/api/en/paypal/create-order').then(r=>r.json()).then(d=>d.id)}
-        //        onApprove={(d) => fetch('/api/en/paypal/capture-order', {
-        //          method: 'POST', body: JSON.stringify({ orderID: d.orderID, ...data })
-        //        }).then(() => router.push('/en/course?success=true'))}
-        //      />
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-          <button
-            type="button"
-            style={{
-              width: '100%', background: '#0070ba', color: '#fff',
-              border: 'none', borderRadius: '0.5rem', padding: '0.9rem 1rem',
-              fontSize: '0.95rem', fontWeight: 600, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem',
-              fontFamily: 'inherit',
-            }}
-          >
-            Pay with PayPal
-          </button>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-            <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
-            <span style={{ fontSize: '0.72rem', color: 'var(--subtle)' }}>or</span>
-            <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
-          </div>
-          <button
-            type="button"
-            style={{
-              width: '100%', background: 'transparent', color: 'var(--muted)',
-              border: '1px solid var(--border-strong)', borderRadius: '0.5rem',
-              padding: '0.9rem 1rem', fontSize: '0.9rem', fontWeight: 400,
-              cursor: 'pointer', fontFamily: 'inherit', transition: 'border-color 0.15s',
-            }}
-          >
-            Pay with Credit / Debit Card
-          </button>
-        </div>
-      ) : (
-        // ── PAYMENT NOT YET CONFIGURED ────────────────────────────────────
-        // Remove this block once NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY or
-        // NEXT_PUBLIC_PAYPAL_CLIENT_ID is added to .env.local
+      {/* Error */}
+      {error && (
         <div style={{
-          background: 'var(--surface)', border: '1px solid var(--border)',
-          borderRadius: '0.75rem', padding: '1.75rem',
+          background: 'rgba(192,100,60,0.08)', border: '1px solid rgba(192,100,60,0.25)',
+          borderRadius: '0.5rem', padding: '0.875rem 1rem', marginBottom: '1.5rem',
         }}>
-          <p style={{ fontSize: '0.72rem', letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--subtle)', marginBottom: '1rem' }}>
-            Payment Setup In Progress
-          </p>
-          <p style={{ fontSize: '0.9rem', color: 'var(--muted)', lineHeight: 1.9, marginBottom: '1.25rem' }}>
-            Online payment is being configured. To complete your purchase now, email{' '}
-            <a href="mailto:hello@ashkanfaraa.com" style={{ color: 'var(--accent)', textDecoration: 'none' }}>
-              hello@ashkanfaraa.com
-            </a>{' '}
-            with your name and the subject <em>Course Purchase</em>.
-          </p>
-          <p style={{ fontSize: '0.72rem', color: 'var(--subtle)', lineHeight: 1.7, opacity: 0.8 }}>
-            Price: $99 USD · The Hidden Traps of Migration
+          <p style={{ fontSize: '0.82rem', color: 'rgba(220,130,90,0.95)', lineHeight: 1.6, margin: 0 }}>
+            {error}
           </p>
         </div>
       )}
 
-      <button
-        type="button" onClick={onBack}
-        style={{ marginTop: '1.25rem', background: 'none', border: 'none', color: 'var(--subtle)', fontSize: '0.78rem', cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}
-      >
-        ← Edit details
-      </button>
+      {/* Payment buttons */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+
+        {/* Stripe */}
+        <button
+          type="button"
+          onClick={() => redirectTo('stripe')}
+          disabled={loading !== null}
+          style={{
+            width: '100%',
+            background: loading === 'stripe' ? 'var(--accent-dim)' : 'var(--accent)',
+            color: 'var(--accent-fg)',
+            border: 'none',
+            borderRadius: '0.5rem',
+            padding: '0.95rem 1rem',
+            fontSize: '0.9rem',
+            fontWeight: 600,
+            letterSpacing: '0.03em',
+            cursor: loading !== null ? 'wait' : 'pointer',
+            fontFamily: 'inherit',
+            transition: 'background 0.15s, opacity 0.15s',
+            opacity: loading !== null && loading !== 'stripe' ? 0.5 : 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '0.5rem',
+          }}
+        >
+          {loading === 'stripe' ? (
+            'Redirecting to checkout…'
+          ) : (
+            <>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M13.479 9.883c-2.352-.586-3.105-.6-3.105-1.218 0-.534.507-.778 1.407-.778 1.35 0 2.805.517 3.793 1.017l.557-3.434C15.186 5.16 13.79 4.5 11.78 4.5c-1.365 0-2.502.36-3.327.983C7.65 6.14 7.2 7.085 7.2 8.18c0 2.24 1.365 3.055 3.795 3.686 1.935.495 2.52.72 2.52 1.35 0 .615-.585.9-1.62.9-1.29 0-3.015-.555-4.095-1.245l-.57 3.465c1.065.675 2.895 1.164 4.77 1.164 1.44 0 2.625-.36 3.465-.99.9-.675 1.365-1.665 1.365-2.88 0-2.31-1.38-3.105-3.951-3.747z"/>
+              </svg>
+              Pay with Card — $99 USD
+            </>
+          )}
+        </button>
+
+        {/* Divider */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
+          <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
+          <span style={{ fontSize: '0.7rem', color: 'var(--subtle)', letterSpacing: '0.06em' }}>or</span>
+          <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
+        </div>
+
+        {/* PayPal */}
+        <button
+          type="button"
+          onClick={() => redirectTo('paypal')}
+          disabled={loading !== null}
+          style={{
+            width: '100%',
+            background: loading === 'paypal' ? '#0060a3' : '#0070ba',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '0.5rem',
+            padding: '0.95rem 1rem',
+            fontSize: '0.9rem',
+            fontWeight: 600,
+            cursor: loading !== null ? 'wait' : 'pointer',
+            fontFamily: 'inherit',
+            transition: 'background 0.15s, opacity 0.15s',
+            opacity: loading !== null && loading !== 'paypal' ? 0.5 : 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '0.5rem',
+          }}
+        >
+          {loading === 'paypal' ? (
+            'Redirecting to PayPal…'
+          ) : (
+            'Pay with PayPal — $99 USD'
+          )}
+        </button>
+      </div>
     </div>
-  )
-}
-
-// ── Controller ────────────────────────────────────────────────
-// NOTE: There is no client-side 'confirmed' step.
-// Confirmation is only shown after a verified payment callback
-// from Stripe (via /en/course?success=true&session_id=...) or PayPal.
-export function CourseFormEn({ onPaymentMode }: { onPaymentMode?: () => void }) {
-  const [step, setStep] = useState<Step>('details')
-  const [data, setData] = useState<PurchaserData | null>(null)
-
-  if (step === 'payment' && data) {
-    return <PaymentStep data={data} onBack={() => setStep('details')} />
-  }
-
-  return (
-    <DetailsStep
-      onNext={d => {
-        setData(d)
-        onPaymentMode?.()
-        setTimeout(() => setStep('payment'), 420)
-      }}
-    />
   )
 }
