@@ -19,9 +19,9 @@ type OffersProps = {
   meta?: OffersMeta
 }
 
-const cardImageSrc: Record<string, { src: string; alt: string; objectPosition: string }> = {
-  consultation: { src: '/images/card-consultation.png', alt: 'Private strategy session', objectPosition: 'center 30%' },
-  course:       { src: '/images/card-course.png',                 alt: 'Migration course',         objectPosition: 'center 45%' },
+const cardImageSrc: Record<string, { src: string; alt: string; objectPosition: string; height?: string }> = {
+  consultation: { src: '/images/card-consultation.png', alt: 'Private strategy session', objectPosition: 'center 40%', height: '320px' },
+  course:       { src: '/images/card-course.png',       alt: 'Migration course',         objectPosition: 'center 45%' },
 }
 
 export function Offers({ offers = defaultOffers as unknown as Offer[], meta = defaultMeta }: OffersProps) {
@@ -36,7 +36,7 @@ export function Offers({ offers = defaultOffers as unknown as Offer[], meta = de
               className="card-lift flex flex-col rounded-2xl border border-border bg-surface overflow-hidden"
             >
               {/* Card image */}
-              <div style={{ position: 'relative', height: '280px', flexShrink: 0 }}>
+              <div style={{ position: 'relative', height: cardImageSrc[offer.id]?.height ?? '280px', flexShrink: 0 }}>
                 <Image
                   src={cardImageSrc[offer.id]?.src ?? '/images/card-course.png'}
                   alt={cardImageSrc[offer.id]?.alt ?? ''}
