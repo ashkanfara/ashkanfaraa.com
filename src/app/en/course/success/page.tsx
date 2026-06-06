@@ -75,14 +75,14 @@ export default async function CourseSuccessPage({
             color:         'var(--foreground)',
             marginBottom:  '1.75rem',
           }}>
-            Thank you.
+            Welcome to The Hidden Traps of Migration.
           </h1>
 
           <p style={{ fontSize: '1rem', color: 'var(--muted)', lineHeight: 1.95, marginBottom: '0.75rem' }}>
-            Your purchase is confirmed.
+            Your payment has been received successfully.
           </p>
           <p style={{ fontSize: '1rem', color: 'var(--muted)', lineHeight: 1.95, marginBottom: '3rem' }}>
-            Join the private course group on Telegram using the link or QR code below. Access is approved manually.
+            To access the course, request access to the private Telegram group below.
           </p>
 
           <div style={{ height: '1px', background: 'var(--border)', marginBottom: '3rem' }} />
@@ -112,7 +112,7 @@ export default async function CourseSuccessPage({
             }}
           />
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.5rem' }}>
             <a
               href={TELEGRAM_URL}
               target="_blank"
@@ -130,10 +130,17 @@ export default async function CourseSuccessPage({
                 letterSpacing:  '0.04em',
                 textDecoration: 'none',
                 whiteSpace:     'nowrap',
+                alignSelf:      'flex-start',
               }}
             >
-              Request Telegram Access
+              Request Access to the Course Group
             </a>
+            <p style={{ fontSize: '0.8rem', color: 'var(--subtle)', lineHeight: 1.75, margin: 0 }}>
+              Once your request is received, access will be approved manually.
+            </p>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', flexWrap: 'wrap' }}>
 
             <Link
               href="/en"

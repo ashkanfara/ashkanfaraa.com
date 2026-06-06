@@ -15,7 +15,7 @@ import {
 export const metadata: Metadata = {
   title: 'Ashkan Faraa — Private Strategy Sessions',
   description:
-    "Before the big decisions, see the full picture. Private strategy sessions for people navigating migration, relocation, business, education, and major life decisions.",
+    "Before the big decisions, see the full picture. Private strategy sessions for people facing major decisions — relocation, career, business, education, and life abroad.",
 }
 
 export default function EnHomePage() {

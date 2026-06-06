@@ -2,8 +2,8 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { site, nav }    from '@/data/content'
-import { nav as navEn } from '@/data/content.en'
+import { site, nav }                   from '@/data/content'
+import { nav as navEn, site as siteEn } from '@/data/content.en'
 
 function getAltLocaleHref(pathname: string, isEn: boolean): string {
   if (isEn) {
@@ -13,78 +13,39 @@ function getAltLocaleHref(pathname: string, isEn: boolean): string {
   return pathname === '/' ? '/en' : `/en${pathname}`
 }
 
-// ── Segmented EN / FA toggle ──────────────────────────────────
-// Looks like a small OS-style segment control, not a nav link pair.
+// ── Plain text locale switcher — "English · فارسی" ───────────
+// Active locale: muted, non-clickable. Inactive: subtle link.
 function LocaleToggle({ isEn, altHref }: { isEn: boolean; altHref: string }) {
+  const base: React.CSSProperties = {
+    fontSize: '0.68rem',
+    letterSpacing: '0.04em',
+    textDecoration: 'none',
+    transition: 'color 0.15s',
+  }
   return (
-    <div
-      style={{
-        display: 'inline-flex',
-        background: 'rgba(255,255,255,0.04)',
-        border: '1px solid var(--border)',
-        borderRadius: '0.3rem',
-        overflow: 'hidden',
-        fontSize: '0.6rem',
-        letterSpacing: '0.12em',
-        fontWeight: 600,
-        flexShrink: 0,
-      }}
-    >
-      {/* EN segment */}
+    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', flexShrink: 0 }}>
       {isEn ? (
-        <span style={{
-          padding: '0.26rem 0.55rem',
-          background: 'rgba(255,255,255,0.1)',
-          color: 'var(--foreground)',
-          borderRight: '1px solid var(--border)',
-          userSelect: 'none',
-        }}>
-          EN
-        </span>
+        <span style={{ ...base, color: 'var(--muted)', cursor: 'default' }}>English</span>
       ) : (
-        <Link href={altHref} style={{
-          padding: '0.26rem 0.55rem',
-          color: 'var(--subtle)',
-          textDecoration: 'none',
-          borderRight: '1px solid var(--border)',
-          transition: 'color 0.15s, background 0.15s',
-          display: 'block',
-        }}>
-          EN
-        </Link>
+        <Link href={altHref} style={{ ...base, color: 'var(--subtle)' }}>English</Link>
       )}
-
-      {/* FA segment */}
+      <span style={{ color: 'var(--border-strong)', fontSize: '0.6rem', userSelect: 'none' }}>·</span>
       {!isEn ? (
-        <span style={{
-          padding: '0.26rem 0.55rem',
-          background: 'rgba(255,255,255,0.1)',
-          color: 'var(--foreground)',
-          userSelect: 'none',
-        }}>
-          FA
-        </span>
+        <span style={{ ...base, color: 'var(--muted)', cursor: 'default' }}>فارسی</span>
       ) : (
-        <Link href={altHref} style={{
-          padding: '0.26rem 0.55rem',
-          color: 'var(--subtle)',
-          textDecoration: 'none',
-          transition: 'color 0.15s, background 0.15s',
-          display: 'block',
-        }}>
-          FA
-        </Link>
+        <Link href={altHref} style={{ ...base, color: 'var(--subtle)' }}>فارسی</Link>
       )}
     </div>
   )
 }
 
 export function Header() {
-  const pathname = usePathname()
-  const isEn     = pathname.startsWith('/en')
-  const links    = isEn ? navEn.links : nav.links
-  const homeHref = isEn ? '/en' : '/'
-  const altHref  = getAltLocaleHref(pathname, isEn)
+  const pathname   = usePathname()
+  const isEn       = pathname.startsWith('/en')
+  const links      = isEn ? navEn.links : nav.links
+  const activeSite = isEn ? siteEn : site
+  const homeHref   = isEn ? '/en' : '/'
+  const altHref    = getAltLocaleHref(pathname, isEn)
 
   return (
     <header
@@ -101,10 +62,10 @@ export function Header() {
         <Link href={homeHref} style={{ textDecoration: 'none' }}>
           <div className="flex flex-col gap-0.5">
             <span className="text-foreground tracking-[0.4em] uppercase text-[12px] md:text-[14px] font-light">
-              {site.name}
+              {activeSite.name}
             </span>
             <span className="text-subtle tracking-[0.25em] uppercase text-[8px] md:text-[10px] font-light hidden sm:block">
-              {site.tagline}
+              {activeSite.tagline}
             </span>
           </div>
         </Link>

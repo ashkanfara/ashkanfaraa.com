@@ -27,11 +27,11 @@ export const hero = {
 export const credibilitySection = {
   eyebrow: 'The Perspective',
   points: [
-    'Australian citizen with firsthand migration experience',
+    'Australian citizen with firsthand experience of migration and life abroad',
     'Lived, studied and worked across multiple countries',
-    'Years helping people make migration and relocation decisions',
-    'Hundreds of conversations with migrants, students and professionals',
-    'Experience across migration, education, business and relocation',
+    'Years helping people navigate major decisions — relocation, business, education and life abroad',
+    'Hundreds of conversations with people facing significant life decisions',
+    'Experience across relocation, education, business and major life transitions',
     'Real-world perspective, not theory',
   ],
 }
@@ -42,7 +42,7 @@ export const offers = [
     id: 'consultation',
     title: 'Private Strategy Session',
     description:
-      'A focused one-on-one conversation for people facing a major decision — migration, relocation, business, study, property, or other high-stakes life choices. One hour. Clear thinking before commitment.',
+      'A focused one-on-one conversation for people facing a high-stakes decision — relocation, business, education, career, property, or any major life commitment. One hour. Clear thinking before you act.',
     price: 'AUD 499',
     priceSub: '60 minutes',
     action: 'Request a Session',
@@ -75,7 +75,7 @@ export const testimonials = {
     {
       id: 'testimonial-1',
       name: 'Shadi M.',
-      label: 'Migration Decision',
+      label: 'Life Decision',
       quote: 'I thought I already had the answers.',
       src: '/audio/testimonial-1.mp3',
     },
@@ -89,7 +89,7 @@ export const testimonials = {
     {
       id: 'testimonial-3',
       name: 'Babak K.',
-      label: 'Migration Path Review',
+      label: 'Strategy Session',
       quote: "In one hour I saw things I'd ignored for two years.",
       src: '/audio/testimonial-3.mp3',
     },

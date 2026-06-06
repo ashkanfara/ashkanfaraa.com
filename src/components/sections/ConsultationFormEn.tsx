@@ -39,7 +39,7 @@ export function ConsultationFormEn() {
   const [values,  setValues]  = useState<Record<string, string>>({})
   const [focused, setFocused] = useState<string | null>(null)
   const [touched, setTouched] = useState<Set<string>>(new Set())
-  const [status,  setStatus]  = useState<'idle' | 'submitting' | 'error'>('idle')
+  const [status,   setStatus]   = useState<'idle' | 'submitting' | 'success' | 'error'>('idle')
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
   const isValid = REQUIRED.every(id => validate(id, values[id] ?? '') === null)
@@ -91,15 +91,42 @@ export function ConsultationFormEn() {
 
       const data = await res.json().catch(() => ({}))
 
-      if (!res.ok || !data.url) {
+      if (!res.ok) {
         throw new Error(data.error ?? 'Something went wrong. Please try again.')
       }
 
-      window.location.href = data.url
+      setStatus('success')
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
       setStatus('error')
     }
+  }
+
+  // ── Success state ────────────────────────────────────────────
+  if (status === 'success') {
+    return (
+      <div style={{
+        maxWidth:     '520px',
+        padding:      '2.25rem 2rem',
+        background:   'var(--surface)',
+        border:       '1px solid var(--border)',
+        borderRadius: '0.875rem',
+      }}>
+        <div style={{ width: '2rem', height: '1px', background: 'var(--accent)', opacity: 0.65, marginBottom: '1.75rem' }} />
+        <h3 style={{
+          fontSize: 'clamp(1.05rem, 1.8vw, 1.3rem)', fontWeight: 600,
+          lineHeight: 1.35, color: 'var(--foreground)', marginBottom: '1rem',
+        }}>
+          Application received.
+        </h3>
+        <p style={{ fontSize: '0.9rem', color: 'var(--muted)', lineHeight: 1.9, marginBottom: '1rem' }}>
+          You&rsquo;ll hear back within 48 hours.
+        </p>
+        <p style={{ fontSize: '0.8rem', color: 'var(--subtle)', lineHeight: 1.75, margin: 0 }}>
+          Not every application leads to a session. The goal is to ensure the conversation is valuable for both sides.
+        </p>
+      </div>
+    )
   }
 
   return (
@@ -194,7 +221,7 @@ export function ConsultationFormEn() {
           whiteSpace:     'nowrap',
         }}
       >
-        {status === 'submitting' ? 'Redirecting to payment…' : 'Continue to Payment'}
+        {status === 'submitting' ? 'Submitting…' : 'Submit Application'}
       </button>
 
     </form>

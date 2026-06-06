@@ -1,6 +1,6 @@
 export const site = {
   name: 'ASHKAN FARAA',
-  tagline: 'MIGRATION · LIFE · STRATEGY',
+  tagline: 'LIFE · FREEDOM · STRATEGY',
 }
 
 export const nav = {

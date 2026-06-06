@@ -7,7 +7,7 @@ import { footer, consultationContent } from '@/data/content.en'
 export const metadata: Metadata = {
   title: 'Private Strategy Session — Ashkan Faraa',
   description:
-    'A focused one-on-one conversation for people facing a major decision. Migration, relocation, business, education, property, or any significant life change. AUD 450 · 60 minutes.',
+    'A focused one-on-one conversation for people facing a significant decision — relocation, career, business, education, or any high-stakes life commitment. AUD 499 · 60 minutes.',
 }
 
 const PAD = 'clamp(1rem, 5vw, 4rem)'

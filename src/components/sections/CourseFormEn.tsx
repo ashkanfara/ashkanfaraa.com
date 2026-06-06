@@ -47,7 +47,7 @@ export function CourseFormEn() {
   const [values,  setValues]  = useState<Record<string, string>>({})
   const [touched, setTouched] = useState<Set<string>>(new Set())
   const [focused, setFocused] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState<'stripe' | 'paypal' | null>(null)
   const [error,   setError]   = useState<string | null>(null)
 
   const isValid = REQUIRED.every(id => validate(id, values[id] ?? '') === null)
@@ -59,15 +59,19 @@ export function CourseFormEn() {
     return 'var(--border)'
   }
 
-  async function handlePay() {
+  async function handlePay(provider: 'stripe' | 'paypal') {
     setTouched(new Set(REQUIRED))
     if (!isValid) return
 
-    setLoading(true)
+    setLoading(provider)
     setError(null)
 
+    const endpoint = provider === 'stripe'
+      ? '/api/en/stripe/checkout'
+      : '/api/en/paypal/create-order'
+
     try {
-      const res = await fetch('/api/en/paypal/create-order', {
+      const res = await fetch(endpoint, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -88,7 +92,7 @@ export function CourseFormEn() {
       window.location.href = data.url
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
-      setLoading(false)
+      setLoading(null)
     }
   }
 
@@ -142,31 +146,66 @@ export function CourseFormEn() {
         </div>
       )}
 
-      {/* PayPal button */}
+      {/* Stripe — card payment */}
       <button
         type="button"
-        onClick={handlePay}
-        disabled={loading}
+        onClick={() => handlePay('stripe')}
+        disabled={loading !== null}
         style={{
           width:          '100%',
-          background:     loading ? '#0060a3' : '#0070ba',
-          color:          '#fff',
+          background:     loading === 'stripe' ? 'rgba(196,151,58,0.8)' : 'var(--accent)',
+          color:          'var(--accent-fg)',
           border:         'none',
           borderRadius:   '0.5rem',
           padding:        '0.95rem 1rem',
           fontSize:       '0.9rem',
           fontWeight:     600,
-          cursor:         loading ? 'wait' : 'pointer',
+          letterSpacing:  '0.02em',
+          cursor:         loading !== null ? 'wait' : 'pointer',
           fontFamily:     'inherit',
           transition:     'background 0.15s, opacity 0.15s',
-          opacity:        loading ? 0.7 : 1,
+          opacity:        loading !== null && loading !== 'stripe' ? 0.45 : 1,
           display:        'flex',
           alignItems:     'center',
           justifyContent: 'center',
           gap:            '0.5rem',
         }}
       >
-        {loading ? 'Redirecting to PayPal…' : 'Pay with PayPal — $99 USD'}
+        {loading === 'stripe' ? 'Redirecting…' : 'Pay with Card — $99 USD'}
+      </button>
+
+      {/* Divider */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
+        <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
+        <span style={{ fontSize: '0.7rem', color: 'var(--subtle)', letterSpacing: '0.06em' }}>or</span>
+        <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
+      </div>
+
+      {/* PayPal */}
+      <button
+        type="button"
+        onClick={() => handlePay('paypal')}
+        disabled={loading !== null}
+        style={{
+          width:          '100%',
+          background:     loading === 'paypal' ? '#0060a3' : '#0070ba',
+          color:          '#fff',
+          border:         'none',
+          borderRadius:   '0.5rem',
+          padding:        '0.95rem 1rem',
+          fontSize:       '0.9rem',
+          fontWeight:     600,
+          cursor:         loading !== null ? 'wait' : 'pointer',
+          fontFamily:     'inherit',
+          transition:     'background 0.15s, opacity 0.15s',
+          opacity:        loading !== null && loading !== 'paypal' ? 0.45 : 1,
+          display:        'flex',
+          alignItems:     'center',
+          justifyContent: 'center',
+          gap:            '0.5rem',
+        }}
+      >
+        {loading === 'paypal' ? 'Redirecting to PayPal…' : 'Pay with PayPal — $99 USD'}
       </button>
 
     </div>
