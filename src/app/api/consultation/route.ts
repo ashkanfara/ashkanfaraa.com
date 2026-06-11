@@ -82,10 +82,13 @@ export async function POST(req: NextRequest) {
   const dbId = process.env.NOTION_FA_CONSULTATION_DB_ID
   const token = process.env.NOTION_TOKEN
 
-  if (!dbId || !token) {
-    // Credentials not configured — log the submission so it is not silently lost,
-    // then return success so the user is not shown a technical error.
-    console.error('[FA consultation] NOTION_TOKEN or NOTION_FA_CONSULTATION_DB_ID not set.')
+  if (!token) {
+    console.error('[FA consultation] MISSING ENV VAR: NOTION_TOKEN is not set in Vercel. Submission lost.')
+    console.error('[FA consultation] Submission data (not saved):', JSON.stringify(submission, null, 2))
+    return NextResponse.json({ ok: true }, { status: 200 })
+  }
+  if (!dbId) {
+    console.error('[FA consultation] MISSING ENV VAR: NOTION_FA_CONSULTATION_DB_ID is not set in Vercel. Submission lost.')
     console.error('[FA consultation] Submission data (not saved):', JSON.stringify(submission, null, 2))
     return NextResponse.json({ ok: true }, { status: 200 })
   }
