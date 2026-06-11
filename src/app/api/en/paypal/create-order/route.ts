@@ -20,13 +20,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createCoursePurchase }      from '@/lib/notion-en'
 import { createPayPalOrder }         from '@/lib/paypal'
 
+// NEXT_PUBLIC_BASE_URL is optional — falls back to the live domain
 const REQUIRED_ENV = [
   'PAYPAL_CLIENT_ID',
   'PAYPAL_CLIENT_SECRET',
   'PAYPAL_BASE_URL',
   'NOTION_TOKEN',
   'NOTION_COURSE_DB_ID',
-  'NEXT_PUBLIC_BASE_URL',
 ]
 
 export async function POST(req: NextRequest) {
@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
       mobile:    phone.trim(),
     })
 
-    const BASE = process.env.NEXT_PUBLIC_BASE_URL!.replace(/\/$/, '')
+    const BASE = (process.env.NEXT_PUBLIC_BASE_URL || 'https://www.ashkanfaraa.com').replace(/\/$/, '')
 
     const approveUrl = await createPayPalOrder({
       amount:      '99.00',
