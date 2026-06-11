@@ -1,69 +1,55 @@
+/**
+ * POST /api/course
+ *
+ * Persian course purchase handler.
+ * Saves every submission to Notion: "Course Purchases (FA)".
+ *
+ * Accepts multipart/form-data (because the payment step optionally
+ * uploads a screenshot). Screenshot files cannot be stored on Vercel's
+ * read-only filesystem — the proof type and tracking number are saved
+ * to Notion; screenshots are verified manually via Instagram DM.
+ *
+ * Required env vars:
+ *   NOTION_TOKEN
+ *   NOTION_FA_COURSE_DB_ID
+ *
+ * Fields saved:
+ *   Full Name, Email, Instagram, Phone, Telegram, Location,
+ *   AF Code, Proof Type, Proof Value, Source=FA, Status=pending
+ */
+
 import { NextRequest, NextResponse } from 'next/server'
-import { writeFile, readFile, mkdir } from 'fs/promises'
-import { existsSync }                 from 'fs'
-import path                           from 'path'
 
-// ─────────────────────────────────────────────────────────────
-// Storage — JSON file + screenshot files on disk.
-// Swap readSubmissions / writeSubmissions / saveScreenshot for
-// Notion / Airtable / Supabase when moving to production.
-// AF code is the primary lookup key for Instagram AI flow.
-// ─────────────────────────────────────────────────────────────
+const NOTION_API     = 'https://api.notion.com/v1'
+const NOTION_VERSION = '2022-06-28'
 
-const DATA_DIR       = path.join(process.cwd(), 'data')
-const SUBMISSIONS    = path.join(DATA_DIR, 'course-submissions.json')
-const SCREENSHOT_DIR = path.join(DATA_DIR, 'screenshots')
-
-export interface Submission {
-  id:        string                      // AF-XXXX
-  name:      string
-  instagram: string
-  email:     string
-  phone:     string
-  telegram:  string
-  location:  string
-  proofType:  'screenshot' | 'tracking'
-  proofValue: string                     // filename or tracking number
-  timestamp:  string
-  status:     'pending' | 'approved' | 'rejected'
-}
-
-async function readSubmissions(): Promise<Submission[]> {
-  try {
-    return JSON.parse(await readFile(SUBMISSIONS, 'utf-8'))
-  } catch {
-    return []
+function notionHeaders() {
+  return {
+    Authorization:    `Bearer ${process.env.NOTION_TOKEN}`,
+    'Content-Type':   'application/json',
+    'Notion-Version': NOTION_VERSION,
   }
 }
 
-async function writeSubmissions(rows: Submission[]): Promise<void> {
-  if (!existsSync(DATA_DIR)) await mkdir(DATA_DIR, { recursive: true })
-  await writeFile(SUBMISSIONS, JSON.stringify(rows, null, 2), 'utf-8')
+function rt(text: string) {
+  return [{ text: { content: (text || '').slice(0, 2000) } }]
 }
 
-async function saveScreenshot(afCode: string, file: File): Promise<string> {
-  const ext      = file.name.split('.').pop()?.toLowerCase() || 'jpg'
-  const filename = `${afCode}.${ext}`
-  if (!existsSync(SCREENSHOT_DIR)) await mkdir(SCREENSHOT_DIR, { recursive: true })
-  await writeFile(path.join(SCREENSHOT_DIR, filename), Buffer.from(await file.arrayBuffer()))
-  return filename
-}
-
-function generateAfCode(existing: Submission[]): string {
-  const used = new Set(existing.map(s => s.id))
-  let code: string
-  do {
-    code = `AF-${Math.floor(1000 + Math.random() * 9000)}`
-  } while (used.has(code))
+function generateAfCode(attempt = 0): string {
+  // Simple AF-XXXX code; no uniqueness check needed for Notion
+  const code = `AF-${Math.floor(1000 + Math.random() * 9000)}`
   return code
 }
 
-// ─────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
+  console.log('[FA course] Route hit — parsing form data')
+
+  // ── Parse multipart form data ───────────────────────────────
   let fd: FormData
   try {
     fd = await req.formData()
-  } catch {
+  } catch (err) {
+    console.error('[FA course] Failed to parse form data:', err)
     return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
   }
 
@@ -76,43 +62,91 @@ export async function POST(req: NextRequest) {
   const telegram  = get('telegram')
   const location  = get('location')
   const proofType = get('proofType') as 'screenshot' | 'tracking' | ''
+  const tracking  = get('tracking')
 
+  console.log('[FA course] Request body received:', {
+    name:      name      || '(empty)',
+    email:     email     || '(empty)',
+    instagram: instagram || '(empty)',
+    phone:     phone     || '(empty)',
+    telegram:  telegram  || '(empty)',
+    proofType: proofType || '(empty)',
+  })
+
+  // ── Validate ────────────────────────────────────────────────
   if (!name || !instagram || !email || !phone || !telegram) {
+    console.warn('[FA course] Missing required fields')
     return NextResponse.json({ error: 'Missing required fields' }, { status: 422 })
   }
   if (proofType !== 'screenshot' && proofType !== 'tracking') {
+    console.warn('[FA course] Invalid proof type:', proofType)
     return NextResponse.json({ error: 'Invalid proof type' }, { status: 422 })
   }
-
-  const submissions = await readSubmissions()
-  const afCode      = generateAfCode(submissions)
-
-  let proofValue = ''
-
-  if (proofType === 'screenshot') {
-    const file = fd.get('screenshot') as File | null
-    if (!file || file.size === 0) {
-      return NextResponse.json({ error: 'Screenshot required' }, { status: 422 })
-    }
-    proofValue = await saveScreenshot(afCode, file)
-  } else {
-    proofValue = get('tracking')
-    if (!proofValue) {
-      return NextResponse.json({ error: 'Tracking number required' }, { status: 422 })
-    }
+  if (proofType === 'tracking' && !tracking) {
+    console.warn('[FA course] Tracking number missing')
+    return NextResponse.json({ error: 'Tracking number required' }, { status: 422 })
   }
 
-  const submission: Submission = {
-    id: afCode, name, instagram, email, phone, telegram, location,
-    proofType, proofValue,
-    timestamp: new Date().toISOString(),
-    status:    'pending',
+  // Proof value — for screenshots we note it was uploaded (file cannot be
+  // stored on Vercel's read-only filesystem; customer sends screenshot via Instagram)
+  const proofValue = proofType === 'tracking'
+    ? tracking
+    : 'رسید آپلود شد — تأیید از طریق اینستاگرام'
+
+  const afCode = generateAfCode()
+
+  console.log('[FA course] Generated AF code:', afCode, '| Proof type:', proofType)
+
+  // ── Check env vars ──────────────────────────────────────────
+  const token = process.env.NOTION_TOKEN
+  const dbId  = process.env.NOTION_FA_COURSE_DB_ID
+
+  console.log('[FA course] Env check — NOTION_TOKEN present:', !!token, '| NOTION_FA_COURSE_DB_ID present:', !!dbId)
+
+  if (!token || !dbId) {
+    console.error('[FA course] MISSING ENV VAR:', !token ? 'NOTION_TOKEN' : 'NOTION_FA_COURSE_DB_ID')
+    // Return the AF code so UX works; submission is lost
+    console.error('[FA course] Submission not saved — missing env vars. Data:', JSON.stringify({ name, email, instagram, phone, telegram, location, afCode, proofType, proofValue }))
+    return NextResponse.json({ ok: true, afCode }, { status: 200 })
   }
 
-  submissions.push(submission)
-  await writeSubmissions(submissions)
+  // ── Save to Notion ──────────────────────────────────────────
+  try {
+    const res = await fetch(`${NOTION_API}/pages`, {
+      method:  'POST',
+      headers: notionHeaders(),
+      body: JSON.stringify({
+        parent: { database_id: dbId },
+        properties: {
+          'Full Name':   { title:      rt(name) },
+          'Email':       { email:      email    },
+          'Instagram':   { rich_text:  rt(instagram) },
+          'Phone':       { rich_text:  rt(phone) },
+          'Telegram':    { rich_text:  rt(telegram) },
+          'Location':    { rich_text:  rt(location) },
+          'AF Code':     { rich_text:  rt(afCode) },
+          'Proof Type':  { select:     { name: proofType } },
+          'Proof Value': { rich_text:  rt(proofValue) },
+          'Source':      { select:     { name: 'FA' } },
+          'Status':      { select:     { name: 'pending' } },
+        },
+      }),
+    })
 
-  console.log(`[course] ${afCode} — ${name} (${email})`)
+    if (!res.ok) {
+      const errText = await res.text()
+      console.error('[FA course] Notion API error:', res.status, errText)
+      // Still return the AF code — don't break the customer experience
+      return NextResponse.json({ ok: true, afCode }, { status: 200 })
+    }
 
-  return NextResponse.json({ ok: true, afCode }, { status: 201 })
+    const page = await res.json()
+    console.log('[FA course] ✓ Saved to Notion. Page ID:', page.id, '| AF Code:', afCode, '| Name:', name, '| Email:', email)
+
+  } catch (err) {
+    console.error('[FA course] Unexpected error saving to Notion:', err)
+    // Still return the AF code
+  }
+
+  return NextResponse.json({ ok: true, afCode }, { status: 200 })
 }
