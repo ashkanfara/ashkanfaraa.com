@@ -43,7 +43,7 @@ export async function createCoursePurchase(data: {
         Email:             { email: data.email || null },
         Instagram:         { rich_text: richText(data.instagram) },
         Telegram:          { rich_text: richText(data.telegram) },
-        Mobile:            { phone_number: data.mobile || null },
+        Mobile:            { rich_text: richText(data.mobile) },
         Provider:          { select: { name: 'PayPal' } },
         'Provider Order ID': { rich_text: richText('') },
         Amount:            { rich_text: richText('99.00') },
@@ -54,6 +54,7 @@ export async function createCoursePurchase(data: {
   })
   if (!res.ok) throw new Error(`Notion createCoursePurchase: ${await res.text()}`)
   const page = await res.json()
+  console.log('[EN course] ✓ Saved to Notion. Page ID:', page.id, '| Name:', data.name, '| Email:', data.email)
   return page.id as string
 }
 
@@ -84,6 +85,7 @@ export async function createConsultationApp(data: {
   })
   if (!res.ok) throw new Error(`Notion createConsultationApp: ${await res.text()}`)
   const page = await res.json()
+  console.log('[EN consultation] ✓ Saved to Notion. Page ID:', page.id, '| Name:', data.name, '| Email:', data.email)
   return page.id as string
 }
 
