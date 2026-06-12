@@ -1,7 +1,9 @@
 'use client'
 
 import { useState, useRef, useCallback } from 'react'
-import { CourseForm } from './CourseForm'
+import { CourseForm }  from './CourseForm'
+import { AudioPlayer } from '@/components/ui/AudioPlayer'
+import { Testimonials } from './Testimonials'
 
 const PAD = 'clamp(1rem, 5vw, 4rem)'
 
@@ -16,22 +18,65 @@ function Eyebrow({ children }: { children: string }) {
   )
 }
 
-const HIGHLIGHTED = new Set([2, 4, 5, 7])
-
-const MODULES = [
-  { title: 'چرا این دوره را ساختم' },
-  { title: 'مسیری که طی کردم' },
-  { title: 'دلیل واقعی مهاجرت' },
-  { title: 'مهاجرت آن چیزی نیست که فکر می‌کنی' },
-  { title: 'دام‌های احساسی' },
-  { title: 'دام‌های مالی' },
-  { title: 'دام‌های شغلی و تحصیلی' },
-  { title: 'دوستی و روابط در کشور جدید' },
-  { title: 'ایرانی‌های خارج و فاصله‌ای که می‌گذارند' },
-  { title: 'پارتنر خارجی vs پارتنر ایرانی' },
-  { title: 'تفاوت‌های فرهنگی و قانونی کشور مقصد' },
-  { title: 'قبل از اینکه بروی' },
+// ── Audio previews ─────────────────────────────────────────────
+// Drop the three files in /public/audio/ when ready.
+// Until then, the player renders but audio is silent.
+const PREVIEWS = [
+  {
+    src:   '/audio/preview-1.mp3',
+    name:  'چرا خیلی‌ها بعد از مهاجرت ناامید می‌شوند؟',
+    label: 'پیش‌نمایش دوره',
+  },
+  {
+    src:   '/audio/preview-2.mp3',
+    name:  'مهاجرت برای فرزند یا برای خودت؟',
+    label: 'پیش‌نمایش دوره',
+  },
+  {
+    src:   '/audio/preview-3.mp3',
+    name:  'دوستی، رابطه و تنهایی بعد از مهاجرت',
+    label: 'پیش‌نمایش دوره',
+  },
 ]
+
+// ── Topics ─────────────────────────────────────────────────────
+const TOPICS = [
+  'چرا بعضی افراد از مهاجرت پشیمان می‌شوند اما درباره‌اش حرف نمی‌زنند',
+  'تفاوت تصویر مهاجرت در شبکه‌های اجتماعی با زندگی واقعی',
+  'دوستی‌ها، روابط و تنهایی بعد از مهاجرت',
+  'اشتباهاتی که قبل از مهاجرت دیده نمی‌شوند',
+  'نقش انتظارات در رضایت یا نارضایتی از مهاجرت',
+  'چیزهایی که ای کاش قبل از مهاجرت می‌دانستم',
+]
+
+// ── Testimonials content override ──────────────────────────────
+const courseTestimonialsContent = {
+  sectionLabel: 'نظر خریداران',
+  subtext:      'نظر کسانی که دوره را شنیده‌اند.',
+  items: [
+    {
+      id:    'testimonial-1',
+      name:  'شادی م.',
+      label: 'خریدار دوره',
+      quote: 'قبل از این جلسه فکر می‌کردم جواب‌ها را دارم.',
+      src:   '/audio/testimonial-1.mp3',
+    },
+    {
+      id:    'testimonial-2',
+      name:  'عسل ج.',
+      label: 'خریدار دوره',
+      quote: 'اولین باری بود که کسی سوال‌های درست را می‌پرسید.',
+      src:   '/audio/testimonial-2.mp3',
+    },
+    {
+      id:    'testimonial-3',
+      name:  'بابک ک.',
+      label: 'خریدار دوره',
+      quote: 'بعد از یک ساعت، چیزهایی دیدم که دو سال نادیده گرفته بودم.',
+      src:   '/audio/testimonial-3.mp3',
+    },
+  ],
+}
 
 export function CoursePageShell() {
   const [fading, setFading] = useState(false)
@@ -70,29 +115,28 @@ export function CoursePageShell() {
             <Eyebrow>دوره آموزشی</Eyebrow>
 
             <h1 style={{
-              fontSize: 'clamp(2.4rem, 5.5vw, 4.2rem)',
-              fontWeight: 700,
-              lineHeight: 1.08,
+              fontSize:      'clamp(2.4rem, 5.5vw, 4.2rem)',
+              fontWeight:    700,
+              lineHeight:    1.08,
               letterSpacing: '-0.03em',
-              color: 'var(--foreground)',
-              marginBottom: '1rem',
+              color:         'var(--foreground)',
+              marginBottom:  '1rem',
             }}>
               تله‌های پنهان مهاجرت
             </h1>
 
             <p style={{
-              fontSize: 'clamp(0.9rem, 1.3vw, 1.05rem)',
-              fontWeight: 400,
-              lineHeight: 1.8,
-              color: 'var(--muted)',
+              fontSize:      'clamp(0.9rem, 1.3vw, 1.05rem)',
+              fontWeight:    400,
+              lineHeight:    1.8,
+              color:         'var(--muted)',
               letterSpacing: '-0.01em',
-              marginBottom: '1.25rem',
-              maxWidth: '38ch',
+              marginBottom:  '1.25rem',
+              maxWidth:      '38ch',
             }}>
               چیزهایی که کاش قبل از رفتن می‌دانستی.
             </p>
 
-            {/* CTA row: primary action + back link */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
               <a
                 href="#form"
@@ -137,19 +181,19 @@ export function CoursePageShell() {
           style={{
             ...fadeStyle,
             paddingInline: PAD,
-            paddingTop: '2rem',
+            paddingTop:    '2rem',
             paddingBottom: '2rem',
-            borderTop: '1px solid var(--border)',
+            borderTop:     '1px solid var(--border)',
           }}
         >
           <p style={{
-            fontSize: 'clamp(1.2rem, 2.2vw, 1.7rem)',
-            fontWeight: 500,
-            lineHeight: 1.65,
+            fontSize:      'clamp(1.2rem, 2.2vw, 1.7rem)',
+            fontWeight:    500,
+            lineHeight:    1.65,
             letterSpacing: '-0.02em',
-            color: 'var(--foreground)',
-            maxWidth: '34ch',
-            margin: 0,
+            color:         'var(--foreground)',
+            maxWidth:      '34ch',
+            margin:        0,
           }}>
             بیشتر اشتباهات مهاجرتی قبل از مهاجرت اتفاق نمی‌افتند.
             <br />
@@ -158,88 +202,183 @@ export function CoursePageShell() {
         </section>
       )}
 
-      {/* 3. MODULE LIST */}
+      {/* 3. WHY THIS COURSE EXISTS */}
       {!hidden && (
         <section
           dir="rtl"
           style={{
             ...fadeStyle,
             paddingInline: PAD,
-            paddingTop: '2.5rem',
+            paddingTop:    '2.5rem',
             paddingBottom: '2.5rem',
-            borderTop: '1px solid var(--border)',
-            background: 'radial-gradient(ellipse at 30% 50%, rgba(196,151,58,0.04) 0%, transparent 65%)',
+            borderTop:     '1px solid var(--border)',
           }}
         >
-          <p style={{
-            fontSize: '0.8rem',
-            color: 'var(--subtle)',
-            lineHeight: 1.75,
-            marginBottom: '1.5rem',
-            maxWidth: '52ch',
-            opacity: 0.8,
-          }}>
-            این دوره حاصل سال‌ها تجربه زندگی، تحصیل، کار و گفتگو با مهاجران در کشورهای مختلف است.
-          </p>
+          <Eyebrow>چرا این دوره ساخته شد؟</Eyebrow>
 
-          <p style={{
-            fontSize: '0.72rem',
-            letterSpacing: '0.06em',
-            color: 'var(--subtle)',
-            marginBottom: '1.5rem',
-            opacity: 0.65,
-          }}>
-            چیزهایی که کسی قبل از رفتن به تو نمی‌گوید.
-          </p>
-
-          <div style={{ maxWidth: '600px', display: 'flex', flexDirection: 'column' }}>
-            {MODULES.map((mod, i) => {
-              const hi = HIGHLIGHTED.has(i)
-              return (
-                <div
-                  key={mod.title}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '1rem',
-                    paddingTop: '0.8rem',
-                    paddingBottom: '0.8rem',
-                    borderTop: '1px solid var(--border)',
-                    borderBottom: i === MODULES.length - 1 ? '1px solid var(--border)' : 'none',
-                  }}
-                >
-                  <span style={{
-                    fontSize: '0.65rem',
-                    color: hi ? 'var(--accent)' : 'var(--subtle)',
-                    opacity: hi ? 0.7 : 0.45,
-                    minWidth: '1.5rem', fontVariantNumeric: 'tabular-nums', flexShrink: 0,
-                  }}>
-                    {String(i + 1).padStart(2, '0')}
-                  </span>
-                  <span style={{
-                    fontSize: '1rem', lineHeight: 1.5,
-                    color: hi ? '#f5ede0' : 'var(--foreground)',
-                    fontWeight: hi ? 600 : 400,
-                  }}>
-                    {mod.title}
-                  </span>
-                </div>
-              )
-            })}
+          <div style={{ maxWidth: '48ch', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <p style={{ fontSize: 'clamp(0.9rem, 1.2vw, 1rem)', color: 'var(--muted)', lineHeight: 2, margin: 0 }}>
+              این دوره برای ترساندن کسی از مهاجرت ساخته نشده.
+            </p>
+            <p style={{ fontSize: 'clamp(0.9rem, 1.2vw, 1rem)', color: 'var(--muted)', lineHeight: 2, margin: 0 }}>
+              برای منصرف کردن کسی هم ساخته نشده.
+            </p>
+            <p style={{ fontSize: 'clamp(0.9rem, 1.2vw, 1rem)', color: 'var(--foreground)', lineHeight: 2, margin: 0, fontWeight: 500 }}>
+              این دوره برای دیدن بخش‌هایی از مهاجرت ساخته شده که معمولاً بعد از خرید بلیت دیده می‌شوند.
+            </p>
+            <p style={{ fontSize: 'clamp(0.85rem, 1.1vw, 0.95rem)', color: 'var(--subtle)', lineHeight: 1.9, margin: 0 }}>
+              هدف آن دادن جواب آماده نیست؛ هدف آن کمک به تصمیم‌گیری آگاهانه‌تر است.
+            </p>
           </div>
         </section>
       )}
 
-      {/* 4. MID CTA */}
+      {/* 4. AUDIO PREVIEWS */}
       {!hidden && (
         <section
           dir="rtl"
           style={{
             ...fadeStyle,
             paddingInline: PAD,
-            paddingTop: '2rem',
+            paddingTop:    '2.5rem',
             paddingBottom: '2rem',
-            borderTop: '1px solid var(--border)',
+            borderTop:     '1px solid var(--border)',
+            background:    'radial-gradient(ellipse at 60% 40%, rgba(196,151,58,0.04) 0%, transparent 65%)',
+          }}
+        >
+          <Eyebrow>چند دقیقه از دوره</Eyebrow>
+
+          <h2 style={{
+            fontSize:      'clamp(1rem, 1.5vw, 1.2rem)',
+            fontWeight:    600,
+            lineHeight:    1.4,
+            letterSpacing: '-0.01em',
+            color:         'var(--foreground)',
+            marginBottom:  '0.5rem',
+          }}>
+            چند دقیقه از دوره
+          </h2>
+          <p style={{
+            fontSize:      '0.82rem',
+            color:         'var(--subtle)',
+            lineHeight:    1.75,
+            marginBottom:  '1.75rem',
+            maxWidth:      '48ch',
+            opacity:       0.85,
+          }}>
+            برای اینکه بهتر با فضای دوره آشنا شوی، می‌توانی چند بخش کوتاه از آن را بشنوی.
+          </p>
+
+          <div style={{ maxWidth: '560px', display: 'flex', flexDirection: 'column' }}>
+            {PREVIEWS.map((p, i) => (
+              <div
+                key={p.src}
+                style={{
+                  borderTop:  i === 0 ? '1px solid var(--border)' : 'none',
+                  borderBottom: '1px solid var(--border)',
+                }}
+              >
+                <AudioPlayer src={p.src} name={p.name} label={p.label} />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* 5. TESTIMONIALS — hear buyers after hearing Ashkan */}
+      {!hidden && (
+        <section
+          dir="rtl"
+          style={{
+            ...fadeStyle,
+            paddingInline: PAD,
+            paddingTop:    '2.5rem',
+            paddingBottom: '2rem',
+            borderTop:     '1px solid var(--border)',
+          }}
+        >
+          <h2 style={{
+            fontSize:      'clamp(1rem, 1.5vw, 1.2rem)',
+            fontWeight:    600,
+            lineHeight:    1.4,
+            letterSpacing: '-0.01em',
+            color:         'var(--foreground)',
+            marginBottom:  '0.25rem',
+          }}>
+            نظر کسانی که دوره را شنیده‌اند
+          </h2>
+
+          <Testimonials content={courseTestimonialsContent} locale="fa" />
+        </section>
+      )}
+
+      {/* 6. TOPICS */}
+      {!hidden && (
+        <section
+          dir="rtl"
+          style={{
+            ...fadeStyle,
+            paddingInline: PAD,
+            paddingTop:    '2.5rem',
+            paddingBottom: '2.5rem',
+            borderTop:     '1px solid var(--border)',
+          }}
+        >
+          <Eyebrow>بخشی از موضوعات دوره</Eyebrow>
+
+          <h2 style={{
+            fontSize:      'clamp(1rem, 1.5vw, 1.2rem)',
+            fontWeight:    600,
+            lineHeight:    1.4,
+            letterSpacing: '-0.01em',
+            color:         'var(--foreground)',
+            marginBottom:  '1.5rem',
+          }}>
+            بخشی از موضوعاتی که در دوره مطرح می‌شود
+          </h2>
+
+          <ul style={{ listStyle: 'none', margin: 0, padding: 0, maxWidth: '52ch', display: 'flex', flexDirection: 'column' }}>
+            {TOPICS.map((topic, i) => (
+              <li
+                key={topic}
+                style={{
+                  display:       'flex',
+                  alignItems:    'flex-start',
+                  gap:           '0.875rem',
+                  paddingTop:    '0.9rem',
+                  paddingBottom: '0.9rem',
+                  borderTop:     i === 0 ? '1px solid var(--border)' : 'none',
+                  borderBottom:  '1px solid var(--border)',
+                }}
+              >
+                <span style={{
+                  width:        '4px',
+                  height:       '4px',
+                  borderRadius: '50%',
+                  background:   'var(--accent)',
+                  opacity:      0.55,
+                  flexShrink:   0,
+                  marginTop:    '0.55em',
+                }} />
+                <span style={{ fontSize: '0.9rem', color: 'var(--muted)', lineHeight: 1.65 }}>
+                  {topic}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {/* 7. MID CTA */}
+      {!hidden && (
+        <section
+          dir="rtl"
+          style={{
+            ...fadeStyle,
+            paddingInline: PAD,
+            paddingTop:    '2rem',
+            paddingBottom: '2rem',
+            borderTop:     '1px solid var(--border)',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
@@ -264,7 +403,7 @@ export function CoursePageShell() {
         </section>
       )}
 
-      {/* 5. FORM / PAYMENT */}
+      {/* 8. FORM / PAYMENT */}
       <section
         id="form"
         ref={formRef as React.RefObject<HTMLElement>}
@@ -273,8 +412,8 @@ export function CoursePageShell() {
           paddingInline: PAD,
           paddingTop:    hidden ? '3.5rem' : '2.5rem',
           paddingBottom: '3rem',
-          borderTop: hidden ? 'none' : '1px solid var(--border)',
-          transition: 'padding-top 0.3s ease',
+          borderTop:     hidden ? 'none' : '1px solid var(--border)',
+          transition:    'padding-top 0.3s ease',
         }}
       >
         {!hidden && (
@@ -282,21 +421,21 @@ export function CoursePageShell() {
             <Eyebrow>درخواست دسترسی</Eyebrow>
 
             <h2 style={{
-              fontSize: 'clamp(1rem, 1.6vw, 1.3rem)',
-              fontWeight: 600,
-              lineHeight: 1.4,
-              color: 'var(--foreground)',
+              fontSize:     'clamp(1rem, 1.6vw, 1.3rem)',
+              fontWeight:   600,
+              lineHeight:   1.4,
+              color:        'var(--foreground)',
               marginBottom: '0.75rem',
             }}>
               برای دریافت دسترسی، اطلاعات زیر را بفرست.
             </h2>
 
             <p style={{
-              fontSize: '0.8rem',
-              color: 'var(--subtle)',
-              lineHeight: 1.8,
+              fontSize:     '0.8rem',
+              color:        'var(--subtle)',
+              lineHeight:   1.8,
               marginBottom: '1.75rem',
-              maxWidth: '48ch',
+              maxWidth:     '48ch',
             }}>
               پس از بررسی، اطلاعات پرداخت از طریق اینستاگرام ارسال می‌شود.
             </p>
@@ -308,12 +447,12 @@ export function CoursePageShell() {
         {!hidden && (
           <p style={{
             ...fadeStyle,
-            marginTop: '1.5rem',
-            fontSize: '0.7rem',
-            color: 'var(--subtle)',
+            marginTop:  '1.5rem',
+            fontSize:   '0.7rem',
+            color:      'var(--subtle)',
             lineHeight: 1.75,
-            maxWidth: '52ch',
-            opacity: fading ? 0 : 0.65,
+            maxWidth:   '52ch',
+            opacity:    fading ? 0 : 0.65,
           }}>
             این دوره بر پایه تجربه شخصی است. جایگزین مشاوره حقوقی یا تخصصی نیست.
           </p>
