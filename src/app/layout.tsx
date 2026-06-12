@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Vazirmatn } from "next/font/google";
 import { Header } from "@/components/layout/Header";
+import { ClarityScript } from "@/components/analytics/ClarityScript";
 import "./globals.css";
 
 const vazirmatn = Vazirmatn({
@@ -39,6 +40,7 @@ export default function RootLayout({
       className={`${vazirmatn.variable} h-full antialiased`}
     >
       <body className="w-full min-h-full bg-background text-foreground">
+        <ClarityScript />
         <Header />
         {children}
       </body>
