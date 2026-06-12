@@ -24,7 +24,7 @@ function Eyebrow({ children }: { children: string }) {
 const PREVIEWS = [
   {
     src:   '/audio/preview-1.mp3',
-    name:  'چرا خیلی‌ها بعد از مهاجرت ناامید می‌شوند؟',
+    name:  'فرهنگ دوست‌یابی و تفاوتش با ایران',
     label: 'پیش‌نمایش دوره',
   },
   {
