@@ -65,14 +65,14 @@ const courseTestimonialsContent = {
     },
     {
       id:    'testimonial-2',
-      name:  'عسل ج.',
+      name:  'آنیتا ح.',
       label: 'خریدار دوره',
       quote: 'اولین باری بود که کسی سوال‌های درست را می‌پرسید.',
-      src:   '/audio/testimonial-2.mp3',
+      src:   '/audio/testimonial-anita.m4a',
     },
     {
       id:    'testimonial-3',
-      name:  'بابک ک.',
+      name:  'مریم ک.',
       label: 'خریدار دوره',
       quote: 'بعد از یک ساعت، چیزهایی دیدم که دو سال نادیده گرفته بودم.',
       src:   '/audio/testimonial-3.mp3',
