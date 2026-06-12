@@ -235,7 +235,55 @@ export function CoursePageShell() {
         </section>
       )}
 
-      {/* 4. AUDIO PREVIEWS */}
+      {/* 4. COST OF WRONG DECISIONS */}
+      {!hidden && (
+        <section
+          dir="rtl"
+          style={{
+            ...fadeStyle,
+            paddingInline: PAD,
+            paddingTop:    '3rem',
+            paddingBottom: '3rem',
+            borderTop:     '1px solid var(--border)',
+          }}
+        >
+          <h2 style={{
+            fontSize:      'clamp(1rem, 1.4vw, 1.15rem)',
+            fontWeight:    600,
+            letterSpacing: '-0.01em',
+            color:         'var(--foreground)',
+            marginBottom:  '2rem',
+          }}>
+            هزینه بعضی تصمیم‌های اشتباه
+          </h2>
+
+          <div style={{ maxWidth: '44ch', display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
+            <p style={{ fontSize: 'clamp(0.875rem, 1.1vw, 0.95rem)', color: 'var(--muted)', lineHeight: 1.9, margin: 0 }}>
+              انتخاب اشتباه کشور مقصد.
+            </p>
+            <p style={{ fontSize: 'clamp(0.875rem, 1.1vw, 0.95rem)', color: 'var(--muted)', lineHeight: 1.9, margin: 0 }}>
+              انتخاب اشتباه مسیر شغلی یا تحصیلی.
+            </p>
+            <p style={{ fontSize: 'clamp(0.875rem, 1.1vw, 0.95rem)', color: 'var(--muted)', lineHeight: 1.9, margin: 0 }}>
+              سال‌ها تلاش برای هدفی که واقعاً هدف تو نبوده.
+            </p>
+            <p style={{ fontSize: 'clamp(0.875rem, 1.1vw, 0.95rem)', color: 'var(--muted)', lineHeight: 1.9, margin: 0 }}>
+              از دست دادن زمان، پول و انرژی برای تصمیمی که می‌شد آگاهانه‌تر گرفته شود.
+            </p>
+
+            <div style={{ height: '1px', background: 'var(--border)', margin: '0.5rem 0' }} />
+
+            <p style={{ fontSize: 'clamp(0.875rem, 1.1vw, 0.95rem)', color: 'var(--subtle)', lineHeight: 1.9, margin: 0 }}>
+              این دوره قرار نیست به جای تو تصمیم بگیرد.
+            </p>
+            <p style={{ fontSize: 'clamp(0.875rem, 1.1vw, 0.95rem)', color: 'var(--subtle)', lineHeight: 1.9, margin: 0 }}>
+              فقط کمک می‌کند قبل از تصمیم گرفتن، تصویر کامل‌تری ببینی.
+            </p>
+          </div>
+        </section>
+      )}
+
+      {/* 5. AUDIO PREVIEWS */}
       {!hidden && (
         <section
           dir="rtl"

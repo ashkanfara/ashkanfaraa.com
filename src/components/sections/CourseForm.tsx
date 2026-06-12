@@ -266,7 +266,7 @@ function ApplicationStep({
           cursor:  isValid ? 'pointer' : 'not-allowed',
         }}
       >
-        ادامه — پرداخت
+        درخواست دسترسی به دوره
       </button>
     </form>
   )
