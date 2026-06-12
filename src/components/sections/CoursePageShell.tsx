@@ -23,11 +23,6 @@ function Eyebrow({ children }: { children: string }) {
 // Until then, the player renders but audio is silent.
 const PREVIEWS = [
   {
-    src:   '/audio/preview-1.mp3',
-    name:  'فرهنگ دوست‌یابی و تفاوتش با ایران',
-    label: 'پیش‌نمایش دوره',
-  },
-  {
     src:   '/audio/preview-2.mp3',
     name:  'مهاجرت برای فرزند یا برای خودت؟',
     label: 'پیش‌نمایش دوره',
@@ -35,6 +30,11 @@ const PREVIEWS = [
   {
     src:   '/audio/preview-3.mp3',
     name:  'دوستی، رابطه و تنهایی بعد از مهاجرت',
+    label: 'پیش‌نمایش دوره',
+  },
+  {
+    src:   '/audio/preview-1.mp3',
+    name:  'فرهنگ دوست‌یابی و تفاوتش با ایران',
     label: 'پیش‌نمایش دوره',
   },
 ]
