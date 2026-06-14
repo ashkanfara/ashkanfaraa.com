@@ -215,18 +215,46 @@ export function MigrationForm() {
 
   // ── Success state ───────────────────────────────────────────
   if (status === 'success') {
+    const detailedUrl = `/migration-assistance/detailed?leadId=${encodeURIComponent(leadId)}&dest=${encodeURIComponent(values.destination || '')}`
     return (
-      <div dir="rtl" style={{ maxWidth: '560px', padding: '2.5rem 2rem', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '0.875rem' }}>
-        <div style={{ width: '2rem', height: '1px', background: 'var(--accent)', opacity: 0.65, marginBottom: '1.75rem' }} />
-        <p style={{ fontSize: '0.6rem', letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--subtle)', marginBottom: '0.75rem' }}>
-          شناسه درخواست شما
-        </p>
-        <p style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--accent)', letterSpacing: '0.1em', marginBottom: '1.75rem', fontVariantNumeric: 'tabular-nums' }}>
-          {leadId}
-        </p>
-        <p style={{ fontSize: '0.9rem', color: 'var(--muted)', lineHeight: 1.9 }}>
-          درخواست شما ثبت شد. پس از بررسی اطلاعات، در صورت مناسب بودن شرایط، ممکن است برای مراحل بعدی با شما تماس گرفته شود.
-        </p>
+      <div dir="rtl" style={{ maxWidth: '560px', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+
+        {/* Confirmation card */}
+        <div style={{ padding: '2.5rem 2rem', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '0.875rem' }}>
+          <div style={{ width: '2rem', height: '1px', background: 'var(--accent)', opacity: 0.65, marginBottom: '1.75rem' }} />
+          <p style={{ fontSize: '0.6rem', letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--subtle)', marginBottom: '0.75rem' }}>
+            شناسه درخواست شما
+          </p>
+          <p style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--accent)', letterSpacing: '0.1em', marginBottom: '1.75rem', fontVariantNumeric: 'tabular-nums' }}>
+            {leadId}
+          </p>
+          <p style={{ fontSize: '0.9rem', color: 'var(--muted)', lineHeight: 1.9 }}>
+            درخواست شما ثبت شد. پس از بررسی اطلاعات، در صورت مناسب بودن شرایط، ممکن است برای مراحل بعدی با شما تماس گرفته شود.
+          </p>
+        </div>
+
+        {/* Optional detailed assessment CTA */}
+        <div style={{ padding: '1.5rem 1.75rem', background: 'var(--surface-raised)', border: '1px solid var(--border)', borderRadius: '0.875rem' }}>
+          <p style={{ fontSize: '0.6rem', letterSpacing: '0.2em', textTransform: 'uppercase', color: 'var(--subtle)', marginBottom: '0.875rem' }}>
+            مرحله اختیاری
+          </p>
+          <p style={{ fontSize: '0.85rem', color: 'var(--muted)', lineHeight: 1.85, marginBottom: '1.25rem' }}>
+            اگر می‌خواهید بررسی دقیق‌تری دریافت کنید، می‌توانید فرم ارزیابی تفصیلی را تکمیل کنید. این مرحله اختیاری است و اطلاعات بیشتری برای ارزیابی دقیق‌تر پرونده شما فراهم می‌کند.
+          </p>
+          <a
+            href={detailedUrl}
+            style={{
+              display: 'inline-flex', alignItems: 'center',
+              borderRadius: '9999px', border: '1px solid var(--accent)',
+              color: 'var(--accent)', background: 'transparent',
+              padding: '0.7rem 1.75rem', fontSize: '0.82rem', fontWeight: 600,
+              letterSpacing: '0.04em', textDecoration: 'none', fontFamily: 'inherit',
+            }}
+          >
+            تکمیل ارزیابی تفصیلی ←
+          </a>
+        </div>
+
       </div>
     )
   }
