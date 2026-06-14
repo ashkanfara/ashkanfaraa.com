@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, FormEvent } from 'react'
+import { useState, useEffect, useRef, FormEvent } from 'react'
+import { clarityEvent, clarityTag } from '@/lib/clarity'
 
 const input: React.CSSProperties = {
   width: '100%', background: 'var(--surface-raised)',
@@ -96,6 +97,23 @@ const GERMAN_PATHWAYS = [
 const YES_NO = [
   { value: 'Yes', label: 'بله' },
   { value: 'No',  label: 'خیر' },
+]
+const EMPLOYMENT_TYPES = [
+  { value: 'Employee',        label: 'کارمند' },
+  { value: 'Self-employed',   label: 'خوداشتغال' },
+  { value: 'Business owner',  label: 'صاحب کسب‌وکار' },
+  { value: 'Combination',     label: 'ترکیبی' },
+]
+const OCCUPATION_CATEGORIES = [
+  { value: 'IT',           label: 'فناوری اطلاعات (IT)' },
+  { value: 'Engineering',  label: 'مهندسی' },
+  { value: 'Accounting',   label: 'حسابداری / مالی' },
+  { value: 'Nursing',      label: 'پرستاری / پزشکی' },
+  { value: 'Teaching',     label: 'آموزش / تدریس' },
+  { value: 'Trades',       label: 'حرفه فنی (Trades)' },
+  { value: 'Hospitality',  label: 'هتلداری / گردشگری' },
+  { value: 'Business',     label: 'مدیریت / کسب‌وکار' },
+  { value: 'Other',        label: 'سایر' },
 ]
 const EVIDENCE_OPTIONS = [
   { value: 'Payslips',              label: 'فیش حقوقی' },
@@ -208,6 +226,7 @@ export function MigrationDetailedForm({ leadId, destination }: { leadId: string;
   const [refId,   setRefId]   = useState('')
   const [apiErr,  setApiErr]  = useState('')
   const [source,  setSource]  = useState<Record<string, string>>({})
+  const startFired = useRef(false)
 
   useEffect(() => {
     const p = new URLSearchParams(window.location.search)
@@ -218,10 +237,21 @@ export function MigrationDetailedForm({ leadId, destination }: { leadId: string;
       utmCampaign: p.get('utm_campaign') || '',
       referrer:    document.referrer     || '',
     })
+    // Fire stage-2 start when page loads with a valid leadId
+    if (leadId) clarityEvent('migration_stage2_start')
   }, [])
 
   const errors = validate(v)
-  const set    = (k: string, val: string) => setV(p => ({ ...p, [k]: val }))
+
+  function set(k: string, val: string) {
+    if (!startFired.current) {
+      startFired.current = true
+      // Only fire if no leadId — if there is one, stage2_start already fired on mount
+      if (!leadId) clarityEvent('migration_stage2_start')
+    }
+    setV(p => ({ ...p, [k]: val }))
+  }
+
   const touch  = (k: string) => setTouched(p => new Set([...p, k]))
 
   function fieldBorder(id: string) {
@@ -274,6 +304,10 @@ export function MigrationDetailedForm({ leadId, destination }: { leadId: string;
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error || 'خطا در ارسال. دوباره امتحان کن.')
+      clarityEvent('migration_stage2_complete')
+      clarityTag('lead_grade',  data.grade    || 'unknown')
+      clarityTag('lead_score',  String(data.score ?? ''))
+      clarityTag('occ_category', v.occupationCategory || 'unknown')
       setRefId(data.refId || leadId)
       setStatus('success')
     } catch (err) {
@@ -461,12 +495,23 @@ export function MigrationDetailedForm({ leadId, destination }: { leadId: string;
       <Section title="سابقه کار" />
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
 
+        <Field label="دسته‌بندی شغلی"
+          hint="مهم‌ترین عامل برای ارزیابی مسیر مهاجرتی — لطفاً نزدیک‌ترین گزینه را انتخاب کنید.">
+          <PillSelect options={OCCUPATION_CATEGORIES} value={v.occupationCategory || ''}
+            onChange={val => set('occupationCategory', val)} />
+        </Field>
+
+        <Field label="نوع اشتغال">
+          <PillSelect options={EMPLOYMENT_TYPES} value={v.employmentType || ''}
+            onChange={val => set('employmentType', val)} />
+        </Field>
+
         <Field label="عنوان شغلی فعلی (اختیاری)">
           <input style={input} value={v.jobTitle || ''} type="text"
             onChange={e => set('jobTitle', e.target.value)} />
         </Field>
 
-        <Field label="زمینه شغلی (اختیاری)">
+        <Field label="زمینه شغلی — توضیح آزاد (اختیاری)">
           <input style={input} value={v.occupation || ''} type="text"
             placeholder="مثلاً: مهندسی نرم‌افزار، پرستاری، حسابداری"
             onChange={e => set('occupation', e.target.value)} />

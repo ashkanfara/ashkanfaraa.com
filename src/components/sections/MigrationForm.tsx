@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, FormEvent } from 'react'
+import { useState, useEffect, useRef, FormEvent } from 'react'
+import { clarityEvent, clarityTag } from '@/lib/clarity'
 
 // ── Design tokens (shared with site) ──────────────────────────
 const input: React.CSSProperties = {
@@ -153,6 +154,7 @@ export function MigrationForm() {
   const [leadId,  setLeadId]  = useState('')
   const [apiError, setApiError] = useState('')
   const [source,  setSource]  = useState<Record<string,string>>({})
+  const startFired = useRef(false)
 
   // ── Capture UTM / referrer on mount ────────────────────────
   useEffect(() => {
@@ -167,7 +169,15 @@ export function MigrationForm() {
   }, [])
 
   const errors = validate(values)
-  const set = (k: string, v: string) => setValues(p => ({ ...p, [k]: v }))
+
+  function set(k: string, v: string) {
+    if (!startFired.current) {
+      startFired.current = true
+      clarityEvent('migration_stage1_start')
+    }
+    setValues(p => ({ ...p, [k]: v }))
+  }
+
   const touch = (k: string) => setTouched(p => new Set([...p, k]))
 
   function fieldBorder(id: string) {
@@ -205,6 +215,9 @@ export function MigrationForm() {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error || 'خطا در ارسال. دوباره امتحان کن.')
+      clarityEvent('migration_stage1_complete')
+      clarityTag('lead_destination', values.destination || 'unknown')
+      clarityTag('lead_budget', values.budget || 'unknown')
       setLeadId(data.leadId)
       setStatus('success')
     } catch (err) {

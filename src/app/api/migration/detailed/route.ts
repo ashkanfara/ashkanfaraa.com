@@ -197,6 +197,8 @@ export async function POST(req: NextRequest) {
           'Country of Study':      { rich_text: rt(body.countryOfStudy   || '') },
           'Graduation Year':       { rich_text: rt(body.graduationYear   || '') },
           // ── Work
+          'Occupation Category':   body.occupationCategory ? { select: { name: body.occupationCategory } } : undefined,
+          'Employment Type':       body.employmentType    ? { select: { name: body.employmentType } }    : undefined,
           'Job Title':             { rich_text: rt(body.jobTitle         || '') },
           'Occupation':            { rich_text: rt(body.occupation       || '') },
           'Years Experience':      body.experience        ? { select: { name: body.experience } }        : undefined,
