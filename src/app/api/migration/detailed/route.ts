@@ -179,8 +179,8 @@ export async function POST(req: NextRequest) {
           'Nationality':           { rich_text: rt(body.nationality) },
           'Current Country':       { rich_text: rt(body.currentCountry) },
           'Current Visa Status':   { rich_text: rt(body.currentVisa      || '') },
-          'Prior Presence':        { rich_text: rt(body.priorPresence    || '') },
-          'Passport Status':       { rich_text: rt(body.passportStatus   || '') },
+          'Prior Presence':        body.priorPresence  ? { select: { name: body.priorPresence } }  : undefined,
+          'Passport Status':       body.passportStatus ? { select: { name: body.passportStatus } } : undefined,
           'Timeline':              body.timeline ? { select: { name: body.timeline } } : undefined,
           'Destination':           { rich_text: rt(body.destination      || '') },
           // ── Family
