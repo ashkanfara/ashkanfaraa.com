@@ -180,3 +180,51 @@ export async function unblockSender(senderId: string): Promise<void> {
     throw new Error(`unblockSender failed: ${res.status} ${await res.text()}`)
   }
 }
+
+// ── instagram_users lookup ─────────────────────────────────────
+
+/**
+ * Look up sender_id from instagram_users by username (normalized handle).
+ * Returns null if not found or if Supabase is not configured.
+ */
+export async function lookupSenderIdByUsername(username: string): Promise<string | null> {
+  const res = await fetch(
+    `${base()}/rest/v1/instagram_users?username=eq.${encodeURIComponent(username)}&select=sender_id&limit=1`,
+    { headers: headers(), cache: 'no-store' }
+  )
+  if (!res.ok) {
+    console.error('[supabase/lookupSenderIdByUsername] query failed:', res.status, await res.text())
+    return null
+  }
+  const rows = await res.json() as { sender_id: string }[]
+  return rows[0]?.sender_id ?? null
+}
+
+/**
+ * Upsert consultation_leads row for manual DM control.
+ * Sets dm_mode; also sets sender_id if known.
+ */
+export async function upsertLeadDmMode(
+  instagramHandle: string,
+  dmMode:          string,
+  senderId?:       string | null
+): Promise<void> {
+  const body: Record<string, string> = {
+    instagram_handle: instagramHandle,
+    dm_mode:          dmMode,
+    updated_at:       new Date().toISOString(),
+  }
+  if (senderId) body.sender_id = senderId
+
+  const res = await fetch(`${base()}/rest/v1/consultation_leads?on_conflict=instagram_handle`, {
+    method:  'POST',
+    headers: {
+      ...headers(),
+      Prefer: 'resolution=merge-duplicates,return=minimal',
+    },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    throw new Error(`upsertLeadDmMode failed: ${res.status} ${await res.text()}`)
+  }
+}

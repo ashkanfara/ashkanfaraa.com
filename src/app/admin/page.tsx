@@ -736,6 +736,117 @@ function AppCard({
   )
 }
 
+// ── Manual DM Control ─────────────────────────────────────────
+type ManualAction = 'set-human' | 'block' | 'unblock'
+
+interface ManualResult {
+  ok:       boolean
+  status:   string
+  message?: string
+  senderId?: string | null
+}
+
+function ManualDmControl({ password }: { password: string }) {
+  const [handle,  setHandle]  = useState('')
+  const [busy,    setBusy]    = useState<ManualAction | null>(null)
+  const [result,  setResult]  = useState<ManualResult | null>(null)
+  const [err,     setErr]     = useState<string | null>(null)
+
+  async function run(action: ManualAction) {
+    const trimmed = handle.trim()
+    if (!trimmed) { setErr('Enter a handle first'); return }
+    setBusy(action)
+    setResult(null)
+    setErr(null)
+    try {
+      const res = await fetch('/api/admin/manual-dm-control', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${password}` },
+        body:    JSON.stringify({ action, handle: trimmed }),
+      })
+      const data = await res.json()
+      if (!res.ok && !data.status) { setErr(data.error || 'Request failed'); return }
+      setResult(data)
+    } catch {
+      setErr('Network error')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const statusColor: Record<string, string> = {
+    paused:       '#5a9e6f',
+    'pre-paused': '#b5975a',
+    blocked:      '#c0504a',
+    unblocked:    '#5a9e6f',
+    'no-sender-id': '#6b6359',
+  }
+
+  return (
+    <div style={{
+      border:       '1px solid #2c2720',
+      borderRadius: '6px',
+      padding:      '14px',
+      marginBottom: '24px',
+      background:   '#100e0c',
+    }}>
+      <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.1em', color: '#9e9289', marginBottom: '10px' }}>
+        MANUAL DM CONTROL
+      </div>
+
+      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <input
+          type="text"
+          placeholder="@instagram_handle"
+          value={handle}
+          onChange={e => { setHandle(e.target.value); setResult(null); setErr(null) }}
+          onKeyDown={e => e.key === 'Enter' && run('set-human')}
+          style={{
+            background:   '#0a0908',
+            border:       '1px solid #2c2720',
+            borderRadius: '4px',
+            color:        '#d4cdc5',
+            fontSize:     '13px',
+            padding:      '5px 10px',
+            width:        '200px',
+            outline:      'none',
+          }}
+        />
+        <button disabled={!!busy} onClick={() => run('set-human')}
+          style={{ ...btn('warn'), opacity: busy === 'set-human' ? 0.5 : 1 }}>
+          {busy === 'set-human' ? '…' : 'Set Human'}
+        </button>
+        <button disabled={!!busy} onClick={() => run('block')}
+          style={{ ...btn('danger'), opacity: busy === 'block' ? 0.5 : 1 }}>
+          {busy === 'block' ? '…' : 'Block AI'}
+        </button>
+        <button disabled={!!busy} onClick={() => run('unblock')}
+          style={{ ...btn('ghost'), opacity: busy === 'unblock' ? 0.5 : 1 }}>
+          {busy === 'unblock' ? '…' : 'Unblock AI'}
+        </button>
+      </div>
+
+      {err && (
+        <p style={{ color: '#c0504a', fontSize: '12px', marginTop: '8px', marginBottom: 0 }}>{err}</p>
+      )}
+
+      {result && (
+        <div style={{ marginTop: '8px', fontSize: '12px', color: statusColor[result.status] ?? '#d4cdc5' }}>
+          <span style={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '10px', marginRight: '6px' }}>
+            {result.status.replace('-', ' ')}
+          </span>
+          {result.message && <span style={{ color: '#9e9289' }}>{result.message}</span>}
+          {result.senderId && (
+            <span style={{ color: '#6b6359', fontSize: '11px', marginLeft: '8px' }}>
+              sender_id: {result.senderId}
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Section wrapper ───────────────────────────────────────────
 function Section({
   title, apps, password, section, onRefresh,
@@ -840,6 +951,8 @@ export default function AdminPage() {
 
       {fetchErr && <p style={{ color: '#c0504a', fontSize: '12px' }}>{fetchErr}</p>}
       {loading && !data && <p style={{ color: '#6b6359', fontSize: '12px' }}>Loading…</p>}
+
+      <ManualDmControl password={password} />
 
       {data && (
         <>
