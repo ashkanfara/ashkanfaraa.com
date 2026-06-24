@@ -34,6 +34,7 @@ interface App {
   paymentStatus:    string
   paymentClaim:     string
   consCode:         string
+  dmMode:           string | null
 }
 
 interface DashboardData {
@@ -145,6 +146,15 @@ const S = {
     gap:       '6px',
     flexWrap:  'wrap' as const,
     marginTop: '10px',
+  } as React.CSSProperties,
+
+  dmRow: {
+    display:    'flex',
+    alignItems: 'center',
+    gap:        '8px',
+    flexWrap:   'wrap' as const,
+    padding:    '8px 14px',
+    borderTop:  '1px solid #2c2720',
   } as React.CSSProperties,
 }
 
@@ -419,6 +429,99 @@ function ConfirmPayment({ app, password, onDone }: {
   )
 }
 
+// ── DM Control ────────────────────────────────────────────────
+const DM_MODES = ['AI', 'Hybrid', 'Human'] as const
+type DmModeValue = typeof DM_MODES[number]
+
+function DmControl({ app, password }: { app: App; password: string }) {
+  const [current, setCurrent] = useState<string | null>(app.dmMode)
+  const [busy,    setBusy]    = useState<string | null>(null)
+  const [err,     setErr]     = useState<string | null>(null)
+
+  if (!app.instagram) {
+    return (
+      <div style={S.dmRow}>
+        <span style={S.label}>DM CONTROL</span>
+        <span style={{ color: '#6b6359', fontSize: '11px' }}>No Instagram handle</span>
+      </div>
+    )
+  }
+
+  async function setMode(mode: DmModeValue) {
+    if (mode === current || busy) return
+    setBusy(mode)
+    setErr(null)
+    try {
+      const res = await fetch('/api/admin/consultation/dm-mode', {
+        method:  'POST',
+        headers: {
+          'Content-Type':  'application/json',
+          Authorization:   `Bearer ${password}`,
+        },
+        body: JSON.stringify({
+          instagramHandle: app.instagram,
+          dmMode:          mode,
+          pageId:          app.pageId,
+          name:            app.name    || undefined,
+          email:           app.email   || undefined,
+          phone:           app.phone   || undefined,
+          location:        app.location || undefined,
+          status:          app.status  || undefined,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setErr(data.error || 'Failed'); return }
+      setCurrent(data.dmMode)
+    } catch {
+      setErr('Network error')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const modeColor: Record<DmModeValue, string> = {
+    AI:     '#4a8fc0',
+    Hybrid: '#b5975a',
+    Human:  '#5a9e6f',
+  }
+
+  return (
+    <div style={S.dmRow}>
+      <span style={S.label}>DM CONTROL</span>
+      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+        {DM_MODES.map(mode => {
+          const active  = mode === current
+          const loading = busy === mode
+          return (
+            <button
+              key={mode}
+              disabled={!!busy}
+              onClick={e => { e.stopPropagation(); setMode(mode) }}
+              style={{
+                padding:         '3px 10px',
+                fontSize:        '11px',
+                fontWeight:      active ? 700 : 400,
+                border:          `1px solid ${active ? modeColor[mode] : '#2c2720'}`,
+                borderRadius:    '4px',
+                background:      active ? modeColor[mode] + '22' : 'transparent',
+                color:           active ? modeColor[mode] : '#9e9289',
+                cursor:          busy ? 'default' : 'pointer',
+                opacity:         loading ? 0.5 : 1,
+              }}
+            >
+              {loading ? '…' : mode}
+            </button>
+          )
+        })}
+        {!current && (
+          <span style={{ color: '#6b6359', fontSize: '11px' }}>not set</span>
+        )}
+      </div>
+      {err && <span style={{ color: '#c0504a', fontSize: '11px', marginLeft: '8px' }}>{err}</span>}
+    </div>
+  )
+}
+
 // ── Application card ──────────────────────────────────────────
 type CardMode = 'collapsed' | 'details' | 'approve'
 
@@ -475,6 +578,9 @@ function AppCard({
           {app.subject.slice(0, 100)}{app.subject.length > 100 ? '…' : ''}
         </div>
       )}
+
+      {/* ── DM Control (always visible) ── */}
+      <DmControl app={app} password={password} />
 
       {/* ── Expanded body ── */}
       {isExpanded && (

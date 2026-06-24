@@ -1,7 +1,8 @@
 /**
  * GET /api/admin/consultation/list
  *
- * Returns all five dashboard sections in parallel.
+ * Returns all five dashboard sections plus dm_mode per record from Supabase.
+ * Supabase enrichment degrades gracefully if env vars are missing.
  * Protected by Authorization: Bearer ADMIN_SECRET
  */
 
@@ -12,7 +13,9 @@ import {
   getApprovedApplications,
   getClaimedApplications,
   getPaidApplications,
+  type ConsultationRecord,
 } from '@/lib/notion-fa-consultation'
+import { getDmModes, normalizeHandle } from '@/lib/supabase'
 
 function authorized(req: NextRequest): boolean {
   const secret = process.env.ADMIN_SECRET
@@ -33,7 +36,31 @@ export async function GET(req: NextRequest) {
       getClaimedApplications(),
       getPaidApplications(),
     ])
-    return NextResponse.json({ new: newApps, underReview, approved, claimed, paid })
+
+    const all = [...newApps, ...underReview, ...approved, ...claimed, ...paid]
+
+    // Collect unique normalized instagram handles for a single Supabase batch query.
+    const handles = [...new Set(
+      all.map(r => r.instagram).filter(Boolean).map(normalizeHandle)
+    )]
+
+    // Gracefully skip if Supabase is not configured or unreachable.
+    const dmModes = await getDmModes(handles)
+
+    function enrich(records: ConsultationRecord[]) {
+      return records.map(r => ({
+        ...r,
+        dmMode: r.instagram ? (dmModes.get(normalizeHandle(r.instagram)) ?? null) : null,
+      }))
+    }
+
+    return NextResponse.json({
+      new:         enrich(newApps),
+      underReview: enrich(underReview),
+      approved:    enrich(approved),
+      claimed:     enrich(claimed),
+      paid:        enrich(paid),
+    })
   } catch (err) {
     console.error('[admin/list]', err)
     return NextResponse.json({ error: 'Failed to fetch applications' }, { status: 500 })
