@@ -1,8 +1,12 @@
 /**
  * POST /api/consultation
  *
- * Persian consultation application handler.
- * Saves every submission to Notion: "Consultation Applications (FA)".
+ * Persian consultation application handler — Phase 1 (application save).
+ * Saves the application to Notion immediately so the lead is captured even
+ * if the user abandons at the payment step.
+ *
+ * Returns { ok, notionPageId } so the client can pass the page ID to the
+ * payment-confirm route, which updates the same record with proof + CONS code.
  *
  * Required env var:
  *   NOTION_TOKEN
@@ -10,7 +14,7 @@
  *
  * Fields saved:
  *   Full Name, Email, Instagram, Phone, Location,
- *   Decision (subject), Message, Source=FA, Status=New
+ *   Decision (subject), Message, Source=FA, Status=Payment Pending
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -108,7 +112,7 @@ export async function POST(req: NextRequest) {
           'Decision':  { rich_text: rt(submission.subject) },
           'Message':   { rich_text: rt(submission.message) },
           'Source':    { select: { name: 'FA' } },
-          'Status':    { select: { name: 'New' } },
+          'Status':    { select: { name: 'Payment Pending' } },
         },
       }),
     })
@@ -116,13 +120,14 @@ export async function POST(req: NextRequest) {
     if (!res.ok) {
       const errText = await res.text()
       console.error('[FA consultation] Notion API error:', res.status, errText)
-      // Still return ok to the user — do not expose backend errors
       console.error('[FA consultation] Submission data (not saved to Notion):', JSON.stringify(submission, null, 2))
+      // Return ok without notionPageId — client falls back to manual flow
       return NextResponse.json({ ok: true }, { status: 200 })
     }
 
     const page = await res.json()
     console.log('[FA consultation] ✓ Saved to Notion. Page ID:', page.id, '| Name:', submission.name, '| Email:', submission.email)
+    return NextResponse.json({ ok: true, notionPageId: page.id }, { status: 200 })
 
   } catch (err) {
     console.error('[FA consultation] Unexpected error saving to Notion:', err)
