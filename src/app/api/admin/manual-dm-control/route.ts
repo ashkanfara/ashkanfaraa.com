@@ -17,7 +17,7 @@ import { normalizeHandle, supabaseConfigured,
          lookupSenderIdByUsername, upsertLeadDmMode,
          blockSender, unblockSender }                        from '@/lib/supabase'
 
-const VALID_ACTIONS = new Set(['set-human', 'block', 'unblock'])
+const VALID_ACTIONS = new Set(['set-ai', 'set-human', 'block', 'unblock'])
 
 function authorized(req: NextRequest): boolean {
   const secret = process.env.ADMIN_SECRET
@@ -57,6 +57,17 @@ export async function POST(req: NextRequest) {
   const senderId = await lookupSenderIdByUsername(handle)
 
   try {
+    // ── set-ai ────────────────────────────────────────────────
+    if (action === 'set-ai') {
+      await upsertLeadDmMode(handle, 'AI', senderId)
+      return NextResponse.json({
+        ok:      true,
+        status:  'ai',
+        senderId: senderId ?? null,
+        message: 'AI mode enabled.',
+      })
+    }
+
     // ── set-human ─────────────────────────────────────────────
     if (action === 'set-human') {
       await upsertLeadDmMode(handle, 'Human', senderId)
@@ -66,7 +77,7 @@ export async function POST(req: NextRequest) {
           ok:      true,
           status:  'paused',
           senderId,
-          message: 'AI set to Human. Sender ID resolved — takes effect immediately.',
+          message: 'Set to Human. Ashkan will handle manually — takes effect immediately.',
         })
       } else {
         return NextResponse.json({

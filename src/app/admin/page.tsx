@@ -737,20 +737,20 @@ function AppCard({
 }
 
 // ── Manual DM Control ─────────────────────────────────────────
-type ManualAction = 'set-human' | 'block' | 'unblock'
+type ManualAction = 'set-ai' | 'set-human' | 'block' | 'unblock'
 
 interface ManualResult {
-  ok:       boolean
-  status:   string
-  message?: string
+  ok:        boolean
+  status:    string
+  message?:  string
   senderId?: string | null
 }
 
 function ManualDmControl({ password }: { password: string }) {
-  const [handle,  setHandle]  = useState('')
-  const [busy,    setBusy]    = useState<ManualAction | null>(null)
-  const [result,  setResult]  = useState<ManualResult | null>(null)
-  const [err,     setErr]     = useState<string | null>(null)
+  const [handle, setHandle] = useState('')
+  const [busy,   setBusy]   = useState<ManualAction | null>(null)
+  const [result, setResult] = useState<ManualResult | null>(null)
+  const [err,    setErr]    = useState<string | null>(null)
 
   async function run(action: ManualAction) {
     const trimmed = handle.trim()
@@ -775,47 +775,57 @@ function ManualDmControl({ password }: { password: string }) {
   }
 
   const statusColor: Record<string, string> = {
-    paused:       '#5a9e6f',
-    'pre-paused': '#b5975a',
-    blocked:      '#c0504a',
-    unblocked:    '#5a9e6f',
+    ai:             '#4a8fc0',
+    paused:         '#5a9e6f',
+    'pre-paused':   '#b5975a',
+    blocked:        '#c0504a',
+    unblocked:      '#5a9e6f',
     'no-sender-id': '#6b6359',
   }
 
+  const inputStyle: React.CSSProperties = {
+    background:   '#0a0908',
+    border:       '1px solid #2c2720',
+    borderRadius: '4px',
+    color:        '#d4cdc5',
+    fontSize:     '13px',
+    padding:      '5px 10px',
+    width:        '200px',
+    outline:      'none',
+  }
+
   return (
-    <div style={{
-      border:       '1px solid #2c2720',
-      borderRadius: '6px',
-      padding:      '14px',
-      marginBottom: '24px',
-      background:   '#100e0c',
-    }}>
-      <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.1em', color: '#9e9289', marginBottom: '10px' }}>
+    <div style={{ border: '1px solid #2c2720', borderRadius: '6px', padding: '14px', marginBottom: '24px', background: '#100e0c' }}>
+      <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.1em', color: '#9e9289', marginBottom: '12px' }}>
         MANUAL DM CONTROL
       </div>
 
-      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-        <input
-          type="text"
-          placeholder="@instagram_handle"
-          value={handle}
-          onChange={e => { setHandle(e.target.value); setResult(null); setErr(null) }}
-          onKeyDown={e => e.key === 'Enter' && run('set-human')}
-          style={{
-            background:   '#0a0908',
-            border:       '1px solid #2c2720',
-            borderRadius: '4px',
-            color:        '#d4cdc5',
-            fontSize:     '13px',
-            padding:      '5px 10px',
-            width:        '200px',
-            outline:      'none',
-          }}
-        />
+      {/* Handle input */}
+      <input
+        type="text"
+        placeholder="@instagram_handle"
+        value={handle}
+        onChange={e => { setHandle(e.target.value); setResult(null); setErr(null) }}
+        onKeyDown={e => e.key === 'Enter' && run('set-human')}
+        style={inputStyle}
+      />
+
+      {/* Primary: dm_mode */}
+      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '8px' }}>
+        <span style={{ fontSize: '11px', color: '#6b6359', width: '52px' }}>dm_mode</span>
+        <button disabled={!!busy} onClick={() => run('set-ai')}
+          style={{ ...btn('ghost'), opacity: busy === 'set-ai' ? 0.5 : 1 }}>
+          {busy === 'set-ai' ? '…' : 'Set AI'}
+        </button>
         <button disabled={!!busy} onClick={() => run('set-human')}
           style={{ ...btn('warn'), opacity: busy === 'set-human' ? 0.5 : 1 }}>
           {busy === 'set-human' ? '…' : 'Set Human'}
         </button>
+      </div>
+
+      {/* Advanced: blocklist */}
+      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '6px' }}>
+        <span style={{ fontSize: '11px', color: '#6b6359', width: '52px' }}>blocklist</span>
         <button disabled={!!busy} onClick={() => run('block')}
           style={{ ...btn('danger'), opacity: busy === 'block' ? 0.5 : 1 }}>
           {busy === 'block' ? '…' : 'Block AI'}
@@ -833,7 +843,7 @@ function ManualDmControl({ password }: { password: string }) {
       {result && (
         <div style={{ marginTop: '8px', fontSize: '12px', color: statusColor[result.status] ?? '#d4cdc5' }}>
           <span style={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '10px', marginRight: '6px' }}>
-            {result.status.replace('-', ' ')}
+            {result.status.replace(/-/g, ' ')}
           </span>
           {result.message && <span style={{ color: '#9e9289' }}>{result.message}</span>}
           {result.senderId && (
