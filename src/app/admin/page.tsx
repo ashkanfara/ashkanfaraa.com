@@ -35,6 +35,8 @@ interface App {
   paymentClaim:     string
   consCode:         string
   dmMode:           string | null
+  senderId:         string | null
+  isBlocked:        boolean | null
 }
 
 interface DashboardData {
@@ -522,6 +524,79 @@ function DmControl({ app, password }: { app: App; password: string }) {
   )
 }
 
+// ── DM Blocklist ──────────────────────────────────────────────
+function BlocklistControl({ app, password }: { app: App; password: string }) {
+  const [blocked, setBlocked] = useState<boolean | null>(app.isBlocked)
+  const [busy,    setBusy]    = useState(false)
+  const [err,     setErr]     = useState<string | null>(null)
+
+  if (!app.instagram) return null
+
+  if (!app.senderId) {
+    return (
+      <div style={S.dmRow}>
+        <span style={S.label}>DM BLOCKLIST</span>
+        <span style={{ color: '#6b6359', fontSize: '11px' }}>No sender ID — person hasn't DM'd yet</span>
+      </div>
+    )
+  }
+
+  async function toggle(action: 'block' | 'unblock') {
+    setBusy(true)
+    setErr(null)
+    try {
+      const res = await fetch('/api/admin/consultation/blocklist', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${password}` },
+        body:    JSON.stringify({ action, instagramHandle: app.instagram, name: app.name }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setErr(data.error || 'Failed'); return }
+      setBlocked(action === 'block')
+    } catch {
+      setErr('Network error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div style={S.dmRow}>
+      <span style={S.label}>DM BLOCKLIST</span>
+      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+        {blocked === true && (
+          <span style={{ color: '#c0504a', fontSize: '11px', fontWeight: 700 }}>BLOCKED</span>
+        )}
+        {blocked === false && (
+          <span style={{ color: '#5a9e6f', fontSize: '11px' }}>Not blocked</span>
+        )}
+        {blocked === null && (
+          <span style={{ color: '#6b6359', fontSize: '11px' }}>Unknown</span>
+        )}
+        {blocked !== true && (
+          <button
+            disabled={busy}
+            onClick={e => { e.stopPropagation(); toggle('block') }}
+            style={{ padding: '3px 10px', fontSize: '11px', border: '1px solid #c0504a', borderRadius: '4px', background: 'transparent', color: '#c0504a', cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.5 : 1 }}
+          >
+            {busy ? '…' : 'Block AI'}
+          </button>
+        )}
+        {blocked === true && (
+          <button
+            disabled={busy}
+            onClick={e => { e.stopPropagation(); toggle('unblock') }}
+            style={{ padding: '3px 10px', fontSize: '11px', border: '1px solid #5a9e6f', borderRadius: '4px', background: 'transparent', color: '#5a9e6f', cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.5 : 1 }}
+          >
+            {busy ? '…' : 'Unblock AI'}
+          </button>
+        )}
+      </div>
+      {err && <span style={{ color: '#c0504a', fontSize: '11px', marginLeft: '8px' }}>{err}</span>}
+    </div>
+  )
+}
+
 // ── Application card ──────────────────────────────────────────
 type CardMode = 'collapsed' | 'details' | 'approve'
 
@@ -581,6 +656,9 @@ function AppCard({
 
       {/* ── DM Control (always visible) ── */}
       <DmControl app={app} password={password} />
+
+      {/* ── DM Blocklist (always visible) ── */}
+      <BlocklistControl app={app} password={password} />
 
       {/* ── Expanded body ── */}
       {isExpanded && (

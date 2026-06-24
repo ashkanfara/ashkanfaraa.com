@@ -38,29 +38,36 @@ export function supabaseConfigured(): boolean {
 
 // ── Queries ───────────────────────────────────────────────────
 
+export interface LeadData {
+  dmMode:   string | null
+  senderId: string | null
+}
+
 /**
- * Fetch dm_mode for a list of instagram handles in one query.
- * Returns a Map<normalizedHandle, dmMode>.
+ * Fetch dm_mode and sender_id for a list of instagram handles in one query.
+ * Returns a Map<normalizedHandle, LeadData>.
  * Returns an empty Map if Supabase is not configured or query fails.
  */
-export async function getDmModes(handles: string[]): Promise<Map<string, string>> {
-  const map = new Map<string, string>()
+export async function getLeadsData(handles: string[]): Promise<Map<string, LeadData>> {
+  const map = new Map<string, LeadData>()
   if (!supabaseConfigured() || handles.length === 0) return map
 
   const list = handles.map(h => `"${h}"`).join(',')
   try {
     const res = await fetch(
-      `${base()}/rest/v1/consultation_leads?instagram_handle=in.(${list})&select=instagram_handle,dm_mode`,
+      `${base()}/rest/v1/consultation_leads?instagram_handle=in.(${list})&select=instagram_handle,dm_mode,sender_id`,
       { headers: headers(), cache: 'no-store' }
     )
     if (!res.ok) {
-      console.error('[supabase/getDmModes] query failed:', res.status, await res.text())
+      console.error('[supabase/getLeadsData] query failed:', res.status, await res.text())
       return map
     }
-    const rows = await res.json() as { instagram_handle: string; dm_mode: string }[]
-    for (const row of rows) map.set(row.instagram_handle, row.dm_mode)
+    const rows = await res.json() as { instagram_handle: string; dm_mode: string | null; sender_id: string | null }[]
+    for (const row of rows) {
+      map.set(row.instagram_handle, { dmMode: row.dm_mode, senderId: row.sender_id })
+    }
   } catch (err) {
-    console.error('[supabase/getDmModes] fetch error:', err)
+    console.error('[supabase/getLeadsData] fetch error:', err)
   }
   return map
 }
@@ -111,5 +118,65 @@ export async function upsertDmMode(fields: UpsertDmModeFields): Promise<void> {
   if (!res.ok) {
     const text = await res.text()
     throw new Error(`Supabase upsert failed: ${res.status} ${text}`)
+  }
+}
+
+// ── Blocklist ──────────────────────────────────────────────────
+
+/**
+ * Fetch blocked state for a list of sender_ids in one query.
+ * Returns a Set<sender_id> of blocked IDs.
+ * Returns empty Set if Supabase is not configured or query fails.
+ */
+export async function getBlockedSenderIds(senderIds: string[]): Promise<Set<string>> {
+  const set = new Set<string>()
+  if (!supabaseConfigured() || senderIds.length === 0) return set
+
+  const list = senderIds.map(id => `"${id}"`).join(',')
+  try {
+    const res = await fetch(
+      `${base()}/rest/v1/dm_blocklist?sender_id=in.(${list})&select=sender_id`,
+      { headers: headers(), cache: 'no-store' }
+    )
+    if (!res.ok) {
+      console.error('[supabase/getBlockedSenderIds] query failed:', res.status, await res.text())
+      return set
+    }
+    const rows = await res.json() as { sender_id: string }[]
+    for (const row of rows) set.add(row.sender_id)
+  } catch (err) {
+    console.error('[supabase/getBlockedSenderIds] fetch error:', err)
+  }
+  return set
+}
+
+/**
+ * Add sender to dm_blocklist. Idempotent — ON CONFLICT DO NOTHING.
+ * sender_id is the primary key so no duplicates are possible.
+ */
+export async function blockSender(senderId: string, name: string): Promise<void> {
+  const res = await fetch(`${base()}/rest/v1/dm_blocklist?on_conflict=sender_id`, {
+    method:  'POST',
+    headers: {
+      ...headers(),
+      Prefer: 'resolution=ignore-duplicates,return=minimal',
+    },
+    body: JSON.stringify({ sender_id: senderId, name }),
+  })
+  if (!res.ok) {
+    throw new Error(`blockSender failed: ${res.status} ${await res.text()}`)
+  }
+}
+
+/**
+ * Remove sender from dm_blocklist by sender_id.
+ */
+export async function unblockSender(senderId: string): Promise<void> {
+  const res = await fetch(
+    `${base()}/rest/v1/dm_blocklist?sender_id=eq.${encodeURIComponent(senderId)}`,
+    { method: 'DELETE', headers: headers() }
+  )
+  if (!res.ok) {
+    throw new Error(`unblockSender failed: ${res.status} ${await res.text()}`)
   }
 }
