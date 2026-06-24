@@ -1,12 +1,11 @@
 /**
  * POST /api/consultation
  *
- * Persian consultation application handler — Phase 1 (application save).
- * Saves the application to Notion immediately so the lead is captured even
- * if the user abandons at the payment step.
+ * Persian consultation application handler.
+ * Saves every submission to Notion: "Consultation Applications (FA)".
  *
- * Returns { ok, notionPageId } so the client can pass the page ID to the
- * payment-confirm route, which updates the same record with proof + CONS code.
+ * Returns { ok, notionPageId } — notionPageId is preserved for the private
+ * approval flow (/consultation/pay) used when Ashkan manually approves a lead.
  *
  * Required env var:
  *   NOTION_TOKEN
@@ -14,7 +13,7 @@
  *
  * Fields saved:
  *   Full Name, Email, Instagram, Phone, Location,
- *   Decision (subject), Message, Source=FA, Status=Payment Pending
+ *   Decision (subject), Message, Source=FA, Status=New
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -112,7 +111,7 @@ export async function POST(req: NextRequest) {
           'Decision':  { rich_text: rt(submission.subject) },
           'Message':   { rich_text: rt(submission.message) },
           'Source':    { select: { name: 'FA' } },
-          'Status':    { select: { name: 'Payment Pending' } },
+          'Status':    { select: { name: 'New' } },
         },
       }),
     })
