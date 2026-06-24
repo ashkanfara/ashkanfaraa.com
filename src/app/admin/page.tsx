@@ -1,179 +1,310 @@
 'use client'
 
 /**
- * /admin
+ * /admin — Consultation review dashboard.
+ * Password-protected via ADMIN_SECRET (sessionStorage).
  *
- * Private admin dashboard for managing consultation applications.
- * Password-protected via ADMIN_SECRET (stored in sessionStorage).
- *
- * Section A: New applications → Approve with price/method/expiry
- * Section B: Claimed payments → Confirm and receive CONS code
+ * Sections:
+ *   1. New Applications
+ *   2. Under Review
+ *   3. Approved / Payment Sent
+ *   4. Awaiting Manual Confirmation
+ *   5. Paid / Completed
  */
 
 import { useState, useEffect, FormEvent } from 'react'
 
 // ── Types ─────────────────────────────────────────────────────
-interface Application {
+interface App {
   pageId:           string
   name:             string
   email:            string
+  instagram:        string
+  phone:            string
   location:         string
   subject:          string
+  message:          string
   submittedAt:      string
-  paymentStatus:    string
-  paymentClaim:     string
-  paymentMethod:    string
+  status:           string
+  paymentToken:     string
+  tokenExpiry:      string | null
   approvedPrice:    number | null
   approvedCurrency: string
-  status:           string
+  paymentMethod:    string
+  paymentStatus:    string
+  paymentClaim:     string
+  consCode:         string
 }
 
-interface ApproveResult {
-  paymentLink: string
-  dmMessage:   string
+interface DashboardData {
+  new:         App[]
+  underReview: App[]
+  approved:    App[]
+  claimed:     App[]
+  paid:        App[]
 }
 
-interface ConfirmResult {
-  consCode: string
+// ── Minimal styles ────────────────────────────────────────────
+const S = {
+  page: {
+    fontFamily: 'system-ui, sans-serif',
+    fontSize:   '13px',
+    color:      '#e8e4de',
+    background: '#0e0c0a',
+    minHeight:  '100vh',
+    padding:    '1.5rem',
+  } as React.CSSProperties,
+
+  card: {
+    background:    '#1a1714',
+    border:        '1px solid #2c2720',
+    borderRadius:  '6px',
+    marginBottom:  '8px',
+  } as React.CSSProperties,
+
+  cardHeader: {
+    padding:    '10px 14px',
+    display:    'flex',
+    alignItems: 'flex-start',
+    gap:        '10px',
+    cursor:     'pointer',
+  } as React.CSSProperties,
+
+  cardBody: {
+    padding:    '0 14px 14px',
+    borderTop:  '1px solid #2c2720',
+  } as React.CSSProperties,
+
+  label: {
+    color:        '#6b6359',
+    fontSize:     '11px',
+    marginBottom: '2px',
+    marginTop:    '10px',
+    display:      'block',
+    textTransform:'uppercase' as const,
+    letterSpacing:'0.06em',
+  },
+
+  value: {
+    color:    '#e8e4de',
+    fontSize: '13px',
+  } as React.CSSProperties,
+
+  input: {
+    width:        '100%',
+    background:   '#0e0c0a',
+    border:       '1px solid #2c2720',
+    borderRadius: '4px',
+    padding:      '6px 8px',
+    fontSize:     '12px',
+    color:        '#e8e4de',
+    outline:      'none',
+    fontFamily:   'system-ui, sans-serif',
+    boxSizing:    'border-box' as const,
+  },
+
+  select: {
+    width:        '100%',
+    background:   '#0e0c0a',
+    border:       '1px solid #2c2720',
+    borderRadius: '4px',
+    padding:      '6px 8px',
+    fontSize:     '12px',
+    color:        '#e8e4de',
+    outline:      'none',
+    fontFamily:   'system-ui, sans-serif',
+  } as React.CSSProperties,
+
+  textarea: {
+    width:        '100%',
+    background:   '#0e0c0a',
+    border:       '1px solid #2c2720',
+    borderRadius: '4px',
+    padding:      '6px 8px',
+    fontSize:     '12px',
+    color:        '#e8e4de',
+    outline:      'none',
+    fontFamily:   'monospace',
+    resize:       'none' as const,
+    boxSizing:    'border-box' as const,
+  },
+
+  sectionHead: {
+    fontSize:      '11px',
+    letterSpacing: '0.1em',
+    color:         '#6b6359',
+    textTransform: 'uppercase' as const,
+    marginBottom:  '8px',
+    marginTop:     '28px',
+    paddingBottom: '4px',
+    borderBottom:  '1px solid #2c2720',
+  } as React.CSSProperties,
+
+  actions: {
+    display:   'flex',
+    gap:       '6px',
+    flexWrap:  'wrap' as const,
+    marginTop: '10px',
+  } as React.CSSProperties,
 }
 
-// ── Styles ────────────────────────────────────────────────────
-const card: React.CSSProperties = {
-  background:   'var(--surface-raised)',
-  border:       '1px solid var(--border)',
-  borderRadius: '0.75rem',
-  padding:      '1.25rem 1.5rem',
-  marginBottom: '1rem',
-}
-
-const inputStyle: React.CSSProperties = {
-  width:        '100%',
-  background:   'var(--surface)',
-  border:       '1px solid var(--border)',
-  borderRadius: '0.5rem',
-  padding:      '0.6rem 0.75rem',
-  fontSize:     '0.875rem',
-  color:        'var(--foreground)',
-  outline:      'none',
-  fontFamily:   'inherit',
-  boxSizing:    'border-box',
-}
-
-const btn = (variant: 'primary' | 'ghost' = 'primary'): React.CSSProperties => ({
-  display:       'inline-flex',
-  alignItems:    'center',
-  borderRadius:  '9999px',
-  border:        variant === 'ghost' ? '1px solid var(--border)' : 'none',
-  background:    variant === 'ghost' ? 'transparent' : 'var(--accent)',
-  color:         variant === 'ghost' ? 'var(--muted)'  : 'var(--accent-fg)',
-  padding:       '0.5rem 1.25rem',
-  fontSize:      '0.8rem',
-  fontWeight:    600,
-  cursor:        'pointer',
-  letterSpacing: '0.03em',
-  whiteSpace:    'nowrap' as const,
-})
-
-const label: React.CSSProperties = {
-  display:      'block',
-  fontSize:     '0.72rem',
-  color:        'var(--muted)',
-  marginBottom: '0.3rem',
-  letterSpacing:'0.02em',
-}
-
-function CopyBox({ value, label: lbl }: { value: string; label: string }) {
-  const [copied, setCopied] = useState(false)
-  function copy() {
-    navigator.clipboard.writeText(value).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    })
+function btn(
+  variant: 'primary' | 'ghost' | 'danger' | 'warn' = 'ghost'
+): React.CSSProperties {
+  const colors = {
+    primary: { background: '#b5975a', color: '#0e0c0a', border: 'none' },
+    ghost:   { background: 'transparent', color: '#a09080', border: '1px solid #2c2720' },
+    danger:  { background: 'transparent', color: '#c0504a', border: '1px solid #c0504a' },
+    warn:    { background: 'transparent', color: '#b5975a', border: '1px solid #b5975a' },
   }
+  return {
+    ...colors[variant],
+    borderRadius:  '4px',
+    padding:       '4px 10px',
+    fontSize:      '11px',
+    fontWeight:    500,
+    cursor:        'pointer',
+    whiteSpace:    'nowrap' as const,
+    fontFamily:    'system-ui, sans-serif',
+  }
+}
+
+// ── Utilities ──────────────────────────────────────────────────
+function fmtDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-AU', {
+    day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  })
+}
+
+function fmtPrice(price: number | null, currency: string, method: string): string {
+  if (!price) return '—'
+  const n = new Intl.NumberFormat('en-AU').format(price)
+  if (method === 'manual_ir') return `${n} Toman`
+  return `${n} ${currency}`
+}
+
+function methodLabel(m: string): string {
+  if (m === 'manual_ir') return 'Manual IR (Card)'
+  if (m === 'manual_au') return 'Manual AU (Bank)'
+  if (m === 'paypal')    return 'PayPal'
+  return m || '—'
+}
+
+function paymentLink(token: string): string {
+  return `https://ashkanfaraa.com/consultation/pay?token=${token}`
+}
+
+function buildDM(name: string, token: string): string {
+  const first = name.trim().split(/\s+/)[0]
+  const link  = paymentLink(token)
+  return `سلام ${first} جان،\nدرخواستت بررسی شد و به نظر می‌رسه جلسه مشاوره با اشکان جان می‌تونه برای شرایطت ارزشمند باشه.\n\nبرای ادامه، پرداخت رو از طریق لینک زیر انجام بده:\n${link}\n\nبعد از پرداخت، کدی که سایت بهت میده رو همینجا بفرست تا مرحله هماهنگی جلسه انجام بشه.`
+}
+
+// ── Copy button ────────────────────────────────────────────────
+function CopyBtn({ value, label }: { value: string; label: string }) {
+  const [copied, setCopied] = useState(false)
   return (
-    <div style={{ marginTop: '1rem' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
-        <span style={{ fontSize: '0.72rem', color: 'var(--muted)', letterSpacing: '0.04em' }}>{lbl}</span>
-        <button onClick={copy} style={btn('ghost')}>{copied ? '✓ Copied' : 'Copy'}</button>
+    <button
+      onClick={() => {
+        navigator.clipboard.writeText(value)
+        setCopied(true)
+        setTimeout(() => setCopied(false), 1800)
+      }}
+      style={btn('ghost')}
+    >
+      {copied ? '✓ Copied' : label}
+    </button>
+  )
+}
+
+// ── Full detail view (expanded body) ──────────────────────────
+function DetailRows({ app }: { app: App }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
+      {[
+        ['Name',      app.name],
+        ['Email',     app.email],
+        ['Instagram', app.instagram || '—'],
+        ['Phone',     app.phone     || '—'],
+        ['Location',  app.location  || '—'],
+        ['Submitted', fmtDate(app.submittedAt)],
+        ['Status',    app.status],
+        ['Payment Status', app.paymentStatus || '—'],
+      ].map(([l, v]) => (
+        <div key={l}>
+          <span style={S.label}>{l}</span>
+          <span style={S.value}>{v}</span>
+        </div>
+      ))}
+      <div style={{ gridColumn: '1 / -1' }}>
+        <span style={S.label}>Topic / Decision</span>
+        <span style={S.value}>{app.subject || '—'}</span>
       </div>
-      <textarea
-        readOnly
-        value={value}
-        rows={value.includes('\n') ? 8 : 2}
-        style={{ ...inputStyle, resize: 'none', fontFamily: 'monospace', fontSize: '0.8rem', direction: 'rtl' }}
-      />
+      <div style={{ gridColumn: '1 / -1' }}>
+        <span style={S.label}>Message</span>
+        <p style={{ ...S.value, whiteSpace: 'pre-wrap', lineHeight: 1.6, marginTop: '2px', direction: 'rtl', textAlign: 'right' }}>
+          {app.message || '—'}
+        </p>
+      </div>
     </div>
   )
 }
 
-// ── Approve form ──────────────────────────────────────────────
-function ApproveForm({
-  app,
-  password,
-  onDone,
-}: {
-  app:      Application
-  password: string
-  onDone:   () => void
-}) {
-  const [price,      setPrice]      = useState('')
-  const [currency,   setCurrency]   = useState('AUD')
-  const [method,     setMethod]     = useState('paypal')
-  const [expiryDays, setExpiryDays] = useState('7')
-  const [loading,    setLoading]    = useState(false)
-  const [error,      setError]      = useState('')
-  const [result,     setResult]     = useState<ApproveResult | null>(null)
+// ── Approve form ───────────────────────────────────────────────
+interface ApproveResult { paymentLink: string; dmMessage: string }
 
-  async function handleSubmit(e: FormEvent) {
+function ApproveForm({
+  app, password, onDone,
+}: { app: App; password: string; onDone: (result: ApproveResult) => void }) {
+  const [price,  setPrice]  = useState('')
+  const [cur,    setCur]    = useState('AUD')
+  const [method, setMethod] = useState('paypal')
+  const [expiry, setExpiry] = useState('7')
+  const [busy,   setBusy]   = useState(false)
+  const [err,    setErr]    = useState('')
+
+  async function submit(e: FormEvent) {
     e.preventDefault()
-    if (!price || isNaN(Number(price))) { setError('Enter a valid price'); return }
-    setLoading(true)
-    setError('')
+    if (!price || isNaN(Number(price))) { setErr('Enter a valid price'); return }
+    setBusy(true); setErr('')
     try {
       const res = await fetch('/api/admin/consultation/approve', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${password}` },
-        body:    JSON.stringify({
+        body: JSON.stringify({
           pageId:     app.pageId,
           name:       app.name,
           price:      Number(price),
-          currency:   method === 'manual_ir' ? 'IRR' : currency,
+          currency:   method === 'manual_ir' ? 'IRR' : cur,
           method,
-          expiryDays: Number(expiryDays),
+          expiryDays: Number(expiry),
         }),
       })
       const data = await res.json()
-      if (!res.ok) { setError(data.error ?? 'Failed'); return }
-      setResult(data)
-    } catch {
-      setError('Network error')
-    } finally {
-      setLoading(false)
-    }
+      if (!res.ok) { setErr(data.error ?? 'Failed'); return }
+      onDone(data)
+    } catch { setErr('Network error') }
+    finally { setBusy(false) }
   }
 
-  if (result) {
-    return (
-      <div>
-        <CopyBox value={result.paymentLink} label="PAYMENT LINK" />
-        <CopyBox value={result.dmMessage}   label="PERSIAN DM" />
-        <button onClick={onDone} style={{ ...btn('ghost'), marginTop: '1rem' }}>Done</button>
-      </div>
-    )
-  }
+  const isIR = method === 'manual_ir'
 
   return (
-    <form onSubmit={handleSubmit} style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: method === 'manual_ir' ? '1fr' : '1fr 1fr', gap: '0.5rem' }}>
+    <form onSubmit={submit} style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isIR ? '1fr' : '1fr 1fr', gap: '8px' }}>
         <div>
-          <span style={label}>{method === 'manual_ir' ? 'Price (Toman تومان)' : 'Price'}</span>
-          <input type="number" step="1" min="1" value={price} onChange={e => setPrice(e.target.value)}
-            placeholder={method === 'manual_ir' ? '17000000' : '250'} required style={inputStyle} />
+          <span style={S.label}>{isIR ? 'Price (Toman)' : 'Price'}</span>
+          <input
+            type="number" step="1" min="1" value={price} required
+            onChange={e => setPrice(e.target.value)}
+            placeholder={isIR ? '17000000' : '250'}
+            style={S.input}
+          />
         </div>
-        {method !== 'manual_ir' && (
+        {!isIR && (
           <div>
-            <span style={label}>Currency</span>
-            <select value={currency} onChange={e => setCurrency(e.target.value)} style={inputStyle}>
+            <span style={S.label}>Currency</span>
+            <select value={cur} onChange={e => setCur(e.target.value)} style={S.select}>
               <option value="AUD">AUD</option>
               <option value="USD">USD</option>
               <option value="EUR">EUR</option>
@@ -181,53 +312,80 @@ function ApproveForm({
           </div>
         )}
       </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
         <div>
-          <span style={label}>Payment Method</span>
-          <select value={method} onChange={e => setMethod(e.target.value)} style={inputStyle}>
+          <span style={S.label}>Payment Method</span>
+          <select value={method} onChange={e => setMethod(e.target.value)} style={S.select}>
             <option value="paypal">PayPal (INT)</option>
             <option value="manual_ir">Manual IR (Card)</option>
             <option value="manual_au">Manual AU (Bank)</option>
           </select>
         </div>
         <div>
-          <span style={label}>Link Expiry</span>
-          <select value={expiryDays} onChange={e => setExpiryDays(e.target.value)} style={inputStyle}>
+          <span style={S.label}>Link Expiry</span>
+          <select value={expiry} onChange={e => setExpiry(e.target.value)} style={S.select}>
             <option value="3">3 days</option>
             <option value="7">7 days</option>
             <option value="14">14 days</option>
           </select>
         </div>
       </div>
-
-      {error && <p style={{ fontSize: '0.8rem', color: 'var(--error, #e05)' }}>{error}</p>}
-
-      <div style={{ display: 'flex', gap: '0.5rem' }}>
-        <button type="submit" disabled={loading} style={btn()}>{loading ? '...' : 'Approve & Generate Link'}</button>
-        <button type="button" onClick={onDone} style={btn('ghost')}>Cancel</button>
+      {err && <p style={{ color: '#c0504a', fontSize: '11px', margin: 0 }}>{err}</p>}
+      <div style={{ display: 'flex', gap: '6px' }}>
+        <button type="submit" disabled={busy} style={btn('primary')}>
+          {busy ? '…' : 'Generate Link'}
+        </button>
       </div>
     </form>
   )
 }
 
-// ── Confirm button ─────────────────────────────────────────────
-function ConfirmButton({
-  app,
-  password,
-  onDone,
-}: {
-  app:      Application
-  password: string
-  onDone:   () => void
+// ── Approval result (after approve OR for already-approved cards) ──
+function ApprovalDetails({ app, result }: {
+  app:    App
+  result: ApproveResult | null
 }) {
-  const [loading, setLoading] = useState(false)
-  const [error,   setError]   = useState('')
-  const [consCode,setConsCode]= useState('')
+  const link = result?.paymentLink ?? (app.paymentToken ? paymentLink(app.paymentToken) : '')
+  const dm   = result?.dmMessage   ?? (app.paymentToken ? buildDM(app.name, app.paymentToken) : '')
+  if (!link) return null
 
-  async function handleConfirm() {
-    setLoading(true)
-    setError('')
+  return (
+    <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+          <span style={S.label}>Payment Link</span>
+          <CopyBtn value={link} label="Copy Link" />
+        </div>
+        <textarea readOnly value={link} rows={2} style={S.textarea} />
+      </div>
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+          <span style={S.label}>Persian DM</span>
+          <CopyBtn value={dm} label="Copy DM" />
+        </div>
+        <textarea readOnly value={dm} rows={7} style={{ ...S.textarea, direction: 'rtl' }} />
+      </div>
+      {app.tokenExpiry && (
+        <p style={{ color: '#6b6359', fontSize: '11px', margin: 0 }}>
+          Link expires: {fmtDate(app.tokenExpiry)}
+          {' · '}{methodLabel(app.paymentMethod)}
+          {app.approvedPrice ? ` · ${fmtPrice(app.approvedPrice, app.approvedCurrency, app.paymentMethod)}` : ''}
+        </p>
+      )}
+    </div>
+  )
+}
+
+// ── Confirm payment (manual IR / AU) ──────────────────────────
+function ConfirmPayment({ app, password, onDone }: {
+  app: App; password: string; onDone: (consCode: string) => void
+}) {
+  const [busy,     setBusy]     = useState(false)
+  const [err,      setErr]      = useState('')
+  const [consCode, setConsCode] = useState('')
+
+  async function confirm() {
+    setBusy(true); setErr('')
     try {
       const res = await fetch('/api/admin/consultation/confirm', {
         method:  'POST',
@@ -235,207 +393,279 @@ function ConfirmButton({
         body:    JSON.stringify({ pageId: app.pageId, method: app.paymentMethod }),
       })
       const data = await res.json()
-      if (!res.ok) { setError(data.error ?? 'Failed'); return }
+      if (!res.ok) { setErr(data.error ?? 'Failed'); return }
       setConsCode(data.consCode)
-    } catch {
-      setError('Network error')
-    } finally {
-      setLoading(false)
-    }
+      onDone(data.consCode)
+    } catch { setErr('Network error') }
+    finally { setBusy(false) }
   }
 
   if (consCode) {
     return (
-      <div>
-        <CopyBox value={consCode} label="CONS CODE — send this to the client" />
-        <button onClick={onDone} style={{ ...btn('ghost'), marginTop: '0.75rem' }}>Done</button>
+      <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <span style={{ color: '#b5975a', fontWeight: 600, fontSize: '15px' }}>{consCode}</span>
+        <CopyBtn value={consCode} label="Copy CONS Code" />
       </div>
     )
   }
 
   return (
-    <div>
-      {error && <p style={{ fontSize: '0.8rem', color: 'var(--error, #e05)', marginBottom: '0.5rem' }}>{error}</p>}
-      <button onClick={handleConfirm} disabled={loading} style={btn()}>
-        {loading ? '...' : 'Confirm Payment & Generate CONS'}
+    <div style={{ marginTop: '10px' }}>
+      {err && <p style={{ color: '#c0504a', fontSize: '11px', marginBottom: '6px' }}>{err}</p>}
+      <button onClick={confirm} disabled={busy} style={btn('primary')}>
+        {busy ? '…' : 'Confirm Payment & Generate CONS'}
       </button>
     </div>
   )
 }
 
+// ── Application card ──────────────────────────────────────────
+type CardMode = 'collapsed' | 'details' | 'approve'
+
+function AppCard({
+  app, password, section, onRefresh,
+}: {
+  app:       App
+  password:  string
+  section:   'new' | 'underReview' | 'approved' | 'claimed' | 'paid'
+  onRefresh: () => void
+}) {
+  const [mode,          setMode]          = useState<CardMode>('collapsed')
+  const [approveResult, setApproveResult] = useState<ApproveResult | null>(null)
+  const [consCode,      setConsCode]      = useState(app.consCode)
+  const [busy,          setBusy]          = useState(false)
+
+  async function setStatus(status: string) {
+    if (status === 'Declined' || status === 'Archived') {
+      if (!window.confirm(`Mark as ${status}?`)) return
+    }
+    setBusy(true)
+    try {
+      await fetch('/api/admin/consultation/status', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${password}` },
+        body:    JSON.stringify({ pageId: app.pageId, status }),
+      })
+      onRefresh()
+    } catch { /* silent — refresh will show current state */ }
+    finally { setBusy(false) }
+  }
+
+  const isExpanded = mode !== 'collapsed'
+
+  return (
+    <div style={S.card}>
+      {/* ── Header row ── */}
+      <div style={S.cardHeader} onClick={() => setMode(m => m === 'collapsed' ? 'details' : 'collapsed')}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ fontWeight: 600, fontSize: '13px' }}>{app.name}</span>
+          <span style={{ color: '#6b6359', marginLeft: '10px' }}>{app.location}</span>
+          <span style={{ color: '#6b6359', marginLeft: '10px', fontSize: '11px' }}>
+            {new Date(app.submittedAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}
+          </span>
+        </div>
+        <span style={{ color: '#6b6359', fontSize: '11px', flexShrink: 0 }}>
+          {isExpanded ? '▲' : '▼'}
+        </span>
+      </div>
+
+      {/* ── Subject preview (collapsed) ── */}
+      {!isExpanded && app.subject && (
+        <div style={{ padding: '0 14px 10px', color: '#6b6359', fontSize: '12px' }}>
+          {app.subject.slice(0, 100)}{app.subject.length > 100 ? '…' : ''}
+        </div>
+      )}
+
+      {/* ── Expanded body ── */}
+      {isExpanded && (
+        <div style={S.cardBody}>
+          <DetailRows app={app} />
+
+          {/* Claimed section: show claim details */}
+          {section === 'claimed' && app.paymentClaim && (
+            <div style={{ marginTop: '10px', padding: '8px', background: '#0e0c0a', borderRadius: '4px', border: '1px solid #2c2720' }}>
+              <span style={S.label}>Payment Claim</span>
+              <span style={{ ...S.value, display: 'block' }}>{app.paymentClaim}</span>
+              <span style={{ color: '#6b6359', fontSize: '11px' }}>{methodLabel(app.paymentMethod)}</span>
+            </div>
+          )}
+
+          {/* Approved section: show payment details */}
+          {(section === 'approved' || approveResult) && (
+            <ApprovalDetails app={app} result={approveResult} />
+          )}
+
+          {/* Paid section: show CONS code */}
+          {section === 'paid' && (app.consCode || consCode) && (
+            <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ color: '#b5975a', fontWeight: 600, fontSize: '15px' }}>
+                {consCode || app.consCode}
+              </span>
+              <CopyBtn value={consCode || app.consCode} label="Copy CONS" />
+            </div>
+          )}
+
+          {/* Approve form */}
+          {mode === 'approve' && !approveResult && (
+            <ApproveForm
+              app={app}
+              password={password}
+              onDone={result => { setApproveResult(result); setMode('details') }}
+            />
+          )}
+
+          {/* Confirm payment (claimed section) */}
+          {section === 'claimed' && (
+            <ConfirmPayment
+              app={app}
+              password={password}
+              onDone={code => { setConsCode(code); onRefresh() }}
+            />
+          )}
+
+          {/* ── Actions ── */}
+          <div style={S.actions}>
+            {(section === 'new' || section === 'underReview') && (
+              <>
+                {mode !== 'approve' && !approveResult && (
+                  <button style={btn('primary')} onClick={e => { e.stopPropagation(); setMode('approve') }}>
+                    Approve
+                  </button>
+                )}
+                {section === 'new' && (
+                  <button disabled={busy} style={btn('warn')} onClick={e => { e.stopPropagation(); setStatus('Under Review') }}>
+                    Under Review
+                  </button>
+                )}
+                <button disabled={busy} style={btn('danger')} onClick={e => { e.stopPropagation(); setStatus('Declined') }}>
+                  Decline
+                </button>
+                <button disabled={busy} style={btn('ghost')} onClick={e => { e.stopPropagation(); setStatus('Archived') }}>
+                  Archive
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Section wrapper ───────────────────────────────────────────
+function Section({
+  title, apps, password, section, onRefresh,
+}: {
+  title:     string
+  apps:      App[]
+  password:  string
+  section:   'new' | 'underReview' | 'approved' | 'claimed' | 'paid'
+  onRefresh: () => void
+}) {
+  return (
+    <section>
+      <h2 style={S.sectionHead}>{title} ({apps.length})</h2>
+      {apps.length === 0
+        ? <p style={{ color: '#6b6359', fontSize: '12px' }}>None.</p>
+        : apps.map(app => (
+            <AppCard
+              key={app.pageId}
+              app={app}
+              password={password}
+              section={section}
+              onRefresh={onRefresh}
+            />
+          ))
+      }
+    </section>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────
 export default function AdminPage() {
-  const [password,    setPassword]    = useState('')
-  const [inputPw,     setInputPw]     = useState('')
-  const [pwError,     setPwError]     = useState('')
-  const [loading,     setLoading]     = useState(false)
-  const [newApps,     setNewApps]     = useState<Application[]>([])
-  const [claimedApps, setClaimedApps] = useState<Application[]>([])
-  const [fetchError,  setFetchError]  = useState('')
-  const [expanded,    setExpanded]    = useState<string | null>(null)
+  const [password,  setPassword]  = useState('')
+  const [inputPw,   setInputPw]   = useState('')
+  const [pwErr,     setPwErr]     = useState('')
+  const [data,      setData]      = useState<DashboardData | null>(null)
+  const [loading,   setLoading]   = useState(false)
+  const [fetchErr,  setFetchErr]  = useState('')
 
   useEffect(() => {
     const saved = sessionStorage.getItem('adminPw')
-    if (saved) { setPassword(saved); void fetchData(saved) }
+    if (saved) { setPassword(saved); void load(saved) }
   }, [])
 
-  async function fetchData(pw: string) {
-    setLoading(true)
-    setFetchError('')
+  async function load(pw: string) {
+    setLoading(true); setFetchErr('')
     try {
       const res = await fetch('/api/admin/consultation/list', {
         headers: { Authorization: `Bearer ${pw}` },
       })
-      if (res.status === 401) { setPwError('Incorrect password'); sessionStorage.removeItem('adminPw'); setPassword(''); return }
-      if (!res.ok) { setFetchError('Failed to load data'); return }
-      const data = await res.json()
-      setNewApps(data.new ?? [])
-      setClaimedApps(data.claimed ?? [])
-    } catch {
-      setFetchError('Network error')
-    } finally {
-      setLoading(false)
-    }
+      if (res.status === 401) {
+        setPwErr('Incorrect password')
+        sessionStorage.removeItem('adminPw')
+        setPassword('')
+        return
+      }
+      if (!res.ok) { setFetchErr('Failed to load'); return }
+      setData(await res.json())
+    } catch { setFetchErr('Network error') }
+    finally { setLoading(false) }
   }
 
   function handleLogin(e: FormEvent) {
     e.preventDefault()
     sessionStorage.setItem('adminPw', inputPw)
     setPassword(inputPw)
-    void fetchData(inputPw)
+    void load(inputPw)
   }
 
-  function handleDone(pageId: string) {
-    setExpanded(null)
-    void fetchData(password)
-  }
-
-  function formatDate(iso: string): string {
-    return new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
-  }
-
-  // ── Password screen ───────────────────────────────────────
+  // ── Login screen ──────────────────────────────────────────
   if (!password) {
     return (
-      <main style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '2rem' }}>
-        <form onSubmit={handleLogin} style={{ width: '100%', maxWidth: '320px', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-          <p style={{ fontSize: '0.8rem', letterSpacing: '0.1em', color: 'var(--muted)', marginBottom: '0.5rem' }}>ADMIN</p>
+      <main style={{ ...S.page, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <form onSubmit={handleLogin} style={{ width: '280px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <p style={{ color: '#6b6359', fontSize: '11px', letterSpacing: '0.1em', marginBottom: '4px' }}>ADMIN</p>
           <input
-            type="password"
-            value={inputPw}
+            type="password" value={inputPw} autoFocus required
             onChange={e => setInputPw(e.target.value)}
             placeholder="Password"
-            autoFocus
-            style={inputStyle}
+            style={S.input}
           />
-          {pwError && <p style={{ fontSize: '0.8rem', color: 'var(--error, #e05)' }}>{pwError}</p>}
-          <button type="submit" style={btn()}>Enter</button>
+          {pwErr && <p style={{ color: '#c0504a', fontSize: '11px', margin: 0 }}>{pwErr}</p>}
+          <button type="submit" style={btn('primary')}>Enter</button>
         </form>
       </main>
     )
   }
 
   // ── Dashboard ─────────────────────────────────────────────
-  const PAD = 'clamp(1rem, 4vw, 3rem)'
-
   return (
-    <main style={{ padding: PAD, maxWidth: '860px', margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2.5rem', paddingTop: '2rem' }}>
-        <p style={{ fontSize: '0.7rem', letterSpacing: '0.15em', color: 'var(--muted)' }}>CONSULTATION ADMIN</p>
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
-          <button onClick={() => fetchData(password)} style={btn('ghost')}>Refresh</button>
-          <button onClick={() => { sessionStorage.removeItem('adminPw'); setPassword('') }} style={btn('ghost')}>Sign Out</button>
+    <main style={S.page}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+        <span style={{ color: '#6b6359', fontSize: '11px', letterSpacing: '0.1em' }}>CONSULTATION ADMIN</span>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button onClick={() => load(password)} style={btn('ghost')}>
+            {loading ? '…' : 'Refresh'}
+          </button>
+          <button onClick={() => { sessionStorage.removeItem('adminPw'); setPassword('') }} style={btn('ghost')}>
+            Sign Out
+          </button>
         </div>
       </div>
 
-      {loading && <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>Loading...</p>}
-      {fetchError && <p style={{ color: 'var(--error, #e05)', fontSize: '0.85rem' }}>{fetchError}</p>}
+      {fetchErr && <p style={{ color: '#c0504a', fontSize: '12px' }}>{fetchErr}</p>}
+      {loading && !data && <p style={{ color: '#6b6359', fontSize: '12px' }}>Loading…</p>}
 
-      {/* ── Section A: New Applications ── */}
-      <section style={{ marginBottom: '3rem' }}>
-        <p style={{ fontSize: '0.65rem', letterSpacing: '0.18em', color: 'var(--subtle)', marginBottom: '1rem' }}>
-          NEW APPLICATIONS ({newApps.length})
-        </p>
-
-        {!loading && newApps.length === 0 && (
-          <p style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>No new applications.</p>
-        )}
-
-        {newApps.map(app => (
-          <div key={app.pageId} style={card}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem' }}>
-              <div>
-                <p style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '0.2rem' }}>{app.name}</p>
-                <p style={{ fontSize: '0.78rem', color: 'var(--muted)', marginBottom: '0.2rem' }}>{app.email} · {app.location}</p>
-                <p style={{ fontSize: '0.78rem', color: 'var(--subtle)' }}>{app.subject.slice(0, 80)}{app.subject.length > 80 ? '…' : ''}</p>
-              </div>
-              <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                <p style={{ fontSize: '0.72rem', color: 'var(--subtle)' }}>{formatDate(app.submittedAt)}</p>
-                {expanded !== app.pageId && (
-                  <button onClick={() => setExpanded(app.pageId)} style={{ ...btn(), marginTop: '0.5rem' }}>
-                    Approve
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {expanded === app.pageId && (
-              <ApproveForm
-                app={app}
-                password={password}
-                onDone={() => handleDone(app.pageId)}
-              />
-            )}
-          </div>
-        ))}
-      </section>
-
-      {/* ── Section B: Claimed Payments ── */}
-      <section>
-        <p style={{ fontSize: '0.65rem', letterSpacing: '0.18em', color: 'var(--subtle)', marginBottom: '1rem' }}>
-          AWAITING CONFIRMATION ({claimedApps.length})
-        </p>
-
-        {!loading && claimedApps.length === 0 && (
-          <p style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>No pending confirmations.</p>
-        )}
-
-        {claimedApps.map(app => (
-          <div key={app.pageId} style={card}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem' }}>
-              <div>
-                <p style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '0.2rem' }}>{app.name}</p>
-                <p style={{ fontSize: '0.78rem', color: 'var(--muted)', marginBottom: '0.2rem' }}>
-                  {app.paymentMethod === 'manual_ir' ? 'IR Card Transfer' : 'AU Bank Transfer'}
-                  {app.approvedPrice ? ` · ${app.approvedPrice} ${app.approvedCurrency}` : ''}
-                </p>
-                {app.paymentClaim && (
-                  <p style={{ fontSize: '0.78rem', color: 'var(--foreground)', background: 'var(--surface)', padding: '0.25rem 0.5rem', borderRadius: '0.35rem', display: 'inline-block', marginTop: '0.25rem' }}>
-                    Claim: {app.paymentClaim}
-                  </p>
-                )}
-              </div>
-              <div style={{ flexShrink: 0 }}>
-                {expanded !== app.pageId && (
-                  <button onClick={() => setExpanded(app.pageId)} style={btn()}>
-                    Confirm Payment
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {expanded === app.pageId && (
-              <div style={{ marginTop: '1rem' }}>
-                <ConfirmButton
-                  app={app}
-                  password={password}
-                  onDone={() => handleDone(app.pageId)}
-                />
-              </div>
-            )}
-          </div>
-        ))}
-      </section>
+      {data && (
+        <>
+          <Section title="New Applications"              apps={data.new}         password={password} section="new"         onRefresh={() => load(password)} />
+          <Section title="Under Review"                  apps={data.underReview} password={password} section="underReview" onRefresh={() => load(password)} />
+          <Section title="Approved / Payment Sent"       apps={data.approved}    password={password} section="approved"    onRefresh={() => load(password)} />
+          <Section title="Awaiting Manual Confirmation"  apps={data.claimed}     password={password} section="claimed"     onRefresh={() => load(password)} />
+          <Section title="Paid / Completed"              apps={data.paid}        password={password} section="paid"        onRefresh={() => load(password)} />
+        </>
+      )}
     </main>
   )
 }

@@ -1,18 +1,23 @@
 /**
  * GET /api/admin/consultation/list
  *
- * Returns New applications and Claimed applications for the admin dashboard.
+ * Returns all five dashboard sections in parallel.
  * Protected by Authorization: Bearer ADMIN_SECRET
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { getNewApplications, getClaimedApplications } from '@/lib/notion-fa-consultation'
+import {
+  getNewApplications,
+  getUnderReviewApplications,
+  getApprovedApplications,
+  getClaimedApplications,
+  getPaidApplications,
+} from '@/lib/notion-fa-consultation'
 
 function authorized(req: NextRequest): boolean {
   const secret = process.env.ADMIN_SECRET
   if (!secret) return false
-  const auth = req.headers.get('authorization') ?? ''
-  return auth === `Bearer ${secret}`
+  return req.headers.get('authorization') === `Bearer ${secret}`
 }
 
 export async function GET(req: NextRequest) {
@@ -21,11 +26,14 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const [newApps, claimedApps] = await Promise.all([
+    const [newApps, underReview, approved, claimed, paid] = await Promise.all([
       getNewApplications(),
+      getUnderReviewApplications(),
+      getApprovedApplications(),
       getClaimedApplications(),
+      getPaidApplications(),
     ])
-    return NextResponse.json({ new: newApps, claimed: claimedApps })
+    return NextResponse.json({ new: newApps, underReview, approved, claimed, paid })
   } catch (err) {
     console.error('[admin/list]', err)
     return NextResponse.json({ error: 'Failed to fetch applications' }, { status: 500 })

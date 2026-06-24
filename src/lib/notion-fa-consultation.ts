@@ -35,8 +35,11 @@ export interface ConsultationRecord {
   pageId:           string
   name:             string
   email:            string
+  instagram:        string
+  phone:            string
   location:         string
   subject:          string
+  message:          string
   submittedAt:      string
   status:           string
   paymentToken:     string
@@ -52,7 +55,7 @@ export interface ConsultationRecord {
 // ── Parsers ───────────────────────────────────────────────────
 type NotionProp = Record<string, unknown>
 
-function title(p: NotionProp | undefined): string {
+function titleVal(p: NotionProp | undefined): string {
   if (!p) return ''
   return ((p['title'] as { plain_text: string }[]) ?? [])[0]?.plain_text ?? ''
 }
@@ -62,7 +65,12 @@ function text(p: NotionProp | undefined): string {
   return ((p['rich_text'] as { plain_text: string }[]) ?? [])[0]?.plain_text ?? ''
 }
 
-function select(p: NotionProp | undefined): string {
+function emailVal(p: NotionProp | undefined): string {
+  if (!p) return ''
+  return (p['email'] as string) ?? ''
+}
+
+function selectVal(p: NotionProp | undefined): string {
   if (!p) return ''
   return (p['select'] as { name: string } | null)?.name ?? ''
 }
@@ -83,29 +91,37 @@ function parsePage(page: Record<string, unknown>): ConsultationRecord {
   const props = page['properties'] as Record<string, NotionProp>
   return {
     pageId:           page['id'] as string,
-    name:             title(props['Full Name']),
-    email:            text(props['Email']) || (props['Email']?.['email'] as string) || '',
+    name:             titleVal(props['Full Name']),
+    email:            emailVal(props['Email']),
+    instagram:        text(props['Instagram']),
+    phone:            text(props['Phone']),
     location:         text(props['Location']),
     subject:          text(props['Decision']),
+    message:          text(props['Message']),
     submittedAt:      page['created_time'] as string,
-    status:           select(props['Status']),
+    status:           selectVal(props['Status']),
     paymentToken:     text(props['Payment Token']),
     tokenExpiry:      date(props['Token Expiry']),
     approvedPrice:    num(props['Approved Price']),
-    approvedCurrency: select(props['Approved Currency']),
-    paymentMethod:    select(props['Payment Method']),
-    paymentStatus:    select(props['Payment Status']),
+    approvedCurrency: selectVal(props['Approved Currency']),
+    paymentMethod:    selectVal(props['Payment Method']),
+    paymentStatus:    selectVal(props['Payment Status']),
     paymentClaim:     text(props['Payment Claim']),
     consCode:         text(props['CONS Code']),
   }
 }
 
 // ── Queries ───────────────────────────────────────────────────
-async function query(filter: unknown): Promise<ConsultationRecord[]> {
+async function query(
+  filter: unknown,
+  sorts?: { timestamp?: string; property?: string; direction: string }[]
+): Promise<ConsultationRecord[]> {
+  const body: Record<string, unknown> = { filter, page_size: 50 }
+  if (sorts) body.sorts = sorts
   const res = await fetch(`${NOTION_API}/databases/${dbId()}/query`, {
     method:  'POST',
     headers: headers(),
-    body:    JSON.stringify({ filter, page_size: 50 }),
+    body:    JSON.stringify(body),
     cache:   'no-store',
   })
   if (!res.ok) throw new Error(`Notion query failed: ${res.status} ${await res.text()}`)
@@ -113,12 +129,32 @@ async function query(filter: unknown): Promise<ConsultationRecord[]> {
   return (data.results as Record<string, unknown>[]).map(parsePage)
 }
 
+const SORT_NEWEST = [{ timestamp: 'created_time', direction: 'descending' }]
+
 export async function getNewApplications(): Promise<ConsultationRecord[]> {
-  return query({ property: 'Status', select: { equals: 'New' } })
+  return query({ property: 'Status', select: { equals: 'New' } }, SORT_NEWEST)
+}
+
+export async function getUnderReviewApplications(): Promise<ConsultationRecord[]> {
+  return query({ property: 'Status', select: { equals: 'Under Review' } }, SORT_NEWEST)
+}
+
+export async function getApprovedApplications(): Promise<ConsultationRecord[]> {
+  // Status=Approved + PaymentStatus=Pending (link sent, not yet claimed)
+  return query({
+    and: [
+      { property: 'Status',         select: { equals: 'Approved' } },
+      { property: 'Payment Status', select: { equals: 'Pending'  } },
+    ],
+  })
 }
 
 export async function getClaimedApplications(): Promise<ConsultationRecord[]> {
   return query({ property: 'Payment Status', select: { equals: 'Claimed' } })
+}
+
+export async function getPaidApplications(): Promise<ConsultationRecord[]> {
+  return query({ property: 'Status', select: { equals: 'Paid' } }, SORT_NEWEST)
 }
 
 export async function getApplicationByToken(token: string): Promise<ConsultationRecord | null> {
@@ -127,15 +163,24 @@ export async function getApplicationByToken(token: string): Promise<Consultation
 }
 
 // ── Mutations ──────────────────────────────────────────────────
+export async function updateStatus(pageId: string, status: string): Promise<void> {
+  const res = await fetch(`${NOTION_API}/pages/${pageId}`, {
+    method:  'PATCH',
+    headers: headers(),
+    body:    JSON.stringify({ properties: { 'Status': { select: { name: status } } } }),
+  })
+  if (!res.ok) throw new Error(`Notion status update failed: ${res.status} ${await res.text()}`)
+}
+
 export async function approveApplication(
   pageId: string,
   fields: {
     paymentToken:     string
-    tokenExpiry:      string   // ISO date string
+    tokenExpiry:      string
     approvedPrice:    number
-    approvedCurrency: string   // AUD | USD | EUR
-    paymentMethod:    string   // paypal | manual_ir | manual_au
-    region:           string   // IR | AU | INT
+    approvedCurrency: string
+    paymentMethod:    string
+    region:           string
   }
 ): Promise<void> {
   const res = await fetch(`${NOTION_API}/pages/${pageId}`, {
