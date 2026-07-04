@@ -857,6 +857,118 @@ function ManualDmControl({ password }: { password: string }) {
   )
 }
 
+// ── Blocked People ──────────────────────────────────────────────
+interface BlockedRow {
+  senderId: string
+  name:     string | null
+}
+
+function BlockedPeopleSection({ password }: { password: string }) {
+  const [rows,    setRows]    = useState<BlockedRow[] | null>(null)
+  const [search,  setSearch]  = useState('')
+  const [busyId,  setBusyId]  = useState<string | null>(null)
+  const [err,     setErr]     = useState<string | null>(null)
+
+  async function load() {
+    setErr(null)
+    try {
+      const res = await fetch('/api/admin/consultation/blocklist', {
+        headers: { Authorization: `Bearer ${password}` },
+      })
+      const data = await res.json()
+      if (!res.ok) { setErr(data.error || 'Failed to load'); return }
+      setRows(data.blocked)
+    } catch {
+      setErr('Network error')
+    }
+  }
+
+  useEffect(() => { void load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function unblock(senderId: string) {
+    setBusyId(senderId)
+    setErr(null)
+    try {
+      const res = await fetch('/api/admin/consultation/blocklist', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${password}` },
+        body:    JSON.stringify({ action: 'unblock', senderId }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setErr(data.error || 'Failed to unblock'); return }
+      setRows(prev => prev?.filter(r => r.senderId !== senderId) ?? prev)
+    } catch {
+      setErr('Network error')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const filtered = (rows ?? []).filter(r => {
+    const q = search.trim().toLowerCase()
+    if (!q) return true
+    return (r.name ?? '').toLowerCase().includes(q) || r.senderId.toLowerCase().includes(q)
+  })
+
+  return (
+    <section>
+      <h2 style={S.sectionHead}>Blocked People ({rows?.length ?? 0})</h2>
+
+      <input
+        type="text"
+        placeholder="Search by name / handle or sender ID…"
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+        style={{ ...S.input, marginBottom: '10px' }}
+      />
+
+      {err && <p style={{ color: '#c0504a', fontSize: '12px' }}>{err}</p>}
+      {rows === null && !err && <p style={{ color: '#6b6359', fontSize: '12px' }}>Loading…</p>}
+
+      {rows !== null && filtered.length === 0 && (
+        <p style={{ color: '#6b6359', fontSize: '12px' }}>
+          {rows.length === 0 ? 'No one is currently blocked.' : 'No matches.'}
+        </p>
+      )}
+
+      {filtered.length > 0 && (
+        <div style={S.card}>
+          {filtered.map((row, i) => (
+            <div
+              key={row.senderId}
+              style={{
+                display:      'flex',
+                alignItems:   'center',
+                gap:          '10px',
+                padding:      '10px 14px',
+                borderTop:    i === 0 ? 'none' : '1px solid #2c2720',
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <span style={S.label}>Name / Handle</span>
+                <div style={S.value}>{row.name || '—'}</div>
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <span style={S.label}>Sender ID</span>
+                <div style={{ ...S.value, fontSize: '11px', color: '#9e9289', wordBreak: 'break-all' }}>
+                  {row.senderId}
+                </div>
+              </div>
+              <button
+                disabled={busyId === row.senderId}
+                onClick={() => unblock(row.senderId)}
+                style={{ ...btn('warn'), opacity: busyId === row.senderId ? 0.5 : 1 }}
+              >
+                {busyId === row.senderId ? '…' : 'Unblock'}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
 // ── Section wrapper ───────────────────────────────────────────
 function Section({
   title, apps, password, section, onRefresh,
@@ -963,6 +1075,8 @@ export default function AdminPage() {
       {loading && !data && <p style={{ color: '#6b6359', fontSize: '12px' }}>Loading…</p>}
 
       <ManualDmControl password={password} />
+
+      <BlockedPeopleSection password={password} />
 
       {data && (
         <>

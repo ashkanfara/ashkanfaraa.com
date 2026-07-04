@@ -1,26 +1,42 @@
 /**
+ * GET  /api/admin/consultation/blocklist  — list all dm_blocklist rows.
  * POST /api/admin/consultation/blocklist
  *
  * Blocks or unblocks a consultation applicant in dm_blocklist.
- * Looks up sender_id from consultation_leads by instagram_handle.
+ * Looks up sender_id from consultation_leads by instagram_handle, unless
+ * senderId is passed directly in the body (reliable key, skips the lookup —
+ * used by the Blocked People table, which already has sender_id).
  * Protected by Authorization: Bearer ADMIN_SECRET.
  * Supabase service key is server-only.
  *
  * Body: {
  *   action          'block' | 'unblock'
- *   instagramHandle string   (raw — will be normalized)
+ *   instagramHandle string   (raw — will be normalized) — required unless senderId is given
+ *   senderId        string   (optional — takes priority over instagramHandle for unblock)
  *   name            string   (used as display name on block insert)
  * }
  */
 
 import { NextRequest, NextResponse }                      from 'next/server'
 import { normalizeHandle, supabaseConfigured,
-         blockSender, unblockSender }                     from '@/lib/supabase'
+         blockSender, unblockSender, listBlockedSenders }  from '@/lib/supabase'
 
 function authorized(req: NextRequest): boolean {
   const secret = process.env.ADMIN_SECRET
   if (!secret) return false
   return req.headers.get('authorization') === `Bearer ${secret}`
+}
+
+export async function GET(req: NextRequest) {
+  if (!authorized(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  if (!supabaseConfigured()) {
+    return NextResponse.json({ error: 'Supabase is not configured on this server.' }, { status: 503 })
+  }
+
+  const blocked = await listBlockedSenders()
+  return NextResponse.json({ blocked })
 }
 
 async function getSenderId(instagramHandle: string): Promise<string | null> {
@@ -58,17 +74,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
-  const { action, instagramHandle, name } = body
+  const { action, instagramHandle, senderId: directSenderId, name } = body
 
-  if (!action || !instagramHandle) {
-    return NextResponse.json({ error: 'action and instagramHandle are required' }, { status: 422 })
+  if (!action || (!instagramHandle && !directSenderId)) {
+    return NextResponse.json({ error: 'action and (instagramHandle or senderId) are required' }, { status: 422 })
   }
   if (action !== 'block' && action !== 'unblock') {
     return NextResponse.json({ error: 'action must be block or unblock' }, { status: 422 })
   }
 
-  const handle   = normalizeHandle(instagramHandle)
-  const senderId = await getSenderId(handle)
+  // senderId is the reliable key — use it directly when provided (e.g. from
+  // the Blocked People table) instead of re-resolving via instagram_handle.
+  const handle   = instagramHandle ? normalizeHandle(instagramHandle) : null
+  const senderId = directSenderId || (handle ? await getSenderId(handle) : null)
 
   if (!senderId) {
     return NextResponse.json(
@@ -79,7 +97,7 @@ export async function POST(req: NextRequest) {
 
   try {
     if (action === 'block') {
-      await blockSender(senderId, name || handle)
+      await blockSender(senderId, name || handle || senderId)
     } else {
       await unblockSender(senderId)
     }

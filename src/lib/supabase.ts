@@ -181,6 +181,37 @@ export async function unblockSender(senderId: string): Promise<void> {
   }
 }
 
+export interface BlockedSender {
+  senderId: string
+  name:     string | null
+}
+
+/**
+ * List all rows in dm_blocklist.
+ * Only selects sender_id + name — other columns (e.g. created_at) are not
+ * assumed to exist.
+ * Returns an empty array if Supabase is not configured or the query fails.
+ */
+export async function listBlockedSenders(): Promise<BlockedSender[]> {
+  if (!supabaseConfigured()) return []
+
+  try {
+    const res = await fetch(
+      `${base()}/rest/v1/dm_blocklist?select=sender_id,name&order=sender_id.asc`,
+      { headers: headers(), cache: 'no-store' }
+    )
+    if (!res.ok) {
+      console.error('[supabase/listBlockedSenders] query failed:', res.status, await res.text())
+      return []
+    }
+    const rows = await res.json() as { sender_id: string; name: string | null }[]
+    return rows.map(row => ({ senderId: row.sender_id, name: row.name }))
+  } catch (err) {
+    console.error('[supabase/listBlockedSenders] fetch error:', err)
+    return []
+  }
+}
+
 // ── instagram_users lookup ─────────────────────────────────────
 
 /**
