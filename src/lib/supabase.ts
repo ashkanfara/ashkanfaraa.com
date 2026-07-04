@@ -212,6 +212,122 @@ export async function listBlockedSenders(): Promise<BlockedSender[]> {
   }
 }
 
+// ── DM Access Rules ─────────────────────────────────────────────
+// Unified rules table: one row per Instagram handle, covering people who
+// have never DM'd yet (sender_id null — "Username rule") as well as known
+// senders ("Known user"). Falls back safely to [] / no-op if the
+// dm_access_rules table hasn't been created yet (migration pending).
+
+export type AccessStatus = 'ai_allowed' | 'human_only' | 'blocked'
+
+export interface AccessRule {
+  handle:    string
+  senderId:  string | null
+  status:    AccessStatus
+  source:    'username' | 'sender_id'
+  notes:     string | null
+  createdAt: string | null
+  updatedAt: string | null
+}
+
+/**
+ * List all dm_access_rules rows. Returns [] if the table doesn't exist yet
+ * or Supabase is not configured — never throws.
+ */
+export async function listAccessRules(): Promise<AccessRule[]> {
+  if (!supabaseConfigured()) return []
+
+  try {
+    const res = await fetch(
+      `${base()}/rest/v1/dm_access_rules?select=instagram_handle,sender_id,status,source,notes,created_at,updated_at&order=updated_at.desc`,
+      { headers: headers(), cache: 'no-store' }
+    )
+    if (!res.ok) {
+      console.error('[supabase/listAccessRules] query failed (table may not exist yet):', res.status, await res.text())
+      return []
+    }
+    const rows = await res.json() as {
+      instagram_handle: string
+      sender_id:         string | null
+      status:            AccessStatus
+      source:            'username' | 'sender_id'
+      notes:             string | null
+      created_at:        string | null
+      updated_at:        string | null
+    }[]
+    return rows.map(row => ({
+      handle:    row.instagram_handle,
+      senderId:  row.sender_id,
+      status:    row.status,
+      source:    row.source,
+      notes:     row.notes,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }))
+  } catch (err) {
+    console.error('[supabase/listAccessRules] fetch error:', err)
+    return []
+  }
+}
+
+export interface UpsertAccessRuleFields {
+  handle:    string   // already normalized
+  senderId?: string | null
+  status:    AccessStatus
+  notes?:    string
+}
+
+/**
+ * Upsert a dm_access_rules row by instagram_handle.
+ * senderId is only included in the write when known, so an existing
+ * sender_id already on record is never clobbered back to null.
+ * Throws if the table doesn't exist — callers should surface that as a
+ * clear "run the migration first" error rather than silently failing.
+ */
+export async function upsertAccessRule(fields: UpsertAccessRuleFields): Promise<void> {
+  const body: Record<string, string> = {
+    instagram_handle: fields.handle,
+    status:           fields.status,
+    source:           fields.senderId ? 'sender_id' : 'username',
+    updated_at:       new Date().toISOString(),
+  }
+  if (fields.senderId)          body.sender_id = fields.senderId
+  if (fields.notes !== undefined) body.notes   = fields.notes
+
+  const res = await fetch(`${base()}/rest/v1/dm_access_rules?on_conflict=instagram_handle`, {
+    method:  'POST',
+    headers: {
+      ...headers(),
+      Prefer: 'resolution=merge-duplicates,return=minimal',
+    },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    throw new Error(`upsertAccessRule failed: ${res.status} ${await res.text()}`)
+  }
+}
+
+/**
+ * Remove a dm_access_rules row by instagram_handle.
+ * Returns the deleted row's sender_id (if any) so callers can also clean up
+ * the dm_blocklist mirror, or null if no row existed.
+ * Throws if the table doesn't exist.
+ */
+export async function removeAccessRule(handle: string): Promise<{ senderId: string | null } | null> {
+  const res = await fetch(
+    `${base()}/rest/v1/dm_access_rules?instagram_handle=eq.${encodeURIComponent(handle)}&select=sender_id`,
+    {
+      method:  'DELETE',
+      headers: { ...headers(), Prefer: 'return=representation' },
+    }
+  )
+  if (!res.ok) {
+    throw new Error(`removeAccessRule failed: ${res.status} ${await res.text()}`)
+  }
+  const rows = await res.json() as { sender_id: string | null }[]
+  return rows[0] ? { senderId: rows[0].sender_id } : null
+}
+
 // ── instagram_users lookup ─────────────────────────────────────
 
 /**

@@ -736,148 +736,56 @@ function AppCard({
   )
 }
 
-// ── Manual DM Control ─────────────────────────────────────────
-type ManualAction = 'set-ai' | 'set-human' | 'block' | 'unblock'
+// ── DM Access Control ───────────────────────────────────────────
+type AccessStatus = 'ai_allowed' | 'human_only' | 'blocked'
 
-interface ManualResult {
-  ok:        boolean
-  status:    string
-  message?:  string
-  senderId?: string | null
+interface AccessRuleRow {
+  handle:    string | null
+  senderId:  string | null
+  status:    AccessStatus
+  notes:     string | null
+  createdAt: string | null
+  updatedAt: string | null
+  legacy:    boolean
 }
 
-function ManualDmControl({ password }: { password: string }) {
-  const [handle, setHandle] = useState('')
-  const [busy,   setBusy]   = useState<ManualAction | null>(null)
-  const [result, setResult] = useState<ManualResult | null>(null)
-  const [err,    setErr]    = useState<string | null>(null)
-
-  async function run(action: ManualAction) {
-    const trimmed = handle.trim()
-    if (!trimmed) { setErr('Enter a handle first'); return }
-    setBusy(action)
-    setResult(null)
-    setErr(null)
-    try {
-      const res = await fetch('/api/admin/manual-dm-control', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${password}` },
-        body:    JSON.stringify({ action, handle: trimmed }),
-      })
-      const data = await res.json()
-      if (!res.ok && !data.status) { setErr(data.error || 'Request failed'); return }
-      setResult(data)
-    } catch {
-      setErr('Network error')
-    } finally {
-      setBusy(null)
-    }
-  }
-
-  const statusColor: Record<string, string> = {
-    ai:             '#4a8fc0',
-    paused:         '#5a9e6f',
-    'pre-paused':   '#b5975a',
-    blocked:        '#c0504a',
-    unblocked:      '#5a9e6f',
-    'no-sender-id': '#6b6359',
-  }
-
-  const inputStyle: React.CSSProperties = {
-    background:   '#0a0908',
-    border:       '1px solid #2c2720',
-    borderRadius: '4px',
-    color:        '#d4cdc5',
-    fontSize:     '13px',
-    padding:      '5px 10px',
-    width:        '200px',
-    outline:      'none',
-  }
-
-  return (
-    <div style={{ border: '1px solid #2c2720', borderRadius: '6px', padding: '14px', marginBottom: '24px', background: '#100e0c' }}>
-      <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.1em', color: '#9e9289', marginBottom: '12px' }}>
-        MANUAL DM CONTROL
-      </div>
-
-      {/* Handle input */}
-      <input
-        type="text"
-        placeholder="@instagram_handle"
-        value={handle}
-        onChange={e => { setHandle(e.target.value); setResult(null); setErr(null) }}
-        onKeyDown={e => e.key === 'Enter' && run('set-human')}
-        style={inputStyle}
-      />
-
-      {/* Primary: dm_mode */}
-      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '8px' }}>
-        <span style={{ fontSize: '11px', color: '#6b6359', width: '52px' }}>dm_mode</span>
-        <button disabled={!!busy} onClick={() => run('set-ai')}
-          style={{ ...btn('ghost'), opacity: busy === 'set-ai' ? 0.5 : 1 }}>
-          {busy === 'set-ai' ? '…' : 'Set AI'}
-        </button>
-        <button disabled={!!busy} onClick={() => run('set-human')}
-          style={{ ...btn('warn'), opacity: busy === 'set-human' ? 0.5 : 1 }}>
-          {busy === 'set-human' ? '…' : 'Set Human'}
-        </button>
-      </div>
-
-      {/* Advanced: blocklist */}
-      <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '6px' }}>
-        <span style={{ fontSize: '11px', color: '#6b6359', width: '52px' }}>blocklist</span>
-        <button disabled={!!busy} onClick={() => run('block')}
-          style={{ ...btn('danger'), opacity: busy === 'block' ? 0.5 : 1 }}>
-          {busy === 'block' ? '…' : 'Block AI'}
-        </button>
-        <button disabled={!!busy} onClick={() => run('unblock')}
-          style={{ ...btn('ghost'), opacity: busy === 'unblock' ? 0.5 : 1 }}>
-          {busy === 'unblock' ? '…' : 'Unblock AI'}
-        </button>
-      </div>
-
-      {err && (
-        <p style={{ color: '#c0504a', fontSize: '12px', marginTop: '8px', marginBottom: 0 }}>{err}</p>
-      )}
-
-      {result && (
-        <div style={{ marginTop: '8px', fontSize: '12px', color: statusColor[result.status] ?? '#d4cdc5' }}>
-          <span style={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '10px', marginRight: '6px' }}>
-            {result.status.replace(/-/g, ' ')}
-          </span>
-          {result.message && <span style={{ color: '#9e9289' }}>{result.message}</span>}
-          {result.senderId && (
-            <span style={{ color: '#6b6359', fontSize: '11px', marginLeft: '8px' }}>
-              sender_id: {result.senderId}
-            </span>
-          )}
-        </div>
-      )}
-    </div>
-  )
+const STATUS_LABEL: Record<AccessStatus, string> = {
+  ai_allowed:  'AI Allowed',
+  human_only:  'Human Only',
+  blocked:     'Blocked',
 }
 
-// ── Blocked People ──────────────────────────────────────────────
-interface BlockedRow {
-  senderId: string
-  name:     string | null
+const STATUS_COLOR: Record<AccessStatus, string> = {
+  ai_allowed:  '#4a8fc0',
+  human_only:  '#b5975a',
+  blocked:     '#c0504a',
 }
 
-function BlockedPeopleSection({ password }: { password: string }) {
-  const [rows,    setRows]    = useState<BlockedRow[] | null>(null)
-  const [search,  setSearch]  = useState('')
-  const [busyId,  setBusyId]  = useState<string | null>(null)
-  const [err,     setErr]     = useState<string | null>(null)
+function rowKey(row: AccessRuleRow): string {
+  return row.handle ?? row.senderId ?? ''
+}
+
+function fmtRuleDate(iso: string | null): string {
+  if (!iso) return '—'
+  return new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+function DmAccessControl({ password }: { password: string }) {
+  const [rows,       setRows]       = useState<AccessRuleRow[] | null>(null)
+  const [search,     setSearch]     = useState('')
+  const [newHandle,  setNewHandle]  = useState('')
+  const [busyKey,    setBusyKey]    = useState<string | null>(null)
+  const [err,        setErr]        = useState<string | null>(null)
 
   async function load() {
     setErr(null)
     try {
-      const res = await fetch('/api/admin/consultation/blocklist', {
+      const res = await fetch('/api/admin/manual-dm-control', {
         headers: { Authorization: `Bearer ${password}` },
       })
       const data = await res.json()
       if (!res.ok) { setErr(data.error || 'Failed to load'); return }
-      setRows(data.blocked)
+      setRows(data.rules)
     } catch {
       setErr('Network error')
     }
@@ -885,38 +793,98 @@ function BlockedPeopleSection({ password }: { password: string }) {
 
   useEffect(() => { void load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function unblock(senderId: string) {
-    setBusyId(senderId)
+  async function setStatus(rawHandle: string, status: AccessStatus) {
+    const handle = rawHandle.trim().replace(/^@/, '').toLowerCase()
+    setBusyKey(handle)
     setErr(null)
     try {
-      const res = await fetch('/api/admin/consultation/blocklist', {
+      const res = await fetch('/api/admin/manual-dm-control', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${password}` },
-        body:    JSON.stringify({ action: 'unblock', senderId }),
+        body:    JSON.stringify({ action: 'set-status', handle, status }),
       })
       const data = await res.json()
-      if (!res.ok) { setErr(data.error || 'Failed to unblock'); return }
-      setRows(prev => prev?.filter(r => r.senderId !== senderId) ?? prev)
+      if (!res.ok) { setErr(data.error || 'Failed to update'); return }
+      await load()
+      setNewHandle('')
     } catch {
       setErr('Network error')
     } finally {
-      setBusyId(null)
+      setBusyKey(null)
+    }
+  }
+
+  async function remove(row: AccessRuleRow) {
+    const key = rowKey(row)
+    setBusyKey(key)
+    setErr(null)
+    try {
+      const res = await fetch('/api/admin/manual-dm-control', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${password}` },
+        body:    JSON.stringify(
+          row.legacy ? { action: 'remove', senderId: row.senderId } : { action: 'remove', handle: row.handle }
+        ),
+      })
+      const data = await res.json()
+      if (!res.ok) { setErr(data.error || 'Failed to remove'); return }
+      setRows(prev => prev?.filter(r => rowKey(r) !== key) ?? prev)
+    } catch {
+      setErr('Network error')
+    } finally {
+      setBusyKey(null)
     }
   }
 
   const filtered = (rows ?? []).filter(r => {
     const q = search.trim().toLowerCase()
     if (!q) return true
-    return (r.name ?? '').toLowerCase().includes(q) || r.senderId.toLowerCase().includes(q)
+    return (r.handle ?? '').toLowerCase().includes(q) || (r.senderId ?? '').toLowerCase().includes(q)
   })
+
+  const addBusy = busyKey !== null && busyKey === newHandle.trim().replace(/^@/, '').toLowerCase()
 
   return (
     <section>
-      <h2 style={S.sectionHead}>Blocked People ({rows?.length ?? 0})</h2>
+      <h2 style={S.sectionHead}>DM Access Control ({rows?.length ?? 0})</h2>
+
+      <div style={{ border: '1px solid #2c2720', borderRadius: '6px', padding: '14px', marginBottom: '14px', background: '#100e0c' }}>
+        <span style={S.label}>Add person (Instagram username)</span>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '4px' }}>
+          <input
+            type="text"
+            placeholder="@instagram_handle"
+            value={newHandle}
+            onChange={e => { setNewHandle(e.target.value); setErr(null) }}
+            style={{ ...S.input, width: '220px' }}
+          />
+          <button
+            disabled={!!busyKey || !newHandle.trim()}
+            onClick={() => setStatus(newHandle, 'ai_allowed')}
+            style={{ ...btn('ghost'), opacity: addBusy ? 0.5 : 1 }}
+          >
+            {addBusy ? '…' : STATUS_LABEL.ai_allowed}
+          </button>
+          <button
+            disabled={!!busyKey || !newHandle.trim()}
+            onClick={() => setStatus(newHandle, 'human_only')}
+            style={{ ...btn('warn'), opacity: addBusy ? 0.5 : 1 }}
+          >
+            {addBusy ? '…' : STATUS_LABEL.human_only}
+          </button>
+          <button
+            disabled={!!busyKey || !newHandle.trim()}
+            onClick={() => setStatus(newHandle, 'blocked')}
+            style={{ ...btn('danger'), opacity: addBusy ? 0.5 : 1 }}
+          >
+            {addBusy ? '…' : STATUS_LABEL.blocked}
+          </button>
+        </div>
+      </div>
 
       <input
         type="text"
-        placeholder="Search by name / handle or sender ID…"
+        placeholder="Search by handle or sender ID…"
         value={search}
         onChange={e => setSearch(e.target.value)}
         style={{ ...S.input, marginBottom: '10px' }}
@@ -927,42 +895,87 @@ function BlockedPeopleSection({ password }: { password: string }) {
 
       {rows !== null && filtered.length === 0 && (
         <p style={{ color: '#6b6359', fontSize: '12px' }}>
-          {rows.length === 0 ? 'No one is currently blocked.' : 'No matches.'}
+          {rows.length === 0 ? 'No one is set up yet — add a username above.' : 'No matches.'}
         </p>
       )}
 
       {filtered.length > 0 && (
         <div style={S.card}>
-          {filtered.map((row, i) => (
-            <div
-              key={row.senderId}
-              style={{
-                display:      'flex',
-                alignItems:   'center',
-                gap:          '10px',
-                padding:      '10px 14px',
-                borderTop:    i === 0 ? 'none' : '1px solid #2c2720',
-              }}
-            >
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <span style={S.label}>Name / Handle</span>
-                <div style={S.value}>{row.name || '—'}</div>
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <span style={S.label}>Sender ID</span>
-                <div style={{ ...S.value, fontSize: '11px', color: '#9e9289', wordBreak: 'break-all' }}>
-                  {row.senderId}
+          {filtered.map((row, i) => {
+            const key  = rowKey(row)
+            const busy = busyKey === key
+            return (
+              <div
+                key={key}
+                style={{
+                  display:      'flex',
+                  alignItems:   'center',
+                  gap:          '10px',
+                  padding:      '10px 14px',
+                  flexWrap:     'wrap',
+                  borderTop:    i === 0 ? 'none' : '1px solid #2c2720',
+                }}
+              >
+                <div style={{ flex: '1 1 140px', minWidth: 0 }}>
+                  <span style={S.label}>Instagram Handle</span>
+                  <div style={S.value}>{row.handle || '—'}</div>
+                </div>
+                <div style={{ flex: '1 1 140px', minWidth: 0 }}>
+                  <span style={S.label}>Sender ID</span>
+                  <div style={{ ...S.value, fontSize: '11px', color: '#9e9289', wordBreak: 'break-all' }}>
+                    {row.senderId || '—'}
+                  </div>
+                </div>
+                <div style={{ flex: '0 0 90px' }}>
+                  <span style={S.label}>Type</span>
+                  <div style={{ ...S.value, fontSize: '11px' }}>
+                    {row.senderId ? 'Known user' : 'Username rule'}
+                  </div>
+                </div>
+                <div style={{ flex: '1 1 160px', minWidth: 0 }}>
+                  <span style={S.label}>Notes</span>
+                  <div style={{ ...S.value, fontSize: '11px', color: '#9e9289' }}>{row.notes || '—'}</div>
+                </div>
+                <div style={{ flex: '0 0 90px' }}>
+                  <span style={S.label}>Updated</span>
+                  <div style={{ ...S.value, fontSize: '11px' }}>{fmtRuleDate(row.updatedAt ?? row.createdAt)}</div>
+                </div>
+
+                <div style={{ flex: '1 1 100%', display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap', marginTop: '4px' }}>
+                  {(['ai_allowed', 'human_only', 'blocked'] as const).map(s => {
+                    const active = s === row.status
+                    return (
+                      <button
+                        key={s}
+                        disabled={row.legacy || busy}
+                        onClick={() => setStatus(row.handle!, s)}
+                        style={{
+                          padding:      '3px 10px',
+                          fontSize:     '11px',
+                          fontWeight:   active ? 700 : 400,
+                          border:       `1px solid ${active ? STATUS_COLOR[s] : '#2c2720'}`,
+                          borderRadius: '4px',
+                          background:   active ? STATUS_COLOR[s] + '22' : 'transparent',
+                          color:        active ? STATUS_COLOR[s] : '#9e9289',
+                          cursor:       (row.legacy || busy) ? 'default' : 'pointer',
+                          opacity:      row.legacy ? 0.4 : 1,
+                        }}
+                      >
+                        {STATUS_LABEL[s]}
+                      </button>
+                    )
+                  })}
+                  <button
+                    disabled={busy}
+                    onClick={() => remove(row)}
+                    style={{ ...btn('ghost'), opacity: busy ? 0.5 : 1, marginLeft: 'auto' }}
+                  >
+                    {busy ? '…' : 'Remove'}
+                  </button>
                 </div>
               </div>
-              <button
-                disabled={busyId === row.senderId}
-                onClick={() => unblock(row.senderId)}
-                style={{ ...btn('warn'), opacity: busyId === row.senderId ? 0.5 : 1 }}
-              >
-                {busyId === row.senderId ? '…' : 'Unblock'}
-              </button>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </section>
@@ -1074,9 +1087,7 @@ export default function AdminPage() {
       {fetchErr && <p style={{ color: '#c0504a', fontSize: '12px' }}>{fetchErr}</p>}
       {loading && !data && <p style={{ color: '#6b6359', fontSize: '12px' }}>Loading…</p>}
 
-      <ManualDmControl password={password} />
-
-      <BlockedPeopleSection password={password} />
+      <DmAccessControl password={password} />
 
       {data && (
         <>
