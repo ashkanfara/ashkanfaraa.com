@@ -750,13 +750,26 @@ interface AccessRuleRow {
 }
 
 const STATUS_LABEL: Record<AccessStatus, string> = {
-  ai_allowed:  'AI Allowed',
-  human_only:  'Human Only',
-  blocked:     'Blocked',
+  ai_allowed:  'AI',
+  human_only:  'Human',
+  blocked:     'Ignore',
 }
 
+const STATUS_ICON: Record<AccessStatus, string> = {
+  ai_allowed:  '🤖',
+  human_only:  '👤',
+  blocked:     '🚫',
+}
+
+const STATUS_HELP: Record<AccessStatus, string> = {
+  ai_allowed:  'The AI replies normally.',
+  human_only:  'The AI never replies. I reply manually.',
+  blocked:     'Neither the AI nor I will respond.',
+}
+
+// Green = AI, Yellow = Human, Red = Ignore
 const STATUS_COLOR: Record<AccessStatus, string> = {
-  ai_allowed:  '#4a8fc0',
+  ai_allowed:  '#5a9e6f',
   human_only:  '#b5975a',
   blocked:     '#c0504a',
 }
@@ -849,36 +862,52 @@ function DmAccessControl({ password }: { password: string }) {
       <h2 style={S.sectionHead}>DM Access Control ({rows?.length ?? 0})</h2>
 
       <div style={{ border: '1px solid #2c2720', borderRadius: '6px', padding: '14px', marginBottom: '14px', background: '#100e0c' }}>
-        <span style={S.label}>Add person (Instagram username)</span>
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '4px' }}>
-          <input
-            type="text"
-            placeholder="@instagram_handle"
-            value={newHandle}
-            onChange={e => { setNewHandle(e.target.value); setErr(null) }}
-            style={{ ...S.input, width: '220px' }}
-          />
-          <button
-            disabled={!!busyKey || !newHandle.trim()}
-            onClick={() => setStatus(newHandle, 'ai_allowed')}
-            style={{ ...btn('ghost'), opacity: addBusy ? 0.5 : 1 }}
-          >
-            {addBusy ? '…' : STATUS_LABEL.ai_allowed}
-          </button>
-          <button
-            disabled={!!busyKey || !newHandle.trim()}
-            onClick={() => setStatus(newHandle, 'human_only')}
-            style={{ ...btn('warn'), opacity: addBusy ? 0.5 : 1 }}
-          >
-            {addBusy ? '…' : STATUS_LABEL.human_only}
-          </button>
-          <button
-            disabled={!!busyKey || !newHandle.trim()}
-            onClick={() => setStatus(newHandle, 'blocked')}
-            style={{ ...btn('danger'), opacity: addBusy ? 0.5 : 1 }}
-          >
-            {addBusy ? '…' : STATUS_LABEL.blocked}
-          </button>
+        <div style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.1em', color: '#9e9289', marginBottom: '12px' }}>
+          CREATE ACCESS RULE
+        </div>
+
+        <span style={S.label}>Instagram Username</span>
+        <input
+          type="text"
+          placeholder="@instagram_handle"
+          value={newHandle}
+          onChange={e => { setNewHandle(e.target.value); setErr(null) }}
+          style={{ ...S.input, width: '260px', marginTop: '4px' }}
+        />
+
+        <div style={{ marginTop: '14px' }}>
+          <span style={S.label}>Access Mode</span>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '4px' }}>
+            {(['ai_allowed', 'human_only', 'blocked'] as const).map(s => (
+              <button
+                key={s}
+                disabled={!!busyKey || !newHandle.trim()}
+                onClick={() => setStatus(newHandle, s)}
+                style={{
+                  padding:      '6px 14px',
+                  fontSize:     '12px',
+                  fontWeight:   600,
+                  border:       `1px solid ${STATUS_COLOR[s]}`,
+                  borderRadius: '4px',
+                  background:   'transparent',
+                  color:        STATUS_COLOR[s],
+                  cursor:       'pointer',
+                  opacity:      addBusy && busyKey !== null ? 0.5 : 1,
+                }}
+              >
+                {addBusy ? '…' : `${STATUS_ICON[s]} ${STATUS_LABEL[s]}`}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          {(['ai_allowed', 'human_only', 'blocked'] as const).map(s => (
+            <div key={s} style={{ fontSize: '11px', color: '#9e9289' }}>
+              <span style={{ color: '#d4cdc5', fontWeight: 600 }}>{STATUS_ICON[s]} {STATUS_LABEL[s]}</span>
+              {' — '}{STATUS_HELP[s]}
+            </div>
+          ))}
         </div>
       </div>
 
@@ -926,10 +955,30 @@ function DmAccessControl({ password }: { password: string }) {
                     {row.senderId || '—'}
                   </div>
                 </div>
-                <div style={{ flex: '0 0 90px' }}>
+                <div style={{ flex: '0 0 130px' }}>
                   <span style={S.label}>Type</span>
                   <div style={{ ...S.value, fontSize: '11px' }}>
-                    {row.senderId ? 'Known user' : 'Username rule'}
+                    {row.senderId ? 'Known User' : 'Waiting for First DM'}
+                  </div>
+                </div>
+                <div style={{ flex: '0 0 90px' }}>
+                  <span style={S.label}>Status</span>
+                  <div style={{ marginTop: '2px' }}>
+                    <span
+                      style={{
+                        display:      'inline-block',
+                        padding:      '2px 8px',
+                        fontSize:     '11px',
+                        fontWeight:   700,
+                        borderRadius: '10px',
+                        border:       `1px solid ${STATUS_COLOR[row.status]}`,
+                        background:   STATUS_COLOR[row.status] + '22',
+                        color:        STATUS_COLOR[row.status],
+                        whiteSpace:   'nowrap',
+                      }}
+                    >
+                      {STATUS_ICON[row.status]} {STATUS_LABEL[row.status]}
+                    </span>
                   </div>
                 </div>
                 <div style={{ flex: '1 1 160px', minWidth: 0 }}>
@@ -961,7 +1010,7 @@ function DmAccessControl({ password }: { password: string }) {
                           opacity:      row.legacy ? 0.4 : 1,
                         }}
                       >
-                        {STATUS_LABEL[s]}
+                        {STATUS_ICON[s]} {STATUS_LABEL[s]}
                       </button>
                     )
                   })}
