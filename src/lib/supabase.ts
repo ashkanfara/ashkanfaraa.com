@@ -362,6 +362,7 @@ export interface ConsultationAdminData {
   pastedNextClaudeOutput: string | null
   nextResponse:           string | null
   internalNotes:          string | null
+  paymentMessage:         string | null
 }
 
 /**
@@ -383,18 +384,19 @@ export async function getAdminData(pageId: string): Promise<ConsultationAdminDat
     if (rows.length === 0) return null
     const r = rows[0]
     return {
-      leadQuality:            r.lead_quality            ?? null,
-      bestOffer:              r.best_offer              ?? null,
-      assessmentReason:       r.assessment_reason       ?? null,
-      suggestedAction:        r.suggested_action        ?? null,
-      responseType:           r.response_type           ?? null,
-      pastedClaudeOutput:     r.pasted_claude_output    ?? null,
-      selectedFinalResponse:  r.selected_final_response ?? null,
-      replyInput:             r.reply_input             ?? null,
-      replyIntent:            r.reply_intent            ?? null,
+      leadQuality:            r.lead_quality              ?? null,
+      bestOffer:              r.best_offer                ?? null,
+      assessmentReason:       r.assessment_reason         ?? null,
+      suggestedAction:        r.suggested_action          ?? null,
+      responseType:           r.response_type             ?? null,
+      pastedClaudeOutput:     r.pasted_claude_output      ?? null,
+      selectedFinalResponse:  r.selected_final_response   ?? null,
+      replyInput:             r.reply_input               ?? null,
+      replyIntent:            r.reply_intent              ?? null,
       pastedNextClaudeOutput: r.pasted_next_claude_output ?? null,
-      nextResponse:           r.next_response           ?? null,
-      internalNotes:          r.internal_notes          ?? null,
+      nextResponse:           r.next_response             ?? null,
+      internalNotes:          r.internal_notes            ?? null,
+      paymentMessage:         r.payment_message           ?? null,
     }
   } catch (err) {
     console.error('[supabase/getAdminData] fetch error:', err)
@@ -426,6 +428,7 @@ export async function saveAdminData(
   if ('pastedNextClaudeOutput' in fields) body.pasted_next_claude_output = fields.pastedNextClaudeOutput ?? null
   if ('nextResponse' in fields)           body.next_response            = fields.nextResponse           ?? null
   if ('internalNotes' in fields)          body.internal_notes           = fields.internalNotes          ?? null
+  if ('paymentMessage' in fields)         body.payment_message          = fields.paymentMessage         ?? null
 
   const res = await fetch(`${base()}/rest/v1/consultation_admin_data?on_conflict=notion_page_id`, {
     method:  'POST',

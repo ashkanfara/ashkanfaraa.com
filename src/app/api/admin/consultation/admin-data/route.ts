@@ -20,7 +20,7 @@ const KNOWN_FIELDS = [
   'leadQuality', 'bestOffer', 'assessmentReason', 'suggestedAction',
   'responseType', 'pastedClaudeOutput', 'selectedFinalResponse',
   'replyInput', 'replyIntent', 'pastedNextClaudeOutput', 'nextResponse',
-  'internalNotes',
+  'internalNotes', 'paymentMessage',
 ] as const
 
 export async function GET(req: NextRequest) {

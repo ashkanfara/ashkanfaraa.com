@@ -612,6 +612,7 @@ interface AiData {
   pastedNextClaudeOutput: string
   nextResponse:           string
   internalNotes:          string
+  paymentMessage:         string
 }
 
 const DEFAULT_AI: AiData = {
@@ -619,21 +620,56 @@ const DEFAULT_AI: AiData = {
   suggestedAction: '', responseType: 'sms', pastedClaudeOutput: '',
   selectedFinalResponse: '', replyInput: '', replyIntent: 'continue-closing',
   pastedNextClaudeOutput: '', nextResponse: '', internalNotes: '',
+  paymentMessage: '',
 }
 
-function buildInitialPrompt(app: App, d: AiData): string {
+function buildEnquiryBrief(app: App, d: AiData): string {
+  const lines: string[] = [
+    'CONSULTATION ENQUIRY — ASHKAN FARAA',
+    '─'.repeat(44),
+    `Name:             ${app.name || '—'}`,
+    `Email:            ${app.email || '—'}`,
+    `Phone:            ${app.phone || '—'}`,
+    `Instagram:        ${app.instagram || '—'}`,
+    `Location:         ${app.location || '—'}`,
+    `Submitted:        ${fmtDate(app.submittedAt)}`,
+    `Status:           ${app.status || '—'}`,
+    '',
+    'Topic / Decision:',
+    `  ${app.subject || '—'}`,
+    '',
+    'Message:',
+    app.message || '—',
+  ]
+  if (app.approvedPrice) {
+    lines.push('', 'Payment Setup:')
+    lines.push(`  Price:          ${fmtPrice(app.approvedPrice, app.approvedCurrency, app.paymentMethod)}`)
+    lines.push(`  Currency:       ${app.approvedCurrency || '—'}`)
+    lines.push(`  Payment method: ${methodLabel(app.paymentMethod)}`)
+    if (app.tokenExpiry)   lines.push(`  Link expiry:    ${fmtDate(app.tokenExpiry)}`)
+    if (app.paymentStatus) lines.push(`  Payment status: ${app.paymentStatus}`)
+  }
+  if (d.internalNotes)         lines.push('', 'Internal Notes:',       d.internalNotes)
+  if (d.selectedFinalResponse) lines.push('', 'Saved Final Response:',  d.selectedFinalResponse)
+  return lines.join('\n')
+}
+
+function buildAiPrompt(app: App, d: AiData): string {
   const typeLabel: Record<string, string> = {
     sms:      'Short SMS / WhatsApp (2–4 sentences, very direct)',
     email:    'Email reply (slightly longer, warm but concise)',
     instagram:'Instagram DM (casual, brief, conversational)',
     followup: "Follow-up — they haven't replied (gentle, no pressure)",
     payment:  'Payment / booking instruction (clear next step)',
-    decline:  'Polite decline (kind, firm, no door open)',
+    decline:  'Polite decline (kind, firm, no door left open)',
   }
   const adminNote = (d.leadQuality !== 'Unknown' || d.bestOffer !== 'Unknown')
     ? `\nAdmin pre-assessment — quality: ${d.leadQuality} | best offer: ${d.bestOffer}` : ''
 
-  return `You are Ashkan Faraa's premium consultation closing assistant. Write natural Persian responses for website enquiries. Ashkan is a premium Persian-speaking personal brand: migration strategy, global life decisions, lived international experience. Tone: calm, direct, premium, warm but not needy, high-trust, never salesy.
+  return `You are Ashkan Faraa's premium consultation closing assistant. Write natural Persian responses for website enquiries.
+
+ABOUT ASHKAN FARAA:
+Premium Persian-speaking personal brand — migration strategy, global life decisions, lived international experience (Australia). Tone: calm, direct, warm but not needy, high-trust, premium. Never salesy.
 
 COMPLIANCE (non-negotiable):
 • Do NOT claim Ashkan is a lawyer or registered migration agent
@@ -642,44 +678,81 @@ COMPLIANCE (non-negotiable):
 • DO offer strategic perspective, lived-experience education, decision clarity
 
 ASHKAN'S OFFERS:
-1. Private Consultation — 40-minute private session — ۶.۹ میلیون تومان (Iran) / AUD pricing on request
-2. Hidden Traps of Migration — 90-minute audio course — ۵.۹ میلیون تومان
+1. Private Consultation — 40-minute private session:
+   Iran: ۶.۹ میلیون تومان | International: AUD pricing on request
+2. Hidden Traps of Migration — 90-minute audio course:
+   ۵.۹ میلیون تومان
 
+─────────────────────────────────────────
 LEAD DETAILS:
 Name: ${app.name || '—'}
 Email: ${app.email || '—'}
 Phone: ${app.phone || '—'}
 Instagram: ${app.instagram || '—'}
 Location: ${app.location || '—'}
-Topic / Decision question: ${app.subject || '—'}
-Message: ${app.message || '—'}
+Topic / Decision: ${app.subject || '—'}
+Message:
+${app.message || '—'}
 Current status: ${app.status || 'New'}${adminNote}
+─────────────────────────────────────────
 
 REQUESTED RESPONSE FORMAT: ${typeLabel[d.responseType] || d.responseType}
 
 Please output EXACTLY these four sections with these exact headings:
 
-## Lead Assessment
+## 1. Lead Assessment
 Lead quality: [High / Medium / Low]
 Best offer: [Consultation / Course / Bundle / Not suitable]
 Reason: [one sentence]
 Suggested next action: [one sentence]
 
-## Initial Response
+## 2. Main Response
 [Persian reply — matches the requested format above]
 
-## Softer Version
-[Warmer, less direct version]
+## 3. Softer Version
+[Warmer, less direct — same core message]
 
-## Firmer Closer
-[Moves more directly toward payment or booking — still not pushy]
+## 4. Firmer Closer
+[Moves more directly toward payment or booking — still premium, not pushy]
 
 WRITING RULES:
-- Persian by default (match the language of their message)
+- Persian by default (match their language)
 - No emojis unless clearly useful (max one)
-- No hollow openers like "سلام عزیزم" or "با سلام و احترام"
+- No hollow openers: no "سلام عزیزم", no "با سلام و احترام"
+- No hype, no long paragraphs
 - Make the next step crystal clear
 - No legal promises, no outcome guarantees`
+}
+
+function buildPaymentMessage(
+  app: App,
+  linkUrl: string,
+  expiryDate: string | null,
+): string {
+  const first    = (app.name || '').trim().split(/\s+/)[0] || ''
+  const priceStr = app.approvedPrice
+    ? fmtPrice(app.approvedPrice, app.approvedCurrency, app.paymentMethod)
+    : '[هزینه جلسه]'
+  const expiryStr = expiryDate ? fmtDate(expiryDate) : '[تاریخ انقضا]'
+  const methodNote: Record<string, string> = {
+    manual_ir: 'پرداخت از طریق کارت بانکی ایران',
+    manual_au: 'واریز بانکی (استرالیا)',
+    paypal:    'PayPal',
+  }
+  const method  = methodNote[app.paymentMethod] || 'پرداخت آنلاین'
+  const greeting = first ? `${first} جان،\n\n` : ''
+
+  return `${greeting}اگر تصمیم گرفتی جلسه را رزرو کنی، مرحله بعد پرداخت و ثبت زمان مشاوره است.
+
+مشاوره خصوصی ۴۰ دقیقه‌ای با اشکان برای بررسی دقیق‌تر شرایط، مسیرهای کلی، آمادگی مالی/کاری و تصمیم‌گیری واقع‌بینانه قبل از مهاجرت.
+
+هزینه جلسه: ${priceStr}
+روش پرداخت: ${method}
+لینک پرداخت: ${linkUrl}
+
+این لینک تا ${expiryStr} فعال است.
+
+بعد از پرداخت، اطلاعات رزرو و هماهنگی زمان جلسه برایت ارسال می‌شود.`
 }
 
 function buildReplyPrompt(app: App, d: AiData): string {
@@ -716,7 +789,14 @@ Write a single Persian reply. Same brand rules: calm, direct, premium, no legal 
 [Slightly different angle or tone]`
 }
 
-function AiAssistantPanel({ app, password }: { app: App; password: string }) {
+function AiAssistantPanel({
+  app, password, paymentLinkUrl, paymentLinkExpiry,
+}: {
+  app:               App
+  password:          string
+  paymentLinkUrl:    string | null
+  paymentLinkExpiry: string | null
+}) {
   const [open,    setOpen]    = useState(false)
   const [d,       setD]       = useState<AiData>(DEFAULT_AI)
   const [loading, setLoading] = useState(false)
@@ -741,7 +821,8 @@ function AiAssistantPanel({ app, password }: { app: App; password: string }) {
           setD(prev => ({
             ...prev,
             ...Object.fromEntries(
-              Object.entries(j.data as Record<string, string | null>).map(([k, v]) => [k, v ?? ''])
+              Object.entries(j.data as Record<string, string | null>)
+                .map(([k, v]) => [k, v ?? ''])
             ),
           }))
         }
@@ -775,43 +856,79 @@ function AiAssistantPanel({ app, password }: { app: App; password: string }) {
     } catch { setErr('Clipboard failed — select and copy manually') }
   }
 
-  const ta: React.CSSProperties = {
-    ...S.textarea,
-    width:     '100%',
-    minHeight: '80px',
-    marginTop: '4px',
+  function handleGeneratePaymentMessage() {
+    if (!paymentLinkUrl) return
+    upd('paymentMessage', buildPaymentMessage(app, paymentLinkUrl, paymentLinkExpiry))
   }
 
-  const sub: React.CSSProperties = {
-    fontSize:      '10px',
-    fontWeight:    700,
-    color:         '#b5975a',
-    letterSpacing: '0.1em',
-    textTransform: 'uppercase',
-    marginTop:     '14px',
-    marginBottom:  '6px',
-    display:       'block',
+  function handleCopyCombined() {
+    setErr(null)
+    if (!d.selectedFinalResponse.trim()) {
+      setErr('Add a final response first — paste it into "Selected Response to Send" above.')
+      return
+    }
+    if (!d.paymentMessage.trim()) {
+      setErr("Payment message is empty — generate it or edit it first. To copy only the response, use 'Copy Response to Send' above.")
+      return
+    }
+    void copyText(`${d.selectedFinalResponse}\n\n${d.paymentMessage}`, 'combined')
   }
+
+  const ta: React.CSSProperties = { ...S.textarea, width: '100%', minHeight: '80px', marginTop: '4px' }
+
+  function sub(first = false): React.CSSProperties {
+    return {
+      fontSize: '10px', fontWeight: 700, color: '#b5975a', letterSpacing: '0.1em',
+      textTransform: 'uppercase', marginTop: first ? '8px' : '14px',
+      marginBottom: '6px', display: 'block',
+      ...(first ? {} : { borderTop: '1px solid #1e1c19', paddingTop: '10px' }),
+    }
+  }
+
+  const ghostSm: React.CSSProperties = { ...btn('ghost'), fontSize: '11px', alignSelf: 'flex-start', marginTop: '4px' }
 
   return (
     <div style={{ borderTop: '1px solid #2c2720', marginTop: '10px' }}>
+      {/* Toggle */}
       <div
         style={{ padding: '8px 0', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
         onClick={e => { e.stopPropagation(); setOpen(o => !o) }}
       >
-        <span style={{ fontSize: '10px', color: '#b5975a', fontWeight: 700, letterSpacing: '0.1em' }}>
-          AI CLOSING ASSISTANT
-        </span>
+        <div>
+          <span style={{ fontSize: '10px', color: '#b5975a', fontWeight: 700, letterSpacing: '0.1em' }}>
+            AI CLOSING ASSISTANT — MANUAL MODE
+          </span>
+          {!open && (
+            <span style={{ color: '#6b6359', fontSize: '11px', marginLeft: '8px' }}>
+              prompt builder · paste &amp; save
+            </span>
+          )}
+        </div>
         <span style={{ color: '#6b6359', fontSize: '11px', marginLeft: 'auto' }}>{open ? '▲' : '▼'}</span>
       </div>
 
       {open && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', paddingBottom: '10px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', paddingBottom: '12px' }}>
+          <p style={{ color: '#6b6359', fontSize: '11px', margin: '0 0 8px', lineHeight: 1.5 }}>
+            No AI inside this page. Builds a complete prompt for Claude or ChatGPT — then saves and copies the final response.
+          </p>
+
           {loading && <span style={{ color: '#6b6359', fontSize: '11px' }}>Loading…</span>}
           {err     && <span style={{ color: '#c0504a', fontSize: '11px' }}>{err}</span>}
 
-          {/* Lead Assessment */}
-          <span style={sub}>Lead Assessment</span>
+          {/* ── Copy Enquiry Brief ── */}
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <button
+              onClick={e => { e.stopPropagation(); void copyText(buildEnquiryBrief(app, d), 'brief') }}
+              style={{ ...btn('ghost'), fontSize: '11px' }}
+            >
+              {copied === 'brief' ? '✓ Copied' : 'Copy Enquiry Brief'}
+            </button>
+            <span style={{ color: '#6b6359', fontSize: '11px' }}>all lead data + saved notes &amp; response</span>
+          </div>
+
+          {/* ── Lead Assessment ── */}
+          <span style={sub(true)}>Lead Assessment</span>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <div style={{ flex: 1, minWidth: '110px' }}>
               <span style={S.label}>Quality</span>
@@ -837,29 +954,27 @@ function AiAssistantPanel({ app, password }: { app: App; password: string }) {
               </select>
             </div>
           </div>
-
-          {/* Initial Prompt */}
           <div style={{ marginTop: '10px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
             <button
-              onClick={e => { e.stopPropagation(); void copyText(buildInitialPrompt(app, d), 'initial') }}
+              onClick={e => { e.stopPropagation(); void copyText(buildAiPrompt(app, d), 'ai-prompt') }}
               style={{ ...btn('primary'), fontSize: '12px' }}
             >
-              {copied === 'initial' ? '✓ Copied' : 'Copy Initial Claude Prompt'}
+              {copied === 'ai-prompt' ? '✓ Copied' : 'Copy AI Response Prompt'}
             </button>
-            <span style={{ color: '#6b6359', fontSize: '11px' }}>→ paste into Claude Pro → paste output below</span>
+            <span style={{ color: '#6b6359', fontSize: '11px' }}>→ paste into Claude or ChatGPT → paste output below</span>
           </div>
 
-          {/* Claude Output */}
-          <span style={sub}>Claude Output (paste here)</span>
+          {/* ── AI Output ── */}
+          <span style={sub()}>Claude / ChatGPT Output (paste here)</span>
           <textarea
             value={d.pastedClaudeOutput}
             onChange={e => upd('pastedClaudeOutput', e.target.value)}
-            placeholder="Paste Claude's full response here…"
+            placeholder="Paste the full AI response here…"
             style={{ ...ta, minHeight: '120px' }}
           />
 
-          {/* Selected Final Response */}
-          <span style={{ ...sub, marginTop: '10px' }}>Selected Response to Send</span>
+          {/* ── Selected Final Response ── */}
+          <span style={sub()}>Selected Response to Send</span>
           <textarea
             value={d.selectedFinalResponse}
             onChange={e => upd('selectedFinalResponse', e.target.value)}
@@ -869,16 +984,66 @@ function AiAssistantPanel({ app, password }: { app: App; password: string }) {
           {d.selectedFinalResponse && (
             <button
               onClick={e => { e.stopPropagation(); void copyText(d.selectedFinalResponse, 'final') }}
-              style={{ ...btn('ghost'), fontSize: '11px', alignSelf: 'flex-start', marginTop: '4px' }}
+              style={ghostSm}
             >
               {copied === 'final' ? '✓ Copied' : 'Copy Response to Send'}
             </button>
           )}
 
-          {/* Reply Assistant */}
-          <span style={{ ...sub, marginTop: '16px', borderTop: '1px solid #1e1c19', paddingTop: '10px' }}>
-            Reply Assistant
-          </span>
+          {/* ── Payment & Booking Message ── */}
+          <span style={sub()}>Payment &amp; Booking Message</span>
+          {!paymentLinkUrl ? (
+            <p style={{ color: '#6b6359', fontSize: '11px', margin: 0 }}>
+              ⚠ Generate a payment link first — click Approve above, set price and method, then Generate Link.
+            </p>
+          ) : (
+            <>
+              <div style={{ fontSize: '11px', color: '#a09080', lineHeight: 1.7, background: '#0e0c0a', padding: '6px 8px', borderRadius: '4px', border: '1px solid #2c2720' }}>
+                <span style={{ color: '#6b6359' }}>Link: </span>
+                <span style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>{paymentLinkUrl}</span>
+                {paymentLinkExpiry && (
+                  <><br /><span style={{ color: '#6b6359' }}>Expires: </span>
+                  <span style={{ color: '#b5975a' }}>{fmtDate(paymentLinkExpiry)}</span></>
+                )}
+                {!paymentLinkExpiry && (
+                  <><br /><span style={{ color: '#6b6359', fontStyle: 'italic' }}>Expiry: refresh the page to see exact date</span></>
+                )}
+              </div>
+              <div style={{ marginTop: '8px' }}>
+                <button
+                  onClick={e => { e.stopPropagation(); handleGeneratePaymentMessage() }}
+                  style={{ ...btn('warn'), fontSize: '11px' }}
+                >
+                  Generate Payment Message
+                </button>
+              </div>
+              <textarea
+                value={d.paymentMessage}
+                onChange={e => upd('paymentMessage', e.target.value)}
+                placeholder="Click 'Generate Payment Message' — then edit before sending…"
+                style={{ ...ta, minHeight: '160px', direction: 'rtl', lineHeight: 1.8, marginTop: '6px' }}
+              />
+              <div style={{ display: 'flex', gap: '6px', marginTop: '4px', flexWrap: 'wrap', alignItems: 'center' }}>
+                {d.paymentMessage && (
+                  <button
+                    onClick={e => { e.stopPropagation(); void copyText(d.paymentMessage, 'payment-msg') }}
+                    style={ghostSm}
+                  >
+                    {copied === 'payment-msg' ? '✓ Copied' : 'Copy Payment Message'}
+                  </button>
+                )}
+                <button
+                  onClick={e => { e.stopPropagation(); handleCopyCombined() }}
+                  style={{ ...btn('primary'), fontSize: '11px', marginTop: '4px' }}
+                >
+                  {copied === 'combined' ? '✓ Copied' : 'Copy Combined Response'}
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* ── Reply Assistant ── */}
+          <span style={sub()}>Reply Assistant</span>
           <span style={S.label}>Prospect's Latest Reply</span>
           <textarea
             value={d.replyInput}
@@ -896,23 +1061,21 @@ function AiAssistantPanel({ app, password }: { app: App; password: string }) {
             <option value="to-consult">Move to consultation</option>
             <option value="decline">Politely decline</option>
           </select>
-          <div style={{ marginTop: '8px' }}>
+          <div style={{ marginTop: '6px' }}>
             <button
-              onClick={e => { e.stopPropagation(); void copyText(buildReplyPrompt(app, d), 'reply') }}
+              onClick={e => { e.stopPropagation(); void copyText(buildReplyPrompt(app, d), 'reply-prompt') }}
               style={{ ...btn('primary'), fontSize: '12px' }}
             >
-              {copied === 'reply' ? '✓ Copied' : 'Copy Reply Prompt'}
+              {copied === 'reply-prompt' ? '✓ Copied' : 'Copy Reply Prompt'}
             </button>
           </div>
-
-          <span style={sub}>Reply Claude Output (paste here)</span>
+          <span style={sub()}>Reply AI Output (paste here)</span>
           <textarea
             value={d.pastedNextClaudeOutput}
             onChange={e => upd('pastedNextClaudeOutput', e.target.value)}
-            placeholder="Paste Claude's reply response here…"
+            placeholder="Paste the AI reply response here…"
             style={ta}
           />
-
           <span style={S.label}>Final Reply to Send</span>
           <textarea
             value={d.nextResponse}
@@ -923,16 +1086,14 @@ function AiAssistantPanel({ app, password }: { app: App; password: string }) {
           {d.nextResponse && (
             <button
               onClick={e => { e.stopPropagation(); void copyText(d.nextResponse, 'next-final') }}
-              style={{ ...btn('ghost'), fontSize: '11px', alignSelf: 'flex-start', marginTop: '4px' }}
+              style={ghostSm}
             >
               {copied === 'next-final' ? '✓ Copied' : 'Copy Reply'}
             </button>
           )}
 
-          {/* Internal Notes */}
-          <span style={{ ...sub, marginTop: '16px', borderTop: '1px solid #1e1c19', paddingTop: '10px' }}>
-            Internal Notes
-          </span>
+          {/* ── Internal Notes ── */}
+          <span style={sub()}>Internal Notes</span>
           <textarea
             value={d.internalNotes}
             onChange={e => upd('internalNotes', e.target.value)}
@@ -940,7 +1101,7 @@ function AiAssistantPanel({ app, password }: { app: App; password: string }) {
             style={ta}
           />
 
-          {/* Save */}
+          {/* ── Save ── */}
           <div style={{ marginTop: '12px' }}>
             <button
               disabled={saving}
@@ -1016,9 +1177,8 @@ function AppCard({
       {isExpanded && (
         <div style={S.cardBody}>
           <DetailRows app={app} />
-          <AiAssistantPanel app={app} password={password} />
 
-          {/* Claimed section: show claim details */}
+          {/* ── Payment sections (before AI assistant) ── */}
           {section === 'claimed' && app.paymentClaim && (
             <div style={{ marginTop: '10px', padding: '8px', background: '#0e0c0a', borderRadius: '4px', border: '1px solid #2c2720' }}>
               <span style={S.label}>Payment Claim</span>
@@ -1026,13 +1186,9 @@ function AppCard({
               <span style={{ color: '#6b6359', fontSize: '11px' }}>{methodLabel(app.paymentMethod)}</span>
             </div>
           )}
-
-          {/* Approved section: show payment details */}
           {(section === 'approved' || approveResult) && (
             <ApprovalDetails app={app} result={approveResult} />
           )}
-
-          {/* Paid section: show CONS code */}
           {section === 'paid' && (app.consCode || consCode) && (
             <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '10px' }}>
               <span style={{ color: '#b5975a', fontWeight: 600, fontSize: '15px' }}>
@@ -1041,8 +1197,6 @@ function AppCard({
               <CopyBtn value={consCode || app.consCode} label="Copy CONS" />
             </div>
           )}
-
-          {/* Approve form */}
           {mode === 'approve' && !approveResult && (
             <ApproveForm
               app={app}
@@ -1050,8 +1204,6 @@ function AppCard({
               onDone={result => { setApproveResult(result); setMode('details') }}
             />
           )}
-
-          {/* Confirm payment (claimed section) */}
           {section === 'claimed' && (
             <ConfirmPayment
               app={app}
@@ -1059,6 +1211,14 @@ function AppCard({
               onDone={code => { setConsCode(code); onRefresh() }}
             />
           )}
+
+          {/* ── AI Closing Assistant ── */}
+          <AiAssistantPanel
+            app={app}
+            password={password}
+            paymentLinkUrl={approveResult?.paymentLink ?? (app.paymentToken ? paymentLink(app.paymentToken) : null)}
+            paymentLinkExpiry={app.tokenExpiry ?? null}
+          />
 
           {/* ── Actions ── */}
           <div style={S.actions}>
