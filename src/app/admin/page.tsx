@@ -597,6 +597,365 @@ function BlocklistControl({ app, password }: { app: App; password: string }) {
   )
 }
 
+// ── AI Closing Assistant ───────────────────────────────────────
+
+interface AiData {
+  leadQuality:            string
+  bestOffer:              string
+  assessmentReason:       string
+  suggestedAction:        string
+  responseType:           string
+  pastedClaudeOutput:     string
+  selectedFinalResponse:  string
+  replyInput:             string
+  replyIntent:            string
+  pastedNextClaudeOutput: string
+  nextResponse:           string
+  internalNotes:          string
+}
+
+const DEFAULT_AI: AiData = {
+  leadQuality: 'Unknown', bestOffer: 'Unknown', assessmentReason: '',
+  suggestedAction: '', responseType: 'sms', pastedClaudeOutput: '',
+  selectedFinalResponse: '', replyInput: '', replyIntent: 'continue-closing',
+  pastedNextClaudeOutput: '', nextResponse: '', internalNotes: '',
+}
+
+function buildInitialPrompt(app: App, d: AiData): string {
+  const typeLabel: Record<string, string> = {
+    sms:      'Short SMS / WhatsApp (2–4 sentences, very direct)',
+    email:    'Email reply (slightly longer, warm but concise)',
+    instagram:'Instagram DM (casual, brief, conversational)',
+    followup: "Follow-up — they haven't replied (gentle, no pressure)",
+    payment:  'Payment / booking instruction (clear next step)',
+    decline:  'Polite decline (kind, firm, no door open)',
+  }
+  const adminNote = (d.leadQuality !== 'Unknown' || d.bestOffer !== 'Unknown')
+    ? `\nAdmin pre-assessment — quality: ${d.leadQuality} | best offer: ${d.bestOffer}` : ''
+
+  return `You are Ashkan Faraa's premium consultation closing assistant. Write natural Persian responses for website enquiries. Ashkan is a premium Persian-speaking personal brand: migration strategy, global life decisions, lived international experience. Tone: calm, direct, premium, warm but not needy, high-trust, never salesy.
+
+COMPLIANCE (non-negotiable):
+• Do NOT claim Ashkan is a lawyer or registered migration agent
+• Do NOT give legal immigration advice or visa guarantees
+• For legal/visa specifics, say they may need a registered migration agent or lawyer
+• DO offer strategic perspective, lived-experience education, decision clarity
+
+ASHKAN'S OFFERS:
+1. Private Consultation — 40-minute private session — ۶.۹ میلیون تومان (Iran) / AUD pricing on request
+2. Hidden Traps of Migration — 90-minute audio course — ۵.۹ میلیون تومان
+
+LEAD DETAILS:
+Name: ${app.name || '—'}
+Email: ${app.email || '—'}
+Phone: ${app.phone || '—'}
+Instagram: ${app.instagram || '—'}
+Location: ${app.location || '—'}
+Topic / Decision question: ${app.subject || '—'}
+Message: ${app.message || '—'}
+Current status: ${app.status || 'New'}${adminNote}
+
+REQUESTED RESPONSE FORMAT: ${typeLabel[d.responseType] || d.responseType}
+
+Please output EXACTLY these four sections with these exact headings:
+
+## Lead Assessment
+Lead quality: [High / Medium / Low]
+Best offer: [Consultation / Course / Bundle / Not suitable]
+Reason: [one sentence]
+Suggested next action: [one sentence]
+
+## Initial Response
+[Persian reply — matches the requested format above]
+
+## Softer Version
+[Warmer, less direct version]
+
+## Firmer Closer
+[Moves more directly toward payment or booking — still not pushy]
+
+WRITING RULES:
+- Persian by default (match the language of their message)
+- No emojis unless clearly useful (max one)
+- No hollow openers like "سلام عزیزم" or "با سلام و احترام"
+- Make the next step crystal clear
+- No legal promises, no outcome guarantees`
+}
+
+function buildReplyPrompt(app: App, d: AiData): string {
+  const intentLabel: Record<string, string> = {
+    'continue-closing': 'Continue closing — move toward payment or booking',
+    'answer-objection': 'Answer their objection, keep them engaged',
+    'send-payment':     'Send payment / booking instructions',
+    'clarify':          'Ask a clarifying question',
+    'to-course':        'Shift them toward the course instead',
+    'to-consult':       'Shift them toward consultation instead',
+    'decline':          'Politely decline — not a good fit',
+  }
+
+  return `You are Ashkan Faraa's premium consultation closing assistant.
+
+CONTEXT — Original enquiry:
+Name: ${app.name || '—'}
+Location: ${app.location || '—'}
+Topic: ${app.subject || '—'}
+Original message: ${app.message || '—'}
+${d.selectedFinalResponse ? `\nInitial reply Ashkan sent:\n${d.selectedFinalResponse}` : ''}
+
+PROSPECT'S LATEST REPLY:
+${d.replyInput || '(not provided)'}
+
+INTENT: ${intentLabel[d.replyIntent] || d.replyIntent}
+
+Write a single Persian reply. Same brand rules: calm, direct, premium, no legal promises, no hollow openers.
+
+## Next Response
+[Persian reply]
+
+## Alternative Version
+[Slightly different angle or tone]`
+}
+
+function AiAssistantPanel({ app, password }: { app: App; password: string }) {
+  const [open,    setOpen]    = useState(false)
+  const [d,       setD]       = useState<AiData>(DEFAULT_AI)
+  const [loading, setLoading] = useState(false)
+  const [saving,  setSaving]  = useState(false)
+  const [saved,   setSaved]   = useState(false)
+  const [copied,  setCopied]  = useState<string | null>(null)
+  const [err,     setErr]     = useState<string | null>(null)
+
+  function upd(key: keyof AiData, val: string) {
+    setD(prev => ({ ...prev, [key]: val }))
+  }
+
+  useEffect(() => {
+    if (!open) return
+    setLoading(true)
+    fetch(`/api/admin/consultation/admin-data?pageId=${encodeURIComponent(app.pageId)}`, {
+      headers: { Authorization: `Bearer ${password}` },
+    })
+      .then(r => r.json())
+      .then(j => {
+        if (j.data) {
+          setD(prev => ({
+            ...prev,
+            ...Object.fromEntries(
+              Object.entries(j.data as Record<string, string | null>).map(([k, v]) => [k, v ?? ''])
+            ),
+          }))
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function save() {
+    setSaving(true); setErr(null); setSaved(false)
+    try {
+      const res = await fetch('/api/admin/consultation/admin-data', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${password}` },
+        body:    JSON.stringify({ pageId: app.pageId, ...d }),
+      })
+      const j = await res.json()
+      if (!res.ok) { setErr(j.error || 'Save failed'); return }
+      setSaved(true)
+      setTimeout(() => setSaved(s => s ? false : s), 2000)
+    } catch { setErr('Network error') }
+    finally { setSaving(false) }
+  }
+
+  async function copyText(text: string, key: string) {
+    if (!text) return
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(key)
+      setTimeout(() => setCopied(c => c === key ? null : c), 2000)
+    } catch { setErr('Clipboard failed — select and copy manually') }
+  }
+
+  const ta: React.CSSProperties = {
+    ...S.textarea,
+    width:     '100%',
+    minHeight: '80px',
+    marginTop: '4px',
+  }
+
+  const sub: React.CSSProperties = {
+    fontSize:      '10px',
+    fontWeight:    700,
+    color:         '#b5975a',
+    letterSpacing: '0.1em',
+    textTransform: 'uppercase',
+    marginTop:     '14px',
+    marginBottom:  '6px',
+    display:       'block',
+  }
+
+  return (
+    <div style={{ borderTop: '1px solid #2c2720', marginTop: '10px' }}>
+      <div
+        style={{ padding: '8px 0', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+        onClick={e => { e.stopPropagation(); setOpen(o => !o) }}
+      >
+        <span style={{ fontSize: '10px', color: '#b5975a', fontWeight: 700, letterSpacing: '0.1em' }}>
+          AI CLOSING ASSISTANT
+        </span>
+        <span style={{ color: '#6b6359', fontSize: '11px', marginLeft: 'auto' }}>{open ? '▲' : '▼'}</span>
+      </div>
+
+      {open && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', paddingBottom: '10px' }}>
+          {loading && <span style={{ color: '#6b6359', fontSize: '11px' }}>Loading…</span>}
+          {err     && <span style={{ color: '#c0504a', fontSize: '11px' }}>{err}</span>}
+
+          {/* Lead Assessment */}
+          <span style={sub}>Lead Assessment</span>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: '110px' }}>
+              <span style={S.label}>Quality</span>
+              <select value={d.leadQuality} onChange={e => upd('leadQuality', e.target.value)} style={S.select}>
+                {['Unknown', 'High', 'Medium', 'Low'].map(v => <option key={v}>{v}</option>)}
+              </select>
+            </div>
+            <div style={{ flex: 1, minWidth: '150px' }}>
+              <span style={S.label}>Best Offer</span>
+              <select value={d.bestOffer} onChange={e => upd('bestOffer', e.target.value)} style={S.select}>
+                {['Unknown', 'Consultation', 'Course', 'Bundle', 'Not suitable'].map(v => <option key={v}>{v}</option>)}
+              </select>
+            </div>
+            <div style={{ flex: 2, minWidth: '190px' }}>
+              <span style={S.label}>Response Type</span>
+              <select value={d.responseType} onChange={e => upd('responseType', e.target.value)} style={S.select}>
+                <option value="sms">Short SMS / WhatsApp</option>
+                <option value="email">Email reply</option>
+                <option value="instagram">Instagram DM</option>
+                <option value="followup">Follow-up</option>
+                <option value="payment">Payment instruction</option>
+                <option value="decline">Polite decline</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Initial Prompt */}
+          <div style={{ marginTop: '10px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <button
+              onClick={e => { e.stopPropagation(); void copyText(buildInitialPrompt(app, d), 'initial') }}
+              style={{ ...btn('primary'), fontSize: '12px' }}
+            >
+              {copied === 'initial' ? '✓ Copied' : 'Copy Initial Claude Prompt'}
+            </button>
+            <span style={{ color: '#6b6359', fontSize: '11px' }}>→ paste into Claude Pro → paste output below</span>
+          </div>
+
+          {/* Claude Output */}
+          <span style={sub}>Claude Output (paste here)</span>
+          <textarea
+            value={d.pastedClaudeOutput}
+            onChange={e => upd('pastedClaudeOutput', e.target.value)}
+            placeholder="Paste Claude's full response here…"
+            style={{ ...ta, minHeight: '120px' }}
+          />
+
+          {/* Selected Final Response */}
+          <span style={{ ...sub, marginTop: '10px' }}>Selected Response to Send</span>
+          <textarea
+            value={d.selectedFinalResponse}
+            onChange={e => upd('selectedFinalResponse', e.target.value)}
+            placeholder="Paste the specific version you chose to send…"
+            style={ta}
+          />
+          {d.selectedFinalResponse && (
+            <button
+              onClick={e => { e.stopPropagation(); void copyText(d.selectedFinalResponse, 'final') }}
+              style={{ ...btn('ghost'), fontSize: '11px', alignSelf: 'flex-start', marginTop: '4px' }}
+            >
+              {copied === 'final' ? '✓ Copied' : 'Copy Response to Send'}
+            </button>
+          )}
+
+          {/* Reply Assistant */}
+          <span style={{ ...sub, marginTop: '16px', borderTop: '1px solid #1e1c19', paddingTop: '10px' }}>
+            Reply Assistant
+          </span>
+          <span style={S.label}>Prospect's Latest Reply</span>
+          <textarea
+            value={d.replyInput}
+            onChange={e => upd('replyInput', e.target.value)}
+            placeholder="Paste their reply here…"
+            style={ta}
+          />
+          <span style={S.label}>Intent</span>
+          <select value={d.replyIntent} onChange={e => upd('replyIntent', e.target.value)} style={S.select}>
+            <option value="continue-closing">Continue closing</option>
+            <option value="answer-objection">Answer objection</option>
+            <option value="send-payment">Send payment link</option>
+            <option value="clarify">Ask clarifying question</option>
+            <option value="to-course">Move to course</option>
+            <option value="to-consult">Move to consultation</option>
+            <option value="decline">Politely decline</option>
+          </select>
+          <div style={{ marginTop: '8px' }}>
+            <button
+              onClick={e => { e.stopPropagation(); void copyText(buildReplyPrompt(app, d), 'reply') }}
+              style={{ ...btn('primary'), fontSize: '12px' }}
+            >
+              {copied === 'reply' ? '✓ Copied' : 'Copy Reply Prompt'}
+            </button>
+          </div>
+
+          <span style={sub}>Reply Claude Output (paste here)</span>
+          <textarea
+            value={d.pastedNextClaudeOutput}
+            onChange={e => upd('pastedNextClaudeOutput', e.target.value)}
+            placeholder="Paste Claude's reply response here…"
+            style={ta}
+          />
+
+          <span style={S.label}>Final Reply to Send</span>
+          <textarea
+            value={d.nextResponse}
+            onChange={e => upd('nextResponse', e.target.value)}
+            placeholder="The specific reply you'll send…"
+            style={ta}
+          />
+          {d.nextResponse && (
+            <button
+              onClick={e => { e.stopPropagation(); void copyText(d.nextResponse, 'next-final') }}
+              style={{ ...btn('ghost'), fontSize: '11px', alignSelf: 'flex-start', marginTop: '4px' }}
+            >
+              {copied === 'next-final' ? '✓ Copied' : 'Copy Reply'}
+            </button>
+          )}
+
+          {/* Internal Notes */}
+          <span style={{ ...sub, marginTop: '16px', borderTop: '1px solid #1e1c19', paddingTop: '10px' }}>
+            Internal Notes
+          </span>
+          <textarea
+            value={d.internalNotes}
+            onChange={e => upd('internalNotes', e.target.value)}
+            placeholder="Private notes about this lead…"
+            style={ta}
+          />
+
+          {/* Save */}
+          <div style={{ marginTop: '12px' }}>
+            <button
+              disabled={saving}
+              onClick={e => { e.stopPropagation(); void save() }}
+              style={{ ...btn('primary'), opacity: saving ? 0.6 : 1 }}
+            >
+              {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save All'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Application card ──────────────────────────────────────────
 type CardMode = 'collapsed' | 'details' | 'approve'
 
@@ -614,9 +973,8 @@ function AppCard({
   const [busy,          setBusy]          = useState(false)
 
   async function setStatus(status: string) {
-    if (status === 'Declined' || status === 'Archived') {
-      if (!window.confirm(`Mark as ${status}?`)) return
-    }
+    const needsConfirm = new Set(['Declined', 'Not Suitable', 'Closed Lost', 'Archived'])
+    if (needsConfirm.has(status) && !window.confirm(`Mark as "${status}"?`)) return
     setBusy(true)
     try {
       await fetch('/api/admin/consultation/status', {
@@ -654,16 +1012,11 @@ function AppCard({
         </div>
       )}
 
-      {/* ── DM Control (always visible) ── */}
-      <DmControl app={app} password={password} />
-
-      {/* ── DM Blocklist (always visible) ── */}
-      <BlocklistControl app={app} password={password} />
-
       {/* ── Expanded body ── */}
       {isExpanded && (
         <div style={S.cardBody}>
           <DetailRows app={app} />
+          <AiAssistantPanel app={app} password={password} />
 
           {/* Claimed section: show claim details */}
           {section === 'claimed' && app.paymentClaim && (
@@ -711,20 +1064,29 @@ function AppCard({
           <div style={S.actions}>
             {(section === 'new' || section === 'underReview') && (
               <>
+                {section === 'new' && (
+                  <button disabled={busy} style={btn('warn')} onClick={e => { e.stopPropagation(); void setStatus('Under Review') }}>
+                    Under Review
+                  </button>
+                )}
                 {mode !== 'approve' && !approveResult && (
                   <button style={btn('primary')} onClick={e => { e.stopPropagation(); setMode('approve') }}>
                     Approve
                   </button>
                 )}
-                {section === 'new' && (
-                  <button disabled={busy} style={btn('warn')} onClick={e => { e.stopPropagation(); setStatus('Under Review') }}>
-                    Under Review
-                  </button>
-                )}
-                <button disabled={busy} style={btn('danger')} onClick={e => { e.stopPropagation(); setStatus('Declined') }}>
+                <button disabled={busy} style={btn('ghost')} onClick={e => { e.stopPropagation(); void setStatus('Replied') }}>
+                  Replied
+                </button>
+                <button disabled={busy} style={btn('ghost')} onClick={e => { e.stopPropagation(); void setStatus('Waiting for Payment') }}>
+                  Awaiting Payment
+                </button>
+                <button disabled={busy} style={btn('danger')} onClick={e => { e.stopPropagation(); void setStatus('Not Suitable') }}>
+                  Not Suitable
+                </button>
+                <button disabled={busy} style={btn('danger')} onClick={e => { e.stopPropagation(); void setStatus('Declined') }}>
                   Decline
                 </button>
-                <button disabled={busy} style={btn('ghost')} onClick={e => { e.stopPropagation(); setStatus('Archived') }}>
+                <button disabled={busy} style={btn('ghost')} onClick={e => { e.stopPropagation(); void setStatus('Archived') }}>
                   Archive
                 </button>
               </>

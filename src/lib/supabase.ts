@@ -347,6 +347,96 @@ export async function lookupSenderIdByUsername(username: string): Promise<string
   return rows[0]?.sender_id ?? null
 }
 
+// ── Consultation Admin Data ────────────────────────────────────
+
+export interface ConsultationAdminData {
+  leadQuality:            string | null
+  bestOffer:              string | null
+  assessmentReason:       string | null
+  suggestedAction:        string | null
+  responseType:           string | null
+  pastedClaudeOutput:     string | null
+  selectedFinalResponse:  string | null
+  replyInput:             string | null
+  replyIntent:            string | null
+  pastedNextClaudeOutput: string | null
+  nextResponse:           string | null
+  internalNotes:          string | null
+}
+
+/**
+ * Fetch admin data for a consultation lead by Notion page ID.
+ * Returns null if Supabase not configured, table missing, or row not found.
+ */
+export async function getAdminData(pageId: string): Promise<ConsultationAdminData | null> {
+  if (!supabaseConfigured()) return null
+  try {
+    const res = await fetch(
+      `${base()}/rest/v1/consultation_admin_data?notion_page_id=eq.${encodeURIComponent(pageId)}&select=*&limit=1`,
+      { headers: headers(), cache: 'no-store' }
+    )
+    if (!res.ok) {
+      console.error('[supabase/getAdminData] query failed:', res.status, await res.text())
+      return null
+    }
+    const rows = await res.json() as Array<Record<string, string | null>>
+    if (rows.length === 0) return null
+    const r = rows[0]
+    return {
+      leadQuality:            r.lead_quality            ?? null,
+      bestOffer:              r.best_offer              ?? null,
+      assessmentReason:       r.assessment_reason       ?? null,
+      suggestedAction:        r.suggested_action        ?? null,
+      responseType:           r.response_type           ?? null,
+      pastedClaudeOutput:     r.pasted_claude_output    ?? null,
+      selectedFinalResponse:  r.selected_final_response ?? null,
+      replyInput:             r.reply_input             ?? null,
+      replyIntent:            r.reply_intent            ?? null,
+      pastedNextClaudeOutput: r.pasted_next_claude_output ?? null,
+      nextResponse:           r.next_response           ?? null,
+      internalNotes:          r.internal_notes          ?? null,
+    }
+  } catch (err) {
+    console.error('[supabase/getAdminData] fetch error:', err)
+    return null
+  }
+}
+
+/**
+ * Upsert admin data for a consultation lead. Only provided keys are written.
+ * Throws on failure; callers should catch and surface the error.
+ */
+export async function saveAdminData(
+  pageId: string,
+  fields: Partial<ConsultationAdminData>
+): Promise<void> {
+  const body: Record<string, string | null> = {
+    notion_page_id: pageId,
+    updated_at:     new Date().toISOString(),
+  }
+  if ('leadQuality' in fields)            body.lead_quality             = fields.leadQuality            ?? null
+  if ('bestOffer' in fields)              body.best_offer               = fields.bestOffer              ?? null
+  if ('assessmentReason' in fields)       body.assessment_reason        = fields.assessmentReason       ?? null
+  if ('suggestedAction' in fields)        body.suggested_action         = fields.suggestedAction        ?? null
+  if ('responseType' in fields)           body.response_type            = fields.responseType           ?? null
+  if ('pastedClaudeOutput' in fields)     body.pasted_claude_output     = fields.pastedClaudeOutput     ?? null
+  if ('selectedFinalResponse' in fields)  body.selected_final_response  = fields.selectedFinalResponse  ?? null
+  if ('replyInput' in fields)             body.reply_input              = fields.replyInput             ?? null
+  if ('replyIntent' in fields)            body.reply_intent             = fields.replyIntent            ?? null
+  if ('pastedNextClaudeOutput' in fields) body.pasted_next_claude_output = fields.pastedNextClaudeOutput ?? null
+  if ('nextResponse' in fields)           body.next_response            = fields.nextResponse           ?? null
+  if ('internalNotes' in fields)          body.internal_notes           = fields.internalNotes          ?? null
+
+  const res = await fetch(`${base()}/rest/v1/consultation_admin_data?on_conflict=notion_page_id`, {
+    method:  'POST',
+    headers: { ...headers(), Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body:    JSON.stringify(body),
+  })
+  if (!res.ok) {
+    throw new Error(`saveAdminData failed: ${res.status} ${await res.text()}`)
+  }
+}
+
 /**
  * Upsert consultation_leads row for manual DM control.
  * Sets dm_mode; also sets sender_id if known.

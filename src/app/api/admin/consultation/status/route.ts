@@ -13,7 +13,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { updateStatus }              from '@/lib/notion-fa-consultation'
 
-const ALLOWED = new Set(['Under Review', 'Declined', 'Archived'])
+const ALLOWED = new Set([
+  'Under Review',
+  'Replied',
+  'Waiting for Payment',
+  'Paid',
+  'Booked',
+  'Course Sent',
+  'Not Suitable',
+  'Declined',
+  'Closed Lost',
+  'Archived',
+])
 
 function authorized(req: NextRequest): boolean {
   const secret = process.env.ADMIN_SECRET
