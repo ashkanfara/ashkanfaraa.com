@@ -1065,12 +1065,6 @@ function AppCard({
             >
               {copied === 'brief' ? '✓ Copied' : 'Copy Enquiry'}
             </button>
-            <button
-              onClick={e => { e.stopPropagation(); void copyText(buildAiPrompt(app), 'ai-prompt') }}
-              style={btn('ghost')}
-            >
-              {copied === 'ai-prompt' ? '✓ Copied' : 'Copy AI Prompt'}
-            </button>
             {d.replyInput.trim() && (
               <button
                 onClick={e => { e.stopPropagation(); void copyText(buildFollowUpPrompt(app, d), 'followup') }}
