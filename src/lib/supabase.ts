@@ -442,6 +442,22 @@ export async function saveAdminData(
 
 // ── DM Inbox (instagram_dm_buffer) ───────────────────────────
 
+export interface ConvHistoryRow {
+  id:             string
+  createdAt:      string
+  messageText:    string | null
+  messageType:    string
+  isStoryReply:   boolean
+  storyId:        string | null
+  // sentText is set only when the reply was actually sent (response_sent=true).
+  // Derived server-side: final_response_text ?? response_text when response_sent=true.
+  // Never populated for PENDING_REVIEW / REJECTED / IGNORED / SUPERSEDED rows.
+  sentText:       string | null
+  responseSent:   boolean
+  responseSentAt: string | null
+  failedReason:   string | null
+}
+
 export interface StoryContext {
   mediaType:     string | null   // 'IMAGE' | 'VIDEO' | null
   mediaUrl:      string | null   // from story_context table (may be a short-lived Meta CDN URL)
@@ -607,10 +623,15 @@ async function enrichSenderIdentities(
 /**
  * Fetch rows needing admin attention: PENDING_REVIEW, SEND_FAILED, IG_SEND_ERROR,
  * SEND_STATUS_UNKNOWN, and SENDING (for visibility — no action buttons shown for SENDING).
- * Returns [] on error — never throws.
+ * Also returns recent conversation history for each sender (last ≤30 rows per sender,
+ * oldest-first) in a single batch query — no N+1.
+ * Returns { items: [], history: {} } on error — never throws.
  */
-export async function getDmInbox(): Promise<DmBufferRow[]> {
-  if (!supabaseConfigured()) return []
+export async function getDmInbox(): Promise<{
+  items:   DmBufferRow[]
+  history: Record<string, ConvHistoryRow[]>
+}> {
+  if (!supabaseConfigured()) return { items: [], history: {} }
   try {
     // Step 1: fetch inbox rows (no FK join hints — FK constraints are not declared)
     const mainRes = await fetch(
@@ -623,11 +644,11 @@ export async function getDmInbox(): Promise<DmBufferRow[]> {
     )
     if (!mainRes.ok) {
       console.error('[supabase/getDmInbox] main query failed:', mainRes.status, await mainRes.text())
-      return []
+      return { items: [], history: {} }
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rows = await mainRes.json() as any[]
-    if (rows.length === 0) return []
+    if (rows.length === 0) return { items: [], history: {} }
 
     // Step 2: enrich with instagram_users + conversation_state for the collected sender_ids
     const senderIds = [...new Set(rows.map((r: { sender_id: string }) => r.sender_id))]
@@ -643,7 +664,7 @@ export async function getDmInbox(): Promise<DmBufferRow[]> {
       ? `(${storyIds.map(id => encodeURIComponent(id)).join(',')})`
       : null
 
-    const [usersRes, stateRes, storyRes] = await Promise.all([
+    const [usersRes, stateRes, storyRes, histRes] = await Promise.all([
       fetch(
         `${base()}/rest/v1/instagram_users` +
         `?sender_id=in.${idList}` +
@@ -664,6 +685,15 @@ export async function getDmInbox(): Promise<DmBufferRow[]> {
             { headers: headers(), cache: 'no-store' }
           )
         : Promise.resolve(null),
+      // Conversation history — single batch for all senders; no N+1
+      fetch(
+        `${base()}/rest/v1/instagram_dm_buffer` +
+        `?sender_id=in.${idList}` +
+        `&select=id,sender_id,created_at,message_text,message_type,is_story_reply,story_id,` +
+        `response_text,final_response_text,response_sent,response_sent_at,failed_reason` +
+        `&order=created_at.desc&limit=150`,
+        { headers: headers(), cache: 'no-store' }
+      ),
     ])
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -697,6 +727,40 @@ export async function getDmInbox(): Promise<DmBufferRow[]> {
       }
     }
 
+    // Build conversation history map: sender_id → ConvHistoryRow[] oldest-first, ≤30 per sender
+    const historyMap: Record<string, ConvHistoryRow[]> = {}
+    if (histRes.ok) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const histRows = await histRes.json() as any[]
+      // histRows is desc-ordered (newest first). Group and take ≤30 per sender, then reverse.
+      for (const r of histRows) {
+        const sid: string = r.sender_id
+        if (!historyMap[sid]) historyMap[sid] = []
+        if (historyMap[sid].length < 30) {
+          // Only show sentText when the reply was actually delivered
+          const sentText = r.response_sent
+            ? (r.final_response_text ?? r.response_text ?? null)
+            : null
+          historyMap[sid].push({
+            id:             r.id,
+            createdAt:      r.created_at,
+            messageText:    r.message_text   ?? null,
+            messageType:    r.message_type,
+            isStoryReply:   r.is_story_reply ?? false,
+            storyId:        r.story_id       ?? null,
+            sentText,
+            responseSent:   r.response_sent  ?? false,
+            responseSentAt: r.response_sent_at ?? null,
+            failedReason:   r.failed_reason  ?? null,
+          })
+        }
+      }
+      // Reverse each group to oldest-first
+      for (const sid of Object.keys(historyMap)) {
+        historyMap[sid] = historyMap[sid].reverse()
+      }
+    }
+
     // Enrich identity if any field is still missing.
     // Staleness policy: skip if all three (display_name, username, profile_picture_url) are populated.
     // username is rarely returned by the IG Messaging API so we only require display_name + profile_picture_url
@@ -708,7 +772,7 @@ export async function getDmInbox(): Promise<DmBufferRow[]> {
     })
     const enriched = await enrichSenderIdentities(needsEnrich)
 
-    return rows.map(r => ({
+    const items: DmBufferRow[] = rows.map(r => ({
       id:              r.id,
       senderId:        r.sender_id,
       messageText:     r.message_text,
@@ -738,9 +802,10 @@ export async function getDmInbox(): Promise<DmBufferRow[]> {
                            ?? enriched[r.sender_id]?.profilePictureUrl
                            ?? null,
     }))
+    return { items, history: historyMap }
   } catch (err) {
     console.error('[supabase/getDmInbox] fetch error:', err)
-    return []
+    return { items: [], history: {} }
   }
 }
 
@@ -839,7 +904,28 @@ export async function markDmStatusUnknown(id: string): Promise<void> {
   )
 }
 
-/** Reject a PENDING_REVIEW draft. Idempotent. */
+/**
+ * Ignore a PENDING_REVIEW draft — human decided no response is needed.
+ * Does NOT block the sender; future inbound messages remain eligible for AI drafting.
+ * Conditional PATCH (only acts when still PENDING_REVIEW) — idempotent.
+ */
+export async function ignoreDm(id: string): Promise<boolean> {
+  const res = await fetch(
+    `${base()}/rest/v1/instagram_dm_buffer` +
+    `?id=eq.${encodeURIComponent(id)}&failed_reason=eq.PENDING_REVIEW` +
+    `&select=id`,
+    {
+      method:  'PATCH',
+      headers: { ...headers(), Prefer: 'return=representation' },
+      body:    JSON.stringify({ failed_reason: 'IGNORED_BY_HUMAN', processed: true, processing: false }),
+    }
+  )
+  if (!res.ok) return false
+  const rows = await res.json() as { id: string }[]
+  return rows.length > 0
+}
+
+/** Reject a PENDING_REVIEW draft. Idempotent. Used by n8n for blocked-sender flows. */
 export async function rejectDm(id: string): Promise<boolean> {
   const res = await fetch(
     `${base()}/rest/v1/instagram_dm_buffer` +

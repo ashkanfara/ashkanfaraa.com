@@ -1142,6 +1142,19 @@ function AppCard({
 
 const WINDOW_MS = 24 * 60 * 60 * 1000
 
+interface ConvHistoryRow {
+  id:             string
+  createdAt:      string
+  messageText:    string | null
+  messageType:    string
+  isStoryReply:   boolean
+  storyId:        string | null
+  sentText:       string | null   // set only when response_sent=true; never unsent drafts
+  responseSent:   boolean
+  responseSentAt: string | null
+  failedReason:   string | null
+}
+
 interface DmStoryContext {
   mediaType:     string | null
   mediaUrl:      string | null
@@ -1169,6 +1182,7 @@ interface DmItem {
   conversationOwner:   string | null
   humanTakeoverReason: string | null
   storyContext:    DmStoryContext | null
+  history:         ConvHistoryRow[]   // recent turns for this sender, oldest-first; includes current item
 }
 
 function windowMsRemaining(createdAt: string): number {
@@ -1295,6 +1309,86 @@ function StoryThumbnail({
   )
 }
 
+function fmtTime(iso: string): string {
+  const d   = new Date(iso)
+  const now = new Date()
+  const time = d.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: false })
+  if (d.toDateString() === now.toDateString()) return time
+  return `${d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })} ${time}`
+}
+
+function ConversationTimeline({
+  history, currentId,
+}: {
+  history:   ConvHistoryRow[]
+  currentId: string
+}) {
+  const [expanded, setExpanded] = useState(false)
+
+  // Exclude the current actionable item — shown separately as the draft below
+  const past       = history.filter(r => r.id !== currentId)
+  const visible    = expanded ? past : past.slice(-5)
+  const hiddenCount = past.length - visible.length
+
+  if (past.length === 0) return null
+
+  return (
+    <div style={{ marginBottom: '14px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+        <span style={{ fontSize: '10px', color: '#6b6359', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' as const }}>
+          Recent Conversation
+        </span>
+        {hiddenCount > 0 && !expanded && (
+          <button
+            onClick={e => { e.stopPropagation(); setExpanded(true) }}
+            style={{ ...btn('ghost'), fontSize: '10px', padding: '1px 7px' }}
+          >
+            + {hiddenCount} earlier
+          </button>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        {visible.map(row => (
+          <div key={row.id}>
+            {/* Inbound turn */}
+            {row.messageText && (
+              <div style={{ marginBottom: row.responseSent && row.sentText ? '3px' : 0 }}>
+                <span style={{ fontSize: '10px', color: '#6b6359', display: 'block', marginBottom: '2px' }}>
+                  Them · {fmtTime(row.createdAt)}
+                  {row.isStoryReply && (
+                    <span style={{ marginLeft: '6px', fontSize: '9px', color: '#b5975a', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' as const }}>
+                      Story Reply
+                    </span>
+                  )}
+                </span>
+                <div style={{ background: '#0e0c0a', border: '1px solid #2c2720', borderRadius: '4px', padding: '5px 8px' }}>
+                  <p style={{ margin: 0, fontSize: '12px', color: '#bfb5a6', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right', lineHeight: 1.5 }}>
+                    {row.messageText}
+                  </p>
+                </div>
+              </div>
+            )}
+            {/* Sent reply */}
+            {row.responseSent && row.sentText && (
+              <div style={{ paddingLeft: '16px' }}>
+                <span style={{ fontSize: '10px', color: '#4a7a55', display: 'block', marginBottom: '2px' }}>
+                  You · {fmtTime(row.responseSentAt ?? row.createdAt)}
+                </span>
+                <div style={{ background: '#0a140c', border: '1px solid #1e3820', borderRadius: '4px', padding: '5px 8px' }}>
+                  <p style={{ margin: 0, fontSize: '12px', color: '#8ec8a0', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right', lineHeight: 1.5 }}>
+                    {row.sentText}
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function DmInboxItem({
   item, onRefresh,
 }: {
@@ -1353,7 +1447,7 @@ function DmInboxItem({
     try {
       const data = await call('/api/admin/dm-inbox', { action, id: item.id, senderId: item.senderId, ...extra })
       if (data.ok) {
-        if (action === 'reject')            setSuccess('Rejected')
+        if (action === 'ignore')            setSuccess('Ignored')
         if (action === 'requeue')           setSuccess('Re-queued for AI')
         if (action === 'retry_send_failed') setSuccess('Reset — re-approve to send')
         if (action === 'takeover')          setSuccess('Taken over — AI paused')
@@ -1440,6 +1534,9 @@ function DmInboxItem({
 
       {expanded && (
         <div style={S.cardBody}>
+
+          {/* ── Conversation timeline ───────────────────────────── */}
+          <ConversationTimeline history={item.history} currentId={item.id} />
 
           {/* ── Story context (only for story replies) ──────────── */}
           {item.isStoryReply && (
@@ -1608,14 +1705,14 @@ function DmInboxItem({
 
             <span style={{ width: '1px', background: '#2c2720', alignSelf: 'stretch', margin: '0 2px' }} />
 
-            <button disabled={isBusy} onClick={() => mutate('requeue')}
+            <button disabled={isBusy} onClick={() => void mutate('requeue')}
               style={btn('warn')}>
               {busy === 'requeue' ? '…' : 'Regenerate'}
             </button>
 
-            <button disabled={isBusy} onClick={() => mutate('reject')}
+            <button disabled={isBusy} onClick={() => void mutate('ignore')}
               style={btn('ghost')}>
-              {busy === 'reject' ? '…' : 'Reject'}
+              {busy === 'ignore' ? '…' : 'Ignore'}
             </button>
 
             <span style={{ width: '1px', background: '#2c2720', alignSelf: 'stretch', margin: '0 2px' }} />
@@ -1658,9 +1755,14 @@ function DmInbox() {
       const res  = await fetch('/api/admin/dm-inbox')
       const data = await res.json()
       if (!res.ok) { setErr(data.error || 'Failed to load'); return }
-      setItems(data.items)
-      // Detect if IG is configured by checking for a specific response shape
-      // (we don't expose whether the env var is set, just whether items loaded)
+      const history: Record<string, ConvHistoryRow[]> = data.history ?? {}
+      // Merge per-sender conversation history into each item
+      setItems(
+        (data.items as DmItem[]).map(item => ({
+          ...item,
+          history: history[item.senderId] ?? [],
+        }))
+      )
       setIgConfigured(true)
     } catch { setErr('Network error') }
     finally { setLoading(false) }

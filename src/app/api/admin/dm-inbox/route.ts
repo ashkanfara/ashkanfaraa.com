@@ -16,6 +16,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import {
   supabaseConfigured,
   getDmInbox,
+  ignoreDm,
   rejectDm,
   requeueDm,
   retryDmSendFailed,
@@ -34,8 +35,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Supabase is not configured.' }, { status: 503 })
   }
 
-  const inbox = await getDmInbox()
-  return NextResponse.json({ items: inbox })
+  const { items, history } = await getDmInbox()
+  return NextResponse.json({ items, history })
 }
 
 // ── POST ──────────────────────────────────────────────────────
@@ -58,7 +59,14 @@ export async function POST(req: NextRequest) {
   try {
     switch (action) {
 
+      case 'ignore': {
+        if (!id) return NextResponse.json({ error: 'id required' }, { status: 422 })
+        const ignored = await ignoreDm(id)
+        return NextResponse.json({ ok: true, ignored })
+      }
+
       case 'reject': {
+        // Legacy — used by n8n blocked-sender flows. Not exposed in the admin UI.
         if (!id) return NextResponse.json({ error: 'id required' }, { status: 422 })
         const rejected = await rejectDm(id)
         return NextResponse.json({ ok: true, rejected })
@@ -104,7 +112,7 @@ export async function POST(req: NextRequest) {
 
       default:
         return NextResponse.json(
-          { error: 'action must be: reject | requeue | retry_send_failed | takeover | release | block | unblock' },
+          { error: 'action must be: ignore | requeue | retry_send_failed | takeover | release | block | unblock' },
           { status: 422 }
         )
     }
