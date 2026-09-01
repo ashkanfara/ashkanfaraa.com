@@ -1328,6 +1328,18 @@ function DmInboxItem({
             )}
           </div>
 
+          {/* Will send preview — live mirror of editText shown only when window is open */}
+          {windowOpen && editText.trim() && (
+            <div style={{ marginTop: '10px', padding: '8px 10px', background: '#0a1a0f', border: '1px solid #2a4a30', borderRadius: '4px' }}>
+              <span style={{ fontSize: '10px', color: '#5a9e6f', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>
+                Will send:
+              </span>
+              <p style={{ margin: 0, fontSize: '12px', color: '#c8e0cc', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right', lineHeight: 1.65 }}>
+                {editText.trim()}
+              </p>
+            </div>
+          )}
+
           {/* Feedback */}
           {err     && <p style={{ color: '#c0504a', fontSize: '11px', marginTop: '8px', margin: '8px 0 0' }}>{err}</p>}
           {success && <p style={{ color: '#5a9e6f', fontSize: '11px', marginTop: '8px', margin: '8px 0 0' }}>{success}</p>}
