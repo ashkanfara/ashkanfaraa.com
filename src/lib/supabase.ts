@@ -550,9 +550,15 @@ async function enrichSenderIdentities(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const data = await res.json() as Record<string, any>
 
-        const displayName:       string | null = data.name        ?? null
-        const username:          string | null = data.username     ?? null
-        const profilePictureUrl: string | null = data.profile_pic ?? null
+        // Log field names (not values) on first successful response for field-name verification
+        if (Object.keys(result).length === 0) {
+          console.log('[supabase/enrich] IG API response fields:', Object.keys(data))
+        }
+
+        const displayName:       string | null = data.name ?? null
+        const username:          string | null = data.username ?? null
+        // IG Messaging API uses profile_pic; some scopes return profile_picture_url — try both
+        const profilePictureUrl: string | null = data.profile_pic ?? data.profile_picture_url ?? null
 
         result[sid] = { displayName, username, profilePictureUrl }
 
@@ -641,7 +647,7 @@ export async function getDmInbox(): Promise<DmBufferRow[]> {
       fetch(
         `${base()}/rest/v1/instagram_users` +
         `?sender_id=in.${idList}` +
-        `&select=sender_id,username,display_name,message_count,notes`,
+        `&select=sender_id,username,display_name,profile_picture_url,message_count,notes`,
         { headers: headers(), cache: 'no-store' }
       ),
       fetch(
@@ -691,10 +697,15 @@ export async function getDmInbox(): Promise<DmBufferRow[]> {
       }
     }
 
-    // Enrich identity for senders with no display_name yet (best-effort, server-side only)
-    const needsEnrich = senderIds.filter(
-      sid => !usersMap[sid]?.display_name && !usersMap[sid]?.username
-    )
+    // Enrich identity if any field is still missing.
+    // Staleness policy: skip if all three (display_name, username, profile_picture_url) are populated.
+    // username is rarely returned by the IG Messaging API so we only require display_name + profile_picture_url
+    // to consider a sender fully resolved.
+    const needsEnrich = senderIds.filter(sid => {
+      const u = usersMap[sid]
+      const fullyResolved = u?.display_name && u?.profile_picture_url
+      return !fullyResolved
+    })
     const enriched = await enrichSenderIdentities(needsEnrich)
 
     return rows.map(r => ({
