@@ -506,21 +506,56 @@ export interface DmBufferRow {
 export async function getDmInbox(): Promise<DmBufferRow[]> {
   if (!supabaseConfigured()) return []
   try {
-    const url =
+    // Step 1: fetch inbox rows (no FK join hints — FK constraints are not declared)
+    const mainRes = await fetch(
       `${base()}/rest/v1/instagram_dm_buffer` +
       `?failed_reason=in.(PENDING_REVIEW,SEND_FAILED,IG_SEND_ERROR,SEND_STATUS_UNKNOWN,SENDING)` +
       `&select=id,sender_id,message_text,message_type,created_at,is_story_reply,is_story_mention,` +
-      `story_id,story_url,response_text,failed_reason,response_sent,response_sent_at,final_response_text,` +
-      `instagram_users!sender_id(username,display_name,message_count,notes),` +
-      `conversation_state!sender_id(conversation_owner,human_takeover_reason,human_takeover_until)` +
-      `&order=created_at.asc`
-    const res = await fetch(url, { headers: headers(), cache: 'no-store' })
-    if (!res.ok) {
-      console.error('[supabase/getDmInbox] query failed:', res.status, await res.text())
+      `story_id,story_url,response_text,failed_reason,response_sent,response_sent_at,final_response_text` +
+      `&order=created_at.asc`,
+      { headers: headers(), cache: 'no-store' }
+    )
+    if (!mainRes.ok) {
+      console.error('[supabase/getDmInbox] main query failed:', mainRes.status, await mainRes.text())
       return []
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rows = await res.json() as any[]
+    const rows = await mainRes.json() as any[]
+    if (rows.length === 0) return []
+
+    // Step 2: enrich with instagram_users + conversation_state for the collected sender_ids
+    const senderIds = [...new Set(rows.map((r: { sender_id: string }) => r.sender_id))]
+    const idList    = `(${senderIds.map(id => encodeURIComponent(id)).join(',')})`
+
+    const [usersRes, stateRes] = await Promise.all([
+      fetch(
+        `${base()}/rest/v1/instagram_users` +
+        `?sender_id=in.${idList}` +
+        `&select=sender_id,username,display_name,message_count,notes`,
+        { headers: headers(), cache: 'no-store' }
+      ),
+      fetch(
+        `${base()}/rest/v1/conversation_state` +
+        `?sender_id=in.${idList}` +
+        `&select=sender_id,conversation_owner,human_takeover_reason,human_takeover_until`,
+        { headers: headers(), cache: 'no-store' }
+      ),
+    ])
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const usersMap: Record<string, any> = {}
+    if (usersRes.ok) {
+      const users = await usersRes.json() as { sender_id: string }[]
+      for (const u of users) usersMap[u.sender_id] = u
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const stateMap: Record<string, any> = {}
+    if (stateRes.ok) {
+      const states = await stateRes.json() as { sender_id: string }[]
+      for (const s of states) stateMap[s.sender_id] = s
+    }
+
     return rows.map(r => ({
       id:              r.id,
       senderId:        r.sender_id,
@@ -536,13 +571,13 @@ export async function getDmInbox(): Promise<DmBufferRow[]> {
       responseSent:    r.response_sent    ?? false,
       responseSentAt:  r.response_sent_at ?? null,
       finalResponseText: r.final_response_text ?? null,
-      username:        r.instagram_users?.username    ?? null,
-      displayName:     r.instagram_users?.display_name ?? null,
-      messageCount:    r.instagram_users?.message_count ?? null,
-      notes:           r.instagram_users?.notes        ?? null,
-      conversationOwner:   r.conversation_state?.conversation_owner    ?? null,
-      humanTakeoverReason: r.conversation_state?.human_takeover_reason ?? null,
-      humanTakeoverUntil:  r.conversation_state?.human_takeover_until  ?? null,
+      username:        usersMap[r.sender_id]?.username     ?? null,
+      displayName:     usersMap[r.sender_id]?.display_name ?? null,
+      messageCount:    usersMap[r.sender_id]?.message_count ?? null,
+      notes:           usersMap[r.sender_id]?.notes         ?? null,
+      conversationOwner:   stateMap[r.sender_id]?.conversation_owner    ?? null,
+      humanTakeoverReason: stateMap[r.sender_id]?.human_takeover_reason ?? null,
+      humanTakeoverUntil:  stateMap[r.sender_id]?.human_takeover_until  ?? null,
     }))
   } catch (err) {
     console.error('[supabase/getDmInbox] fetch error:', err)
