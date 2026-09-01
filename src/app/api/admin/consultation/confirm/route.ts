@@ -4,7 +4,7 @@
  * Admin confirms a manual payment (IR or AU).
  * Generates the CONS code and marks the record as Paid.
  *
- * Protected by Authorization: Bearer ADMIN_SECRET
+ * Protected by HttpOnly session cookie (admin_session)
  *
  * Body: { pageId, method }
  *   method: 'manual_ir' | 'manual_au'
@@ -12,12 +12,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { confirmPayment }            from '@/lib/notion-fa-consultation'
-
-function authorized(req: NextRequest): boolean {
-  const secret = process.env.ADMIN_SECRET
-  if (!secret) return false
-  return req.headers.get('authorization') === `Bearer ${secret}`
-}
+import { requireAdminSession, unauthorized, validateSameOrigin } from '@/lib/adminSession'
 
 function generateConsCode(method: string): string {
   const region = method === 'manual_ir' ? 'IR' : 'AU'
@@ -26,9 +21,8 @@ function generateConsCode(method: string): string {
 }
 
 export async function POST(req: NextRequest) {
-  if (!authorized(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  if (!requireAdminSession(req)) return unauthorized()
+  if (!validateSameOrigin(req)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   let body: Record<string, unknown>
   try {

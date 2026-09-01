@@ -440,6 +440,330 @@ export async function saveAdminData(
   }
 }
 
+// ── DM Inbox (instagram_dm_buffer) ───────────────────────────
+
+export interface DmBufferRow {
+  id:              string
+  senderId:        string
+  messageText:     string | null
+  messageType:     string
+  createdAt:       string
+  isStoryReply:    boolean
+  isStoryMention:  boolean
+  storyId:         string | null
+  storyUrl:        string | null
+  responseText:    string | null   // original AI draft — immutable
+  failedReason:    string | null
+  responseSent:    boolean
+  responseSentAt:  string | null
+  finalResponseText: string | null
+  // joined from instagram_users
+  username:        string | null
+  displayName:     string | null
+  messageCount:    number | null
+  notes:           string | null
+  // joined from conversation_state
+  conversationOwner:     string | null
+  humanTakeoverReason:   string | null
+  humanTakeoverUntil:    string | null
+}
+
+/**
+ * DM send state machine
+ * ─────────────────────
+ * PENDING_REVIEW          — awaiting human review
+ *   → (atomic claim)      → SENDING
+ *
+ * SENDING                 — claimed; Instagram call in progress
+ *   → (IG 4xx definitive) → SEND_FAILED          (admin can retry — IG never sent)
+ *   → (IG success + DB ok)→ SENT
+ *   → (IG success+DB fail)→ SEND_STATUS_UNKNOWN   (NON-RESENDABLE; manual reconciliation)
+ *   → (timeout/unknown)   → SEND_STATUS_UNKNOWN   (NON-RESENDABLE)
+ *   → (window expired)    → EXPIRED
+ *   → (blocked)           → REJECTED
+ *
+ * SEND_FAILED             — safe to retry (IG definitively rejected before sending)
+ * SEND_STATUS_UNKNOWN     — NOT safe to retry; admin must check IG outbox manually
+ * IG_SEND_ERROR           — legacy name for SEND_FAILED; treated identically
+ *
+ * SENT / REJECTED / EXPIRED / BLOCKED_SENDER — terminal, no further sends
+ *
+ * Required schema migration (run once in Supabase SQL editor):
+ *   ALTER TABLE instagram_dm_buffer
+ *     ADD COLUMN IF NOT EXISTS ig_message_id      TEXT,
+ *     ADD COLUMN IF NOT EXISTS sending_started_at TIMESTAMPTZ;
+ *
+ * Until that migration runs:
+ *   - ig_message_id will not be stored (ig_message_id column absent → omitted from PATCH)
+ *   - sending_started_at will not be stored (ditto)
+ */
+
+/**
+ * Fetch rows needing admin attention: PENDING_REVIEW, SEND_FAILED, IG_SEND_ERROR,
+ * SEND_STATUS_UNKNOWN, and SENDING (for visibility — no action buttons shown for SENDING).
+ * Returns [] on error — never throws.
+ */
+export async function getDmInbox(): Promise<DmBufferRow[]> {
+  if (!supabaseConfigured()) return []
+  try {
+    const url =
+      `${base()}/rest/v1/instagram_dm_buffer` +
+      `?failed_reason=in.(PENDING_REVIEW,SEND_FAILED,IG_SEND_ERROR,SEND_STATUS_UNKNOWN,SENDING)` +
+      `&select=id,sender_id,message_text,message_type,created_at,is_story_reply,is_story_mention,` +
+      `story_id,story_url,response_text,failed_reason,response_sent,response_sent_at,final_response_text,` +
+      `instagram_users!sender_id(username,display_name,message_count,notes),` +
+      `conversation_state!sender_id(conversation_owner,human_takeover_reason,human_takeover_until)` +
+      `&order=created_at.asc`
+    const res = await fetch(url, { headers: headers(), cache: 'no-store' })
+    if (!res.ok) {
+      console.error('[supabase/getDmInbox] query failed:', res.status, await res.text())
+      return []
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rows = await res.json() as any[]
+    return rows.map(r => ({
+      id:              r.id,
+      senderId:        r.sender_id,
+      messageText:     r.message_text,
+      messageType:     r.message_type,
+      createdAt:       r.created_at,
+      isStoryReply:    r.is_story_reply   ?? false,
+      isStoryMention:  r.is_story_mention ?? false,
+      storyId:         r.story_id         ?? null,
+      storyUrl:        r.story_url        ?? null,
+      responseText:    r.response_text    ?? null,
+      failedReason:    r.failed_reason    ?? null,
+      responseSent:    r.response_sent    ?? false,
+      responseSentAt:  r.response_sent_at ?? null,
+      finalResponseText: r.final_response_text ?? null,
+      username:        r.instagram_users?.username    ?? null,
+      displayName:     r.instagram_users?.display_name ?? null,
+      messageCount:    r.instagram_users?.message_count ?? null,
+      notes:           r.instagram_users?.notes        ?? null,
+      conversationOwner:   r.conversation_state?.conversation_owner    ?? null,
+      humanTakeoverReason: r.conversation_state?.human_takeover_reason ?? null,
+      humanTakeoverUntil:  r.conversation_state?.human_takeover_until  ?? null,
+    }))
+  } catch (err) {
+    console.error('[supabase/getDmInbox] fetch error:', err)
+    return []
+  }
+}
+
+/**
+ * Atomically claim a PENDING_REVIEW row for sending.
+ *
+ * The claim PATCH also persists final_response_text immediately so that
+ * if the server dies between claim and markDmSent, the intended text is
+ * recorded and the item transitions to SEND_STATUS_UNKNOWN (not silently lost).
+ *
+ * Returns { senderId, createdAt, responseText } or null if already handled.
+ * Uses conditional PATCH: only updates if failed_reason is still PENDING_REVIEW.
+ *
+ */
+export async function claimDmForSend(id: string, finalText: string): Promise<{
+  senderId: string; createdAt: string; responseText: string | null
+} | null> {
+  const patchBody: Record<string, string | null> = {
+    failed_reason:       'SENDING',
+    final_response_text: finalText,
+    sending_started_at:  new Date().toISOString(),
+  }
+  const res = await fetch(
+    `${base()}/rest/v1/instagram_dm_buffer` +
+    `?id=eq.${encodeURIComponent(id)}&failed_reason=eq.PENDING_REVIEW` +
+    `&select=sender_id,created_at,response_text`,
+    {
+      method:  'PATCH',
+      headers: { ...headers(), Prefer: 'return=representation' },
+      body:    JSON.stringify(patchBody),
+    }
+  )
+  if (!res.ok) {
+    console.error('[supabase/claimDmForSend] PATCH failed:', res.status, await res.text())
+    return null
+  }
+  const rows = await res.json() as { sender_id: string; created_at: string; response_text: string | null }[]
+  if (rows.length === 0) return null
+  return { senderId: rows[0].sender_id, createdAt: rows[0].created_at, responseText: rows[0].response_text }
+}
+
+/**
+ * Mark a row SENT after confirmed Instagram success.
+ * Preserves response_text (original AI draft) — only writes final_response_text.
+ *
+ * Returns true on DB success, false on failure.
+ * If this returns false after Instagram already sent the message, the caller
+ * must transition to SEND_STATUS_UNKNOWN — NOT resend.
+ */
+export async function markDmSent(id: string, finalText: string, messageId: string | null): Promise<boolean> {
+  const res = await fetch(
+    `${base()}/rest/v1/instagram_dm_buffer?id=eq.${encodeURIComponent(id)}`,
+    {
+      method:  'PATCH',
+      headers: headers(),
+      body:    JSON.stringify({
+        failed_reason:       'SENT',
+        response_sent:       true,
+        response_sent_at:    new Date().toISOString(),
+        final_response_text: finalText,
+        ig_message_id:       messageId ?? null,
+      }),
+    }
+  )
+  if (!res.ok) {
+    console.error('[supabase/markDmSent] PATCH failed:', res.status, await res.text())
+    return false
+  }
+  return true
+}
+
+/**
+ * Mark a row SEND_FAILED: Instagram definitively rejected the request (4xx error
+ * returned before acceptance). The message was NOT sent. The admin can retry safely.
+ */
+export async function markDmSendFailed(id: string): Promise<void> {
+  await fetch(
+    `${base()}/rest/v1/instagram_dm_buffer?id=eq.${encodeURIComponent(id)}`,
+    { method: 'PATCH', headers: headers(), body: JSON.stringify({ failed_reason: 'SEND_FAILED', processing: false }) }
+  )
+}
+
+/**
+ * Mark a row SEND_STATUS_UNKNOWN: Instagram call outcome is uncertain.
+ *
+ * This state means "we don't know if the message was sent."
+ * Causes: IG succeeded but markDmSent DB write failed; network timeout; unexpected error.
+ *
+ * This state is NON-RESENDABLE. The admin must manually check their Instagram outbox
+ * and resolve via Supabase before any further action. There is no automated recovery.
+ */
+export async function markDmStatusUnknown(id: string): Promise<void> {
+  await fetch(
+    `${base()}/rest/v1/instagram_dm_buffer?id=eq.${encodeURIComponent(id)}`,
+    { method: 'PATCH', headers: headers(), body: JSON.stringify({ failed_reason: 'SEND_STATUS_UNKNOWN', processing: false }) }
+  )
+}
+
+/** Reject a PENDING_REVIEW draft. Idempotent. */
+export async function rejectDm(id: string): Promise<boolean> {
+  const res = await fetch(
+    `${base()}/rest/v1/instagram_dm_buffer` +
+    `?id=eq.${encodeURIComponent(id)}&failed_reason=eq.PENDING_REVIEW` +
+    `&select=id`,
+    {
+      method:  'PATCH',
+      headers: { ...headers(), Prefer: 'return=representation' },
+      body:    JSON.stringify({ failed_reason: 'REJECTED' }),
+    }
+  )
+  if (!res.ok) return false
+  const rows = await res.json() as { id: string }[]
+  return rows.length > 0
+}
+
+/**
+ * Reset a SEND_FAILED item back to PENDING_REVIEW so the admin can retry.
+ *
+ * ONLY allowed from: SEND_FAILED, IG_SEND_ERROR (legacy name for SEND_FAILED).
+ * These states mean Instagram definitively rejected — the message was NOT sent.
+ *
+ * NEVER allowed from: SENDING, SEND_STATUS_UNKNOWN.
+ * Those states have uncertain send outcomes. Resetting them could cause duplicate sends.
+ * Items in those states require manual reconciliation against the Instagram outbox.
+ *
+ * original response_text (AI draft) is preserved; final_response_text is cleared so the
+ * admin sees the draft again and must re-approve — no automatic resend.
+ */
+export async function retryDmSendFailed(id: string): Promise<boolean> {
+  const res = await fetch(
+    `${base()}/rest/v1/instagram_dm_buffer` +
+    `?id=eq.${encodeURIComponent(id)}&failed_reason=in.(SEND_FAILED,IG_SEND_ERROR)` +
+    `&select=id`,
+    {
+      method:  'PATCH',
+      headers: { ...headers(), Prefer: 'return=representation' },
+      body:    JSON.stringify({
+        failed_reason:       'PENDING_REVIEW',
+        processing:          false,
+        final_response_text: null,
+      }),
+    }
+  )
+  if (!res.ok) return false
+  const rows = await res.json() as { id: string }[]
+  return rows.length > 0
+}
+
+/** Re-queue for AI. Clears processed/response_text/failed_reason so n8n picks it up again. */
+export async function requeueDm(id: string): Promise<boolean> {
+  const res = await fetch(
+    `${base()}/rest/v1/instagram_dm_buffer` +
+    `?id=eq.${encodeURIComponent(id)}&failed_reason=eq.PENDING_REVIEW` +
+    `&select=id`,
+    {
+      method:  'PATCH',
+      headers: { ...headers(), Prefer: 'return=representation' },
+      body:    JSON.stringify({ processed: false, processing: false, response_text: null, failed_reason: null }),
+    }
+  )
+  if (!res.ok) return false
+  const rows = await res.json() as { id: string }[]
+  return rows.length > 0
+}
+
+/** Set conversation_state.conversation_owner = 'human_temp' for a sender. */
+export async function takeoverConversation(senderId: string, reason?: string): Promise<void> {
+  await fetch(`${base()}/rest/v1/conversation_state?on_conflict=sender_id`, {
+    method:  'POST',
+    headers: { ...headers(), Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body:    JSON.stringify({
+      sender_id:             senderId,
+      conversation_owner:    'human_temp',
+      human_takeover_reason: reason || 'manual',
+      human_takeover_until:  null,
+      updated_at:            new Date().toISOString(),
+    }),
+  })
+}
+
+/** Set conversation_state.conversation_owner = 'ai' for a sender. */
+export async function releaseToAi(senderId: string): Promise<void> {
+  await fetch(`${base()}/rest/v1/conversation_state?on_conflict=sender_id`, {
+    method:  'POST',
+    headers: { ...headers(), Prefer: 'resolution=merge-duplicates,return=minimal' },
+    body:    JSON.stringify({
+      sender_id:             senderId,
+      conversation_owner:    'ai',
+      human_takeover_reason: null,
+      human_takeover_until:  null,
+      updated_at:            new Date().toISOString(),
+    }),
+  })
+}
+
+/**
+ * Block a sender: add to dm_blocklist + invalidate any pending draft.
+ */
+export async function blockDmSender(senderId: string, displayName: string, notes?: string): Promise<void> {
+  // 1. Add to blocklist
+  await fetch(`${base()}/rest/v1/dm_blocklist?on_conflict=sender_id`, {
+    method:  'POST',
+    headers: { ...headers(), Prefer: 'resolution=ignore-duplicates,return=minimal' },
+    body:    JSON.stringify({ sender_id: senderId, name: displayName, notes: notes || null, created_at: new Date().toISOString() }),
+  })
+  // 2. Invalidate pending draft
+  await fetch(
+    `${base()}/rest/v1/instagram_dm_buffer?sender_id=eq.${encodeURIComponent(senderId)}&failed_reason=eq.PENDING_REVIEW`,
+    { method: 'PATCH', headers: headers(), body: JSON.stringify({ failed_reason: 'REJECTED' }) }
+  )
+  // 3. Mark unprocessed queued messages
+  await fetch(
+    `${base()}/rest/v1/instagram_dm_buffer?sender_id=eq.${encodeURIComponent(senderId)}&processed=eq.false`,
+    { method: 'PATCH', headers: headers(), body: JSON.stringify({ failed_reason: 'BLOCKED_SENDER', processed: true }) }
+  )
+}
+
 /**
  * Upsert consultation_leads row for manual DM control.
  * Sets dm_mode; also sets sender_id if known.

@@ -3,7 +3,7 @@
  *
  * Returns all five dashboard sections enriched with dmMode, senderId,
  * and isBlocked from Supabase. All degrade gracefully if env vars are missing.
- * Protected by Authorization: Bearer ADMIN_SECRET
+ * Protected by HttpOnly session cookie (admin_session)
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -16,17 +16,10 @@ import {
   type ConsultationRecord,
 } from '@/lib/notion-fa-consultation'
 import { getLeadsData, getBlockedSenderIds, normalizeHandle } from '@/lib/supabase'
-
-function authorized(req: NextRequest): boolean {
-  const secret = process.env.ADMIN_SECRET
-  if (!secret) return false
-  return req.headers.get('authorization') === `Bearer ${secret}`
-}
+import { requireAdminSession, unauthorized } from '@/lib/adminSession'
 
 export async function GET(req: NextRequest) {
-  if (!authorized(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  if (!requireAdminSession(req)) return unauthorized()
 
   try {
     const [newApps, underReview, approved, claimed, paid] = await Promise.all([

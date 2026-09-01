@@ -3,21 +3,14 @@
  *
  * Returns presence (true/false) of critical server-side env vars.
  * Never returns actual secret values.
- * Protected by Authorization: Bearer ADMIN_SECRET.
+ * Protected by HttpOnly session cookie (admin_session).
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-
-function authorized(req: NextRequest): boolean {
-  const secret = process.env.ADMIN_SECRET
-  if (!secret) return false
-  return req.headers.get('authorization') === `Bearer ${secret}`
-}
+import { requireAdminSession, unauthorized } from '@/lib/adminSession'
 
 export async function GET(req: NextRequest) {
-  if (!authorized(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  if (!requireAdminSession(req)) return unauthorized()
 
   return NextResponse.json({
     supabaseUrlPresent:          Boolean(process.env.SUPABASE_URL),

@@ -16,7 +16,7 @@
  * empty/legacy-only list instead of erroring; POST returns a clear error
  * telling the admin the migration hasn't been run.
  *
- * Protected by Authorization: Bearer ADMIN_SECRET.
+ * Protected by HttpOnly session cookie (admin_session).
  * Supabase service key is server-only.
  *
  * GET response: { rules: Row[] }
@@ -48,16 +48,10 @@ import {
 
 const VALID_STATUSES = new Set<AccessStatus>(['ai_allowed', 'human_only', 'blocked'])
 
-function authorized(req: NextRequest): boolean {
-  const secret = process.env.ADMIN_SECRET
-  if (!secret) return false
-  return req.headers.get('authorization') === `Bearer ${secret}`
-}
+import { requireAdminSession, unauthorized, validateSameOrigin } from '@/lib/adminSession'
 
 export async function GET(req: NextRequest) {
-  if (!authorized(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  if (!requireAdminSession(req)) return unauthorized()
   if (!supabaseConfigured()) {
     return NextResponse.json({ error: 'Supabase is not configured on this server.' }, { status: 503 })
   }
@@ -97,9 +91,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!authorized(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  if (!requireAdminSession(req)) return unauthorized()
+  if (!validateSameOrigin(req)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   if (!supabaseConfigured()) {
     return NextResponse.json({ error: 'Supabase is not configured on this server.' }, { status: 503 })
   }

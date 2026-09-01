@@ -2,7 +2,8 @@
 
 /**
  * /admin — Consultation review dashboard.
- * Password-protected via ADMIN_SECRET (sessionStorage).
+ * Protected by a server-managed HttpOnly session cookie.
+ * ADMIN_SECRET never reaches the browser — verified once at login, server-side.
  * No Anthropic/OpenAI API. Clipboard + manual workflow only.
  */
 
@@ -412,8 +413,8 @@ function DetailRows({ app }: { app: App }) {
 // ── Approve form ──────────────────────────────────────────────
 interface ApproveResult { paymentLink: string; dmMessage: string }
 
-function ApproveForm({ app, password, onDone }: {
-  app: App; password: string; onDone: (result: ApproveResult) => void
+function ApproveForm({ app, onDone }: {
+  app: App; onDone: (result: ApproveResult) => void
 }) {
   const [price,  setPrice]  = useState('')
   const [cur,    setCur]    = useState('AUD')
@@ -429,7 +430,7 @@ function ApproveForm({ app, password, onDone }: {
     try {
       const res = await fetch('/api/admin/consultation/approve', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${password}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           pageId:     app.pageId,
           name:       app.name,
@@ -498,8 +499,8 @@ function ApproveForm({ app, password, onDone }: {
 }
 
 // ── Confirm payment (manual IR / AU) ──────────────────────────
-function ConfirmPayment({ app, password, onDone }: {
-  app: App; password: string; onDone: (consCode: string) => void
+function ConfirmPayment({ app, onDone }: {
+  app: App; onDone: (consCode: string) => void
 }) {
   const [busy,     setBusy]     = useState(false)
   const [err,      setErr]      = useState('')
@@ -510,7 +511,7 @@ function ConfirmPayment({ app, password, onDone }: {
     try {
       const res = await fetch('/api/admin/consultation/confirm', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${password}` },
+        headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ pageId: app.pageId, method: app.paymentMethod }),
       })
       const data = await res.json()
@@ -542,11 +543,10 @@ function ConfirmPayment({ app, password, onDone }: {
 
 // ── Payment section ───────────────────────────────────────────
 function PaymentSection({
-  app, password, section, approveResult, onApproveResult, consCode, onConsCode,
+  app, section, approveResult, onApproveResult, consCode, onConsCode,
   d, onUpdatePaymentMessage,
 }: {
   app:                    App
-  password:               string
   section:                string
   approveResult:          ApproveResult | null
   onApproveResult:        (r: ApproveResult) => void
@@ -684,7 +684,6 @@ function PaymentSection({
       {showApprove && !approveResult && (
         <ApproveForm
           app={app}
-          password={password}
           onDone={r => { onApproveResult(r); setShowApprove(false) }}
         />
       )}
@@ -695,7 +694,7 @@ function PaymentSection({
           <span style={S.label}>Payment Claim</span>
           <span style={{ ...S.value, display: 'block' }}>{app.paymentClaim}</span>
           <span style={{ color: '#6b6359', fontSize: '11px' }}>{methodLabel(app.paymentMethod)}</span>
-          <ConfirmPayment app={app} password={password} onDone={onConsCode} />
+          <ConfirmPayment app={app} onDone={onConsCode} />
         </div>
       )}
 
@@ -724,7 +723,7 @@ function PaymentSection({
           e.stopPropagation()
           await fetch('/api/admin/consultation/status', {
             method:  'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${password}` },
+            headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify({ pageId: app.pageId, status }),
           })
         }}
@@ -839,7 +838,7 @@ function ResponseAndNotes({
 }
 
 // ── Instagram DM Safety ───────────────────────────────────────
-function InstagramDmSafety({ app, password }: { app: App; password: string }) {
+function InstagramDmSafety({ app }: { app: App }) {
   const [dmMode,  setDmMode]  = useState<string | null>(app.dmMode)
   const [blocked, setBlocked] = useState<boolean | null>(app.isBlocked)
   const [busy,    setBusy]    = useState<string | null>(null)
@@ -850,7 +849,7 @@ function InstagramDmSafety({ app, password }: { app: App; password: string }) {
     try {
       const res = await fetch('/api/admin/consultation/dm-mode', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${password}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           instagramHandle: app.instagram,
           dmMode:          mode,
@@ -874,7 +873,7 @@ function InstagramDmSafety({ app, password }: { app: App; password: string }) {
     try {
       const res = await fetch('/api/admin/consultation/blocklist', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${password}` },
+        headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ action, instagramHandle: app.instagram, name: app.name }),
       })
       const data = await res.json()
@@ -942,10 +941,9 @@ function InstagramDmSafety({ app, password }: { app: App; password: string }) {
 
 // ── Application card ──────────────────────────────────────────
 function AppCard({
-  app, password, section, onRefresh,
+  app, section, onRefresh,
 }: {
   app:       App
-  password:  string
   section:   'new' | 'underReview' | 'approved' | 'claimed' | 'paid'
   onRefresh: () => void
 }) {
@@ -963,9 +961,7 @@ function AppCard({
   useEffect(() => {
     if (!isOpen) return
     setDLoading(true)
-    fetch(`/api/admin/consultation/admin-data?pageId=${encodeURIComponent(app.pageId)}`, {
-      headers: { Authorization: `Bearer ${password}` },
-    })
+    fetch(`/api/admin/consultation/admin-data?pageId=${encodeURIComponent(app.pageId)}`)
       .then(r => r.json())
       .then(j => {
         if (j.data) {
@@ -991,7 +987,7 @@ function AppCard({
     try {
       const res = await fetch('/api/admin/consultation/admin-data', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${password}` },
+        headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ pageId: app.pageId, ...fields }),
       })
       if (res.ok) {
@@ -1017,7 +1013,7 @@ function AppCard({
     try {
       await fetch('/api/admin/consultation/status', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${password}` },
+        headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ pageId: app.pageId, status }),
       })
       onRefresh()
@@ -1108,7 +1104,6 @@ function AppCard({
           {/* ── 3. PAYMENT SETUP ── */}
           <PaymentSection
             app={app}
-            password={password}
             section={section}
             approveResult={approveResult}
             onApproveResult={setApproveResult}
@@ -1135,11 +1130,396 @@ function AppCard({
 
           {/* ── 5. INSTAGRAM DM SAFETY ── */}
           {app.instagram && (
-            <InstagramDmSafety app={app} password={password} />
+            <InstagramDmSafety app={app} />
           )}
         </div>
       )}
     </div>
+  )
+}
+
+// ── DM Inbox ──────────────────────────────────────────────────
+
+const WINDOW_MS = 24 * 60 * 60 * 1000
+
+interface DmItem {
+  id:              string
+  senderId:        string
+  messageText:     string | null
+  messageType:     string
+  createdAt:       string
+  isStoryReply:    boolean
+  isStoryMention:  boolean
+  storyId:         string | null
+  responseText:    string | null
+  failedReason:    string | null
+  username:        string | null
+  displayName:     string | null
+  messageCount:    number | null
+  notes:           string | null
+  conversationOwner:   string | null
+  humanTakeoverReason: string | null
+}
+
+function windowMsRemaining(createdAt: string): number {
+  return Math.max(0, new Date(createdAt).getTime() + WINDOW_MS - Date.now())
+}
+
+function fmtWindowRemaining(ms: number): string {
+  if (ms <= 0) return 'Expired'
+  const h = Math.floor(ms / 3_600_000)
+  const m = Math.floor((ms % 3_600_000) / 60_000)
+  if (h >= 2) return `${h}h ${m}m`
+  if (h === 1) return `1h ${m}m`
+  return `${m}m`
+}
+
+function DmInboxItem({
+  item, onRefresh,
+}: {
+  item:      DmItem
+  onRefresh: () => void
+}) {
+  const [editText,  setEditText]  = useState(item.responseText ?? '')
+  const [busy,      setBusy]      = useState<string | null>(null)
+  const [err,       setErr]       = useState<string | null>(null)
+  const [success,   setSuccess]   = useState<string | null>(null)
+  const [expanded,  setExpanded]  = useState(true)
+
+  const msLeft     = windowMsRemaining(item.createdAt)
+  const windowOpen = msLeft > 0
+  const urgent     = windowOpen && msLeft < 2 * 3_600_000
+  const displayName = item.username ? `@${item.username}` : item.displayName || item.senderId
+
+  async function call(
+    path: string,
+    body: Record<string, string>
+  ): Promise<{ ok: boolean; error?: string }> {
+    const res = await fetch(path, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(body),
+    })
+    return res.json()
+  }
+
+  async function send() {
+    if (!editText.trim()) return
+    setBusy('send'); setErr(null); setSuccess(null)
+    try {
+      const data = await call('/api/admin/dm-inbox/send', { id: item.id, finalText: editText })
+      if (data.ok) {
+        setSuccess('✓ Sent')
+        setTimeout(onRefresh, 1200)
+      } else {
+        setErr(data.error ?? 'Send failed')
+      }
+    } catch { setErr('Network error') }
+    finally { setBusy(null) }
+  }
+
+  async function mutate(action: string, extra: Record<string, string> = {}) {
+    setBusy(action); setErr(null); setSuccess(null)
+    try {
+      const data = await call('/api/admin/dm-inbox', { action, id: item.id, senderId: item.senderId, ...extra })
+      if (data.ok) {
+        if (action === 'reject')            setSuccess('Rejected')
+        if (action === 'requeue')           setSuccess('Re-queued for AI')
+        if (action === 'retry_send_failed') setSuccess('Reset — re-approve to send')
+        if (action === 'takeover')          setSuccess('Taken over — AI paused')
+        if (action === 'release')           setSuccess('Released to AI')
+        if (action === 'block')             setSuccess('Blocked')
+        setTimeout(onRefresh, 1000)
+      } else {
+        setErr(data.error ?? 'Action failed')
+      }
+    } catch { setErr('Network error') }
+    finally { setBusy(null) }
+  }
+
+  const isBusy = busy !== null
+  const windowColor = !windowOpen ? '#c0504a' : urgent ? '#b5975a' : '#5a9e6f'
+
+  return (
+    <div style={{ ...S.card, borderLeft: `3px solid ${!windowOpen ? '#c0504a' : '#2c2720'}` }}>
+      {/* Header */}
+      <div style={{ ...S.cardHeader, alignItems: 'center' }} onClick={() => setExpanded(o => !o)}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ fontWeight: 600, fontSize: '13px', color: '#e8e4de' }}>{displayName}</span>
+          {item.isStoryReply && (
+            <span style={{ marginLeft: '8px', fontSize: '10px', color: '#b5975a', border: '1px solid #b5975a', borderRadius: '3px', padding: '1px 5px' }}>
+              Story Reply
+            </span>
+          )}
+          {item.conversationOwner === 'human_temp' && (
+            <span style={{ marginLeft: '8px', fontSize: '10px', color: '#5a9e6f', border: '1px solid #5a9e6f', borderRadius: '3px', padding: '1px 5px' }}>
+              Human Hold
+            </span>
+          )}
+          {(item.failedReason === 'IG_SEND_ERROR' || item.failedReason === 'SEND_FAILED') && (
+            <span style={{ marginLeft: '8px', fontSize: '10px', color: '#c0504a', border: '1px solid #c0504a', borderRadius: '3px', padding: '1px 5px' }}>
+              Send Failed — Safe Retry
+            </span>
+          )}
+          {item.failedReason === 'SENDING' && (
+            <span style={{ marginLeft: '8px', fontSize: '10px', color: '#b5975a', border: '1px solid #b5975a', borderRadius: '3px', padding: '1px 5px' }}>
+              Sending…
+            </span>
+          )}
+          {item.failedReason === 'SEND_STATUS_UNKNOWN' && (
+            <span style={{ marginLeft: '8px', fontSize: '10px', color: '#c0504a', border: '1px solid #c0504a', borderRadius: '3px', padding: '1px 5px', fontWeight: 700 }}>
+              ⚠ Unknown — Check IG Outbox
+            </span>
+          )}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
+          <span style={{ fontSize: '11px', color: windowColor, fontWeight: urgent || !windowOpen ? 700 : 400 }}>
+            {windowOpen ? `⏱ ${fmtWindowRemaining(msLeft)}` : '⛔ Expired'}
+          </span>
+          <span style={{ fontSize: '11px', color: '#6b6359' }}>
+            {new Date(item.createdAt).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+          </span>
+          <span style={{ color: '#6b6359', fontSize: '11px' }}>{expanded ? '▲' : '▼'}</span>
+        </div>
+      </div>
+
+      {expanded && (
+        <div style={S.cardBody}>
+          {/* Inbound message */}
+          <span style={S.label}>Their Message</span>
+          <p style={{ ...S.value, whiteSpace: 'pre-wrap', lineHeight: 1.65, marginTop: '2px', direction: 'rtl', textAlign: 'right', background: '#0e0c0a', padding: '8px 10px', borderRadius: '4px', border: '1px solid #2c2720' }}>
+            {item.messageText || <em style={{ color: '#6b6359' }}>(no text — {item.messageType})</em>}
+          </p>
+
+          {/* AI Draft — editable */}
+          <span style={{ ...S.label, marginTop: '12px' }}>
+            AI Draft
+            <span style={{ color: '#6b6359', fontWeight: 400, marginLeft: '6px' }}>(edit before sending)</span>
+          </span>
+          {windowOpen ? (
+            <textarea
+              value={editText}
+              onChange={e => setEditText(e.target.value)}
+              rows={5}
+              style={{ ...S.textarea, direction: 'rtl', lineHeight: 1.7, marginTop: '4px' }}
+              placeholder="AI draft will appear here…"
+            />
+          ) : (
+            <p style={{ ...S.value, whiteSpace: 'pre-wrap', lineHeight: 1.65, marginTop: '2px', color: '#6b6359', fontStyle: 'italic', background: '#0e0c0a', padding: '8px 10px', borderRadius: '4px', border: '1px solid #2c2720' }}>
+              {item.responseText || '—'}
+            </p>
+          )}
+
+          {/* Metadata */}
+          <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '8px' }}>
+            {item.messageCount !== null && (
+              <span style={{ fontSize: '11px', color: '#6b6359' }}>
+                <span style={{ color: '#9e9289' }}>Messages from them:</span> {item.messageCount}
+              </span>
+            )}
+            <span style={{ fontSize: '11px', color: '#6b6359' }}>
+              <span style={{ color: '#9e9289' }}>Sender ID:</span> {item.senderId}
+            </span>
+            {item.conversationOwner && (
+              <span style={{ fontSize: '11px', color: '#6b6359' }}>
+                <span style={{ color: '#9e9289' }}>Owner:</span> {item.conversationOwner}
+                {item.humanTakeoverReason ? ` (${item.humanTakeoverReason})` : ''}
+              </span>
+            )}
+          </div>
+
+          {/* Feedback */}
+          {err     && <p style={{ color: '#c0504a', fontSize: '11px', marginTop: '8px', margin: '8px 0 0' }}>{err}</p>}
+          {success && <p style={{ color: '#5a9e6f', fontSize: '11px', marginTop: '8px', margin: '8px 0 0' }}>{success}</p>}
+
+          {/* Actions */}
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '12px', paddingTop: '10px', borderTop: '1px solid #1e1c19', alignItems: 'center' }}>
+
+            {/* Primary: Approve & Send */}
+            {windowOpen && (
+              <button
+                disabled={isBusy || !editText.trim()}
+                onClick={() => { void send() }}
+                style={{
+                  ...btn('primary'),
+                  opacity: (isBusy || !editText.trim()) ? 0.5 : 1,
+                  padding: '5px 14px',
+                  fontSize: '12px',
+                }}
+              >
+                {busy === 'send' ? '…' : 'Approve & Send'}
+              </button>
+            )}
+
+            {!windowOpen && (
+              <span style={{ fontSize: '11px', color: '#c0504a', fontWeight: 600, padding: '5px 0' }}>
+                Window closed — cannot send
+              </span>
+            )}
+
+            {/* Retry — only for definitive IG failure (IG never sent) */}
+            {(item.failedReason === 'IG_SEND_ERROR' || item.failedReason === 'SEND_FAILED') && (
+              <button
+                disabled={isBusy}
+                onClick={() => {
+                  if (!window.confirm('Reset this failed send attempt? You will need to re-approve before it sends.')) return
+                  void mutate('retry_send_failed')
+                }}
+                style={{ ...btn('warn'), fontSize: '12px' }}
+              >
+                {busy === 'retry_send_failed' ? '…' : 'Retry Send'}
+              </button>
+            )}
+
+            {/* SENDING = in-flight; show status only, no action */}
+            {item.failedReason === 'SENDING' && (
+              <span style={{ fontSize: '11px', color: '#b5975a', padding: '5px 0' }}>
+                Send in progress…
+              </span>
+            )}
+
+            {/* SEND_STATUS_UNKNOWN = IG outcome uncertain — NON-RESENDABLE */}
+            {item.failedReason === 'SEND_STATUS_UNKNOWN' && (
+              <div style={{ background: '#1c100a', border: '1px solid #c0504a', borderRadius: '4px', padding: '8px 10px', fontSize: '11px', color: '#c0504a', lineHeight: 1.5 }}>
+                <strong>⚠ Send outcome unknown.</strong> Instagram may or may not have delivered this message.
+                Check your <strong>Instagram outbox</strong> before taking any action.
+                Do <strong>not</strong> retry via this UI — use Supabase to manually resolve after confirming.
+              </div>
+            )}
+
+            <span style={{ width: '1px', background: '#2c2720', alignSelf: 'stretch', margin: '0 2px' }} />
+
+            <button disabled={isBusy} onClick={() => mutate('requeue')}
+              style={btn('warn')}>
+              {busy === 'requeue' ? '…' : 'Regenerate'}
+            </button>
+
+            <button disabled={isBusy} onClick={() => mutate('reject')}
+              style={btn('ghost')}>
+              {busy === 'reject' ? '…' : 'Reject'}
+            </button>
+
+            <span style={{ width: '1px', background: '#2c2720', alignSelf: 'stretch', margin: '0 2px' }} />
+
+            {item.conversationOwner !== 'human_temp' ? (
+              <button disabled={isBusy} onClick={() => mutate('takeover')}
+                style={btn('ghost')}>
+                {busy === 'takeover' ? '…' : 'Take Over'}
+              </button>
+            ) : (
+              <button disabled={isBusy} onClick={() => mutate('release')}
+                style={{ ...btn('ghost'), color: '#5a9e6f', borderColor: '#5a9e6f' }}>
+                {busy === 'release' ? '…' : 'Release to AI'}
+              </button>
+            )}
+
+            <button disabled={isBusy} onClick={() => {
+              if (!window.confirm(`Block ${displayName}? AI will never reply to them again.`)) return
+              void mutate('block', { displayName: item.displayName || item.senderId })
+            }}
+              style={btn('danger')}>
+              {busy === 'block' ? '…' : 'Block'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DmInbox() {
+  const [items,   setItems]   = useState<DmItem[] | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [err,     setErr]     = useState<string | null>(null)
+  const [igConfigured, setIgConfigured] = useState<boolean | null>(null)
+
+  async function load() {
+    setLoading(true); setErr(null)
+    try {
+      const res  = await fetch('/api/admin/dm-inbox')
+      const data = await res.json()
+      if (!res.ok) { setErr(data.error || 'Failed to load'); return }
+      setItems(data.items)
+      // Detect if IG is configured by checking for a specific response shape
+      // (we don't expose whether the env var is set, just whether items loaded)
+      setIgConfigured(true)
+    } catch { setErr('Network error') }
+    finally { setLoading(false) }
+  }
+
+  useEffect(() => { void load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const pending  = (items ?? []).filter(i => windowMsRemaining(i.createdAt) > 0)
+  const expired  = (items ?? []).filter(i => windowMsRemaining(i.createdAt) <= 0)
+  const urgent   = pending.filter(i => windowMsRemaining(i.createdAt) < 2 * 3_600_000)
+  const oldest   = pending.length > 0
+    ? new Date(Math.min(...pending.map(i => new Date(i.createdAt).getTime())))
+    : null
+
+  return (
+    <section>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px', marginTop: '28px', paddingBottom: '4px', borderBottom: '1px solid #2c2720' }}>
+        <h2 style={{ ...S.sectionHead, margin: 0, borderBottom: 'none', paddingBottom: 0 }}>
+          DM REVIEW INBOX
+        </h2>
+        {items !== null && (
+          <span style={{ fontSize: '11px', color: '#6b6359' }}>
+            {pending.length} pending
+            {urgent.length > 0 && <span style={{ color: '#b5975a', marginLeft: '8px', fontWeight: 700 }}>⚠ {urgent.length} urgent</span>}
+            {expired.length > 0 && <span style={{ color: '#c0504a', marginLeft: '8px' }}>{expired.length} expired</span>}
+          </span>
+        )}
+        <button onClick={load} disabled={loading}
+          style={{ ...btn('ghost'), marginLeft: 'auto', fontSize: '11px' }}>
+          {loading ? '…' : 'Refresh'}
+        </button>
+      </div>
+
+      {/* Summary bar */}
+      {items !== null && items.length > 0 && (
+        <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', padding: '8px 12px', background: '#100e0c', borderRadius: '4px', border: '1px solid #2c2720', marginBottom: '12px', fontSize: '12px' }}>
+          <span><span style={{ color: '#6b6359' }}>Pending: </span><span style={{ color: '#e8e4de', fontWeight: 600 }}>{pending.length}</span></span>
+          {urgent.length > 0 && (
+            <span><span style={{ color: '#6b6359' }}>Urgent (&lt;2h): </span><span style={{ color: '#b5975a', fontWeight: 600 }}>{urgent.length}</span></span>
+          )}
+          {oldest && (
+            <span><span style={{ color: '#6b6359' }}>Oldest: </span><span style={{ color: '#e8e4de' }}>{new Date(oldest).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span></span>
+          )}
+          {expired.length > 0 && (
+            <span><span style={{ color: '#6b6359' }}>Expired: </span><span style={{ color: '#c0504a', fontWeight: 600 }}>{expired.length}</span></span>
+          )}
+        </div>
+      )}
+
+      {err     && <p style={{ color: '#c0504a', fontSize: '12px' }}>{err}</p>}
+      {loading && !items && <p style={{ color: '#6b6359', fontSize: '12px' }}>Loading…</p>}
+      {items   && items.length === 0 && (
+        <p style={{ color: '#6b6359', fontSize: '12px' }}>No drafts waiting for review.</p>
+      )}
+
+      {igConfigured === false && (
+        <div style={{ padding: '10px 12px', background: '#1a1000', border: '1px solid #b5975a', borderRadius: '4px', marginBottom: '10px', fontSize: '12px', color: '#b5975a' }}>
+          ⚠ Instagram sending is not configured — Approve & Send will be unavailable until the server environment is set up.
+        </div>
+      )}
+
+      {/* Pending items */}
+      {pending.map(item => (
+        <DmInboxItem key={item.id} item={item} onRefresh={load} />
+      ))}
+
+      {/* Expired items — show for reject/archive only */}
+      {expired.length > 0 && (
+        <>
+          <div style={{ fontSize: '11px', color: '#6b6359', margin: '16px 0 6px', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+            Window Expired — Reject Only
+          </div>
+          {expired.map(item => (
+            <DmInboxItem key={item.id} item={item} onRefresh={load} />
+          ))}
+        </>
+      )}
+    </section>
   )
 }
 
@@ -1173,7 +1553,7 @@ function fmtRuleDate(iso: string | null): string {
   return new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
-function DmAccessControl({ password }: { password: string }) {
+function DmAccessControl() {
   const [rows,      setRows]      = useState<AccessRuleRow[] | null>(null)
   const [search,    setSearch]    = useState('')
   const [newHandle, setNewHandle] = useState('')
@@ -1183,7 +1563,7 @@ function DmAccessControl({ password }: { password: string }) {
   async function load() {
     setErr(null)
     try {
-      const res = await fetch('/api/admin/manual-dm-control', { headers: { Authorization: `Bearer ${password}` } })
+      const res = await fetch('/api/admin/manual-dm-control')
       const data = await res.json()
       if (!res.ok) { setErr(data.error || 'Failed to load'); return }
       setRows(data.rules)
@@ -1198,7 +1578,7 @@ function DmAccessControl({ password }: { password: string }) {
     try {
       const res = await fetch('/api/admin/manual-dm-control', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${password}` },
+        headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ action: 'set-status', handle, status }),
       })
       const data = await res.json()
@@ -1214,7 +1594,7 @@ function DmAccessControl({ password }: { password: string }) {
     try {
       const res = await fetch('/api/admin/manual-dm-control', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${password}` },
+        headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify(
           row.legacy ? { action: 'remove', senderId: row.senderId } : { action: 'remove', handle: row.handle }
         ),
@@ -1352,10 +1732,9 @@ function DmAccessControl({ password }: { password: string }) {
 }
 
 // ── Section wrapper ───────────────────────────────────────────
-function Section({ title, apps, password, section, onRefresh }: {
+function Section({ title, apps, section, onRefresh }: {
   title:     string
   apps:      App[]
-  password:  string
   section:   'new' | 'underReview' | 'approved' | 'claimed' | 'paid'
   onRefresh: () => void
 }) {
@@ -1365,7 +1744,7 @@ function Section({ title, apps, password, section, onRefresh }: {
       {apps.length === 0
         ? <p style={{ color: '#6b6359', fontSize: '12px' }}>None.</p>
         : apps.map(app => (
-            <AppCard key={app.pageId} app={app} password={password} section={section} onRefresh={onRefresh} />
+            <AppCard key={app.pageId} app={app} section={section} onRefresh={onRefresh} />
           ))
       }
     </section>
@@ -1374,44 +1753,72 @@ function Section({ title, apps, password, section, onRefresh }: {
 
 // ── Main page ─────────────────────────────────────────────────
 export default function AdminPage() {
-  const [password,  setPassword]  = useState('')
+  const [loggedIn,  setLoggedIn]  = useState<boolean | null>(null) // null = checking
   const [inputPw,   setInputPw]   = useState('')
   const [pwErr,     setPwErr]     = useState('')
+  const [loginBusy, setLoginBusy] = useState(false)
   const [data,      setData]      = useState<DashboardData | null>(null)
   const [loading,   setLoading]   = useState(false)
   const [fetchErr,  setFetchErr]  = useState('')
 
+  // Probe session on mount — no password in browser, just check if cookie is valid
   useEffect(() => {
-    const saved = sessionStorage.getItem('adminPw')
-    if (saved) { setPassword(saved); void load(saved) }
+    void (async () => {
+      try {
+        const res = await fetch('/api/admin/consultation/list')
+        if (res.status === 401) { setLoggedIn(false); return }
+        if (res.ok) { setLoggedIn(true); setData(await res.json()) }
+        else { setLoggedIn(false) }
+      } catch { setLoggedIn(false) }
+    })()
   }, [])
 
-  async function load(pw: string) {
+  async function load() {
     setLoading(true); setFetchErr('')
     try {
-      const res = await fetch('/api/admin/consultation/list', {
-        headers: { Authorization: `Bearer ${pw}` },
-      })
-      if (res.status === 401) {
-        setPwErr('Incorrect password')
-        sessionStorage.removeItem('adminPw')
-        setPassword('')
-        return
-      }
+      const res = await fetch('/api/admin/consultation/list')
+      if (res.status === 401) { setLoggedIn(false); return }
       if (!res.ok) { setFetchErr('Failed to load'); return }
       setData(await res.json())
     } catch { setFetchErr('Network error') }
     finally { setLoading(false) }
   }
 
-  function handleLogin(e: FormEvent) {
+  async function handleLogin(e: FormEvent) {
     e.preventDefault()
-    sessionStorage.setItem('adminPw', inputPw)
-    setPassword(inputPw)
-    void load(inputPw)
+    setLoginBusy(true); setPwErr('')
+    try {
+      const res = await fetch('/api/admin/login', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ password: inputPw }),
+      })
+      if (res.status === 401) { setPwErr('Incorrect password'); return }
+      if (!res.ok) { setPwErr('Login failed — try again'); return }
+      // Cookie is now set server-side (HttpOnly). Clear the local input.
+      setInputPw('')
+      setLoggedIn(true)
+      void load()
+    } catch { setPwErr('Network error') }
+    finally { setLoginBusy(false) }
   }
 
-  if (!password) {
+  async function handleLogout() {
+    await fetch('/api/admin/logout', { method: 'POST' })
+    setLoggedIn(false)
+    setData(null)
+  }
+
+  // Still checking session
+  if (loggedIn === null) {
+    return (
+      <main style={{ ...S.page, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <p style={{ color: '#6b6359', fontSize: '12px' }}>…</p>
+      </main>
+    )
+  }
+
+  if (!loggedIn) {
     return (
       <main style={{ ...S.page, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <form onSubmit={handleLogin} style={{ width: '280px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -1419,7 +1826,9 @@ export default function AdminPage() {
           <input type="password" value={inputPw} autoFocus required
             onChange={e => setInputPw(e.target.value)} placeholder="Password" style={S.input} />
           {pwErr && <p style={{ color: '#c0504a', fontSize: '11px', margin: 0 }}>{pwErr}</p>}
-          <button type="submit" style={btn('primary')}>Enter</button>
+          <button type="submit" disabled={loginBusy} style={btn('primary')}>
+            {loginBusy ? '…' : 'Enter'}
+          </button>
         </form>
       </main>
     )
@@ -1430,23 +1839,24 @@ export default function AdminPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
         <span style={{ color: '#6b6359', fontSize: '11px', letterSpacing: '0.1em' }}>CONSULTATION ADMIN</span>
         <div style={{ display: 'flex', gap: '8px' }}>
-          <button onClick={() => load(password)} style={btn('ghost')}>{loading ? '…' : 'Refresh'}</button>
-          <button onClick={() => { sessionStorage.removeItem('adminPw'); setPassword('') }} style={btn('ghost')}>Sign Out</button>
+          <button onClick={load} style={btn('ghost')}>{loading ? '…' : 'Refresh'}</button>
+          <button onClick={handleLogout} style={btn('ghost')}>Sign Out</button>
         </div>
       </div>
 
       {fetchErr && <p style={{ color: '#c0504a', fontSize: '12px' }}>{fetchErr}</p>}
       {loading && !data && <p style={{ color: '#6b6359', fontSize: '12px' }}>Loading…</p>}
 
-      <DmAccessControl password={password} />
+      <DmInbox />
+      <DmAccessControl />
 
       {data && (
         <>
-          <Section title="New Applications"             apps={data.new}         password={password} section="new"         onRefresh={() => load(password)} />
-          <Section title="Under Review"                 apps={data.underReview} password={password} section="underReview" onRefresh={() => load(password)} />
-          <Section title="Approved / Payment Sent"      apps={data.approved}    password={password} section="approved"    onRefresh={() => load(password)} />
-          <Section title="Awaiting Manual Confirmation" apps={data.claimed}     password={password} section="claimed"     onRefresh={() => load(password)} />
-          <Section title="Paid / Completed"             apps={data.paid}        password={password} section="paid"        onRefresh={() => load(password)} />
+          <Section title="New Applications"             apps={data.new}         section="new"         onRefresh={load} />
+          <Section title="Under Review"                 apps={data.underReview} section="underReview" onRefresh={load} />
+          <Section title="Approved / Payment Sent"      apps={data.approved}    section="approved"    onRefresh={load} />
+          <Section title="Awaiting Manual Confirmation" apps={data.claimed}     section="claimed"     onRefresh={load} />
+          <Section title="Paid / Completed"             apps={data.paid}        section="paid"        onRefresh={load} />
         </>
       )}
     </main>

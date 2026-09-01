@@ -6,7 +6,7 @@
  * Looks up sender_id from consultation_leads by instagram_handle, unless
  * senderId is passed directly in the body (reliable key, skips the lookup —
  * used by the Blocked People table, which already has sender_id).
- * Protected by Authorization: Bearer ADMIN_SECRET.
+ * Protected by HttpOnly session cookie (admin_session).
  * Supabase service key is server-only.
  *
  * Body: {
@@ -20,17 +20,10 @@
 import { NextRequest, NextResponse }                      from 'next/server'
 import { normalizeHandle, supabaseConfigured,
          blockSender, unblockSender, listBlockedSenders }  from '@/lib/supabase'
-
-function authorized(req: NextRequest): boolean {
-  const secret = process.env.ADMIN_SECRET
-  if (!secret) return false
-  return req.headers.get('authorization') === `Bearer ${secret}`
-}
+import { requireAdminSession, unauthorized, validateSameOrigin } from '@/lib/adminSession'
 
 export async function GET(req: NextRequest) {
-  if (!authorized(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  if (!requireAdminSession(req)) return unauthorized()
   if (!supabaseConfigured()) {
     return NextResponse.json({ error: 'Supabase is not configured on this server.' }, { status: 503 })
   }
@@ -59,9 +52,8 @@ async function getSenderId(instagramHandle: string): Promise<string | null> {
 }
 
 export async function POST(req: NextRequest) {
-  if (!authorized(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  if (!requireAdminSession(req)) return unauthorized()
+  if (!validateSameOrigin(req)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   if (!supabaseConfigured()) {
     return NextResponse.json({ error: 'Supabase is not configured on this server.' }, { status: 503 })

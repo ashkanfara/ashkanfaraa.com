@@ -7,7 +7,7 @@
  *   - Updates Notion: Status=Approved, PaymentStatus=Pending
  *   - Returns the private payment link and a ready-to-copy Persian DM
  *
- * Protected by Authorization: Bearer ADMIN_SECRET
+ * Protected by HttpOnly session cookie (admin_session)
  *
  * Body: { pageId, name, price, currency, method, expiryDays }
  *   method: 'paypal' | 'manual_ir' | 'manual_au'
@@ -17,12 +17,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { randomUUID }                from 'crypto'
 import { approveApplication }        from '@/lib/notion-fa-consultation'
-
-function authorized(req: NextRequest): boolean {
-  const secret = process.env.ADMIN_SECRET
-  if (!secret) return false
-  return req.headers.get('authorization') === `Bearer ${secret}`
-}
+import { requireAdminSession, unauthorized, validateSameOrigin } from '@/lib/adminSession'
 
 function regionFromMethod(method: string): string {
   if (method === 'manual_ir') return 'IR'
@@ -31,9 +26,8 @@ function regionFromMethod(method: string): string {
 }
 
 export async function POST(req: NextRequest) {
-  if (!authorized(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  if (!requireAdminSession(req)) return unauthorized()
+  if (!validateSameOrigin(req)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   let body: Record<string, unknown>
   try {

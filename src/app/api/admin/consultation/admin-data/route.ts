@@ -4,17 +4,12 @@
  *
  * Reads and writes consultation_admin_data rows (AI closing assistant state).
  * No Anthropic API involved — pure storage for manually-crafted responses.
- * Protected by Authorization: Bearer ADMIN_SECRET
+ * Protected by HttpOnly session cookie (admin_session)
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminData, saveAdminData } from '@/lib/supabase'
-
-function authorized(req: NextRequest): boolean {
-  const secret = process.env.ADMIN_SECRET
-  if (!secret) return false
-  return req.headers.get('authorization') === `Bearer ${secret}`
-}
+import { requireAdminSession, unauthorized, validateSameOrigin } from '@/lib/adminSession'
 
 const KNOWN_FIELDS = [
   'leadQuality', 'bestOffer', 'assessmentReason', 'suggestedAction',
@@ -24,9 +19,7 @@ const KNOWN_FIELDS = [
 ] as const
 
 export async function GET(req: NextRequest) {
-  if (!authorized(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  if (!requireAdminSession(req)) return unauthorized()
 
   const pageId = req.nextUrl.searchParams.get('pageId')
   if (!pageId) {
@@ -43,9 +36,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!authorized(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  if (!requireAdminSession(req)) return unauthorized()
+  if (!validateSameOrigin(req)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   let body: Record<string, unknown>
   try {

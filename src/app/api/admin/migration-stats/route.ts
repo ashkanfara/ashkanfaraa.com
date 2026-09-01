@@ -12,6 +12,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAdminSession } from '@/lib/adminSession'
 
 const NOTION_API     = 'https://api.notion.com/v1'
 const NOTION_VERSION = '2022-06-28'
@@ -104,9 +105,7 @@ function pct(part: number, total: number): string {
 
 // ── Handler ──────────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
-  const key = req.nextUrl.searchParams.get('key')
-
-  if (!key || key !== process.env.ADMIN_STATS_KEY) {
+  if (!requireAdminSession(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

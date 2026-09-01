@@ -4,7 +4,7 @@
  * Updates the Status field of a consultation record.
  * Used for: Under Review, Declined, Archived transitions.
  *
- * Protected by Authorization: Bearer ADMIN_SECRET
+ * Protected by HttpOnly session cookie (admin_session)
  *
  * Body: { pageId, status }
  *   status: 'Under Review' | 'Declined' | 'Archived'
@@ -12,6 +12,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { updateStatus }              from '@/lib/notion-fa-consultation'
+import { requireAdminSession, unauthorized } from '@/lib/adminSession'
 
 const ALLOWED = new Set([
   'Under Review',
@@ -26,16 +27,8 @@ const ALLOWED = new Set([
   'Archived',
 ])
 
-function authorized(req: NextRequest): boolean {
-  const secret = process.env.ADMIN_SECRET
-  if (!secret) return false
-  return req.headers.get('authorization') === `Bearer ${secret}`
-}
-
 export async function POST(req: NextRequest) {
-  if (!authorized(req)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  if (!requireAdminSession(req)) return unauthorized()
 
   let body: { pageId?: string; status?: string }
   try {
