@@ -61,8 +61,13 @@ export async function POST(req: NextRequest) {
 
       case 'ignore': {
         if (!id) return NextResponse.json({ error: 'id required' }, { status: 422 })
-        const ignored = await ignoreDm(id)
-        return NextResponse.json({ ok: true, ignored })
+        const result = await ignoreDm(id)
+        if (result.ignored) return NextResponse.json({ ok: true, ignored: true })
+        // Return explicit error so the client does not show optimistic success
+        const msg = result.reason === 'not_eligible'
+          ? 'Cannot ignore: item is in-flight (SENDING) or already terminal (SENT / SEND_STATUS_UNKNOWN)'
+          : 'Ignore failed — item may have already changed state'
+        return NextResponse.json({ ok: false, error: msg }, { status: 422 })
       }
 
       case 'reject': {

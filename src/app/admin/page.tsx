@@ -1198,6 +1198,28 @@ function fmtWindowRemaining(ms: number): string {
   return `${m}m`
 }
 
+// ── Canonical card state ───────────────────────────────────────
+// Single authoritative state derived from (failedReason × windowOpen).
+// All badge, section, and button logic must derive from this — never from
+// failedReason + windowOpen independently, which produces contradictions.
+type CardState =
+  | 'sending'           // SENDING — in-flight, no admin actions
+  | 'status_unknown'    // SEND_STATUS_UNKNOWN — manual reconciliation required
+  | 'needs_review'      // PENDING_REVIEW + window open → primary actionable
+  | 'send_failed_open'  // SEND_FAILED/IG_SEND_ERROR + window open → Retry Send
+  | 'expired_review'    // PENDING_REVIEW + window closed → inspect/ignore only
+  | 'expired_failed'    // SEND_FAILED/IG_SEND_ERROR + window closed → inspect/ignore only
+
+function getCardState(item: DmItem, msLeft?: number): CardState {
+  const open = (msLeft ?? windowMsRemaining(item.createdAt)) > 0
+  if (item.failedReason === 'SENDING')             return 'sending'
+  if (item.failedReason === 'SEND_STATUS_UNKNOWN') return 'status_unknown'
+  if (item.failedReason === 'SEND_FAILED' || item.failedReason === 'IG_SEND_ERROR') {
+    return open ? 'send_failed_open' : 'expired_failed'
+  }
+  return open ? 'needs_review' : 'expired_review'
+}
+
 function SenderAvatar({
   profilePictureUrl, label,
 }: {
@@ -1319,10 +1341,10 @@ function fmtTime(iso: string): string {
 
 // A display-level conversation turn after deduplication
 interface DisplayTurn {
-  key:         string
-  type:        'inbound' | 'outbound'
-  text:        string
-  time:        string
+  key:          string
+  type:         'inbound' | 'outbound'
+  text:         string
+  time:         string
   isStoryReply?: boolean
 }
 
@@ -1413,8 +1435,8 @@ function ConversationTimeline({
       <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
         {visible.map(turn => (
           <div key={turn.key} style={{ paddingLeft: turn.type === 'outbound' ? '16px' : 0 }}>
-            <span style={{ fontSize: '10px', color: turn.type === 'outbound' ? '#4a7a55' : '#6b6359', display: 'block', marginBottom: '2px' }}>
-              {turn.type === 'outbound' ? 'You' : 'Them'} · {fmtTime(turn.time)}
+            <span style={{ fontSize: '10px', color: turn.type === 'outbound' ? '#4a7a55' : '#6b6359', display: 'block', marginBottom: '2px', fontWeight: turn.type === 'outbound' ? 700 : 400, letterSpacing: turn.type === 'outbound' ? '0.04em' : 0 }}>
+              {turn.type === 'outbound' ? 'SENT BY YOU' : 'THEM'} · {fmtTime(turn.time)}
               {turn.isStoryReply && (
                 <span style={{ marginLeft: '6px', fontSize: '9px', color: '#b5975a', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' as const }}>
                   Story Reply
@@ -1453,6 +1475,7 @@ function DmInboxItem({
   const msLeft     = windowMsRemaining(item.createdAt)
   const windowOpen = msLeft > 0
   const urgent     = windowOpen && msLeft < 2 * 3_600_000
+  const cardState  = getCardState(item, msLeft)
   // Primary label: @username > display_name > "Instagram User" (never the raw sender_id as main label)
   const primaryLabel  = item.username   ? `@${item.username}`
                       : item.displayName ? item.displayName
@@ -1553,17 +1576,23 @@ function DmInboxItem({
                 Human Hold
               </span>
             )}
-            {(item.failedReason === 'IG_SEND_ERROR' || item.failedReason === 'SEND_FAILED') && (
+            {/* State badge — derived from cardState (never from failedReason alone) */}
+            {cardState === 'send_failed_open' && (
               <span style={{ marginLeft: '8px', fontSize: '10px', color: '#c0504a', border: '1px solid #c0504a', borderRadius: '3px', padding: '1px 5px' }}>
-                Send Failed — Safe Retry
+                Send Failed — Retry Available
               </span>
             )}
-            {item.failedReason === 'SENDING' && (
+            {cardState === 'expired_failed' && (
+              <span style={{ marginLeft: '8px', fontSize: '10px', color: '#6b6359', border: '1px solid #6b6359', borderRadius: '3px', padding: '1px 5px' }}>
+                Send Failed — Window Closed
+              </span>
+            )}
+            {cardState === 'sending' && (
               <span style={{ marginLeft: '8px', fontSize: '10px', color: '#b5975a', border: '1px solid #b5975a', borderRadius: '3px', padding: '1px 5px' }}>
                 Sending…
               </span>
             )}
-            {item.failedReason === 'SEND_STATUS_UNKNOWN' && (
+            {cardState === 'status_unknown' && (
               <span style={{ marginLeft: '8px', fontSize: '10px', color: '#c0504a', border: '1px solid #c0504a', borderRadius: '3px', padding: '1px 5px', fontWeight: 700 }}>
                 ⚠ Unknown — Check IG Outbox
               </span>
@@ -1638,18 +1667,20 @@ function DmInboxItem({
             </div>
           )}
 
-          {/* Inbound message */}
-          <span style={S.label}>Their Message</span>
+          {/* Inbound message — current review item */}
+          <span style={{ ...S.label, marginTop: '14px', color: '#9e9289', fontWeight: 700 }}>CURRENT MESSAGE FROM THEM</span>
           <p style={{ ...S.value, whiteSpace: 'pre-wrap', lineHeight: 1.65, marginTop: '2px', direction: 'rtl', textAlign: 'right', background: '#0e0c0a', padding: '8px 10px', borderRadius: '4px', border: '1px solid #2c2720' }}>
             {item.messageText || <em style={{ color: '#6b6359' }}>(no text — {item.messageType})</em>}
           </p>
 
-          {/* AI Draft — editable */}
+          {/* AI Draft — editable. Never shown as sent until the human approves. */}
           <span style={{ ...S.label, marginTop: '12px' }}>
-            AI Draft
-            <span style={{ color: '#6b6359', fontWeight: 400, marginLeft: '6px' }}>(edit before sending)</span>
+            AI DRAFT — NOT SENT
+            <span style={{ color: '#6b6359', fontWeight: 400, marginLeft: '6px' }}>
+              {cardState === 'needs_review' ? '· edit before approving' : '· window closed, cannot send'}
+            </span>
           </span>
-          {windowOpen ? (
+          {cardState === 'needs_review' || cardState === 'send_failed_open' ? (
             <textarea
               value={editText}
               onChange={e => setEditText(e.target.value)}
@@ -1681,11 +1712,11 @@ function DmInboxItem({
             )}
           </div>
 
-          {/* Will send preview — live mirror of editText shown only when window is open */}
-          {windowOpen && editText.trim() && (
+          {/* Will send if approved — only shown for PENDING_REVIEW with open window */}
+          {cardState === 'needs_review' && editText.trim() && (
             <div style={{ marginTop: '10px', padding: '8px 10px', background: '#0a1a0f', border: '1px solid #2a4a30', borderRadius: '4px' }}>
-              <span style={{ fontSize: '10px', color: '#5a9e6f', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>
-                Will send:
+              <span style={{ fontSize: '10px', color: '#5a9e6f', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>
+                WILL SEND IF APPROVED:
               </span>
               <p style={{ margin: 0, fontSize: '12px', color: '#c8e0cc', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right', lineHeight: 1.65 }}>
                 {editText.trim()}
@@ -1697,12 +1728,11 @@ function DmInboxItem({
           {err     && <p style={{ color: '#c0504a', fontSize: '11px', marginTop: '8px', margin: '8px 0 0' }}>{err}</p>}
           {success && <p style={{ color: '#5a9e6f', fontSize: '11px', marginTop: '8px', margin: '8px 0 0' }}>{success}</p>}
 
-          {/* Actions */}
+          {/* Actions — all derived from cardState, never from failedReason + windowOpen independently */}
           <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '12px', paddingTop: '10px', borderTop: '1px solid #1e1c19', alignItems: 'center' }}>
 
-            {/* Primary: Approve & Send — only for PENDING_REVIEW with open window.
-                SEND_FAILED uses "Retry Send" below to reset to PENDING_REVIEW first. */}
-            {windowOpen && item.failedReason === 'PENDING_REVIEW' && (
+            {/* Approve & Send — only for needs_review (PENDING_REVIEW + open window) */}
+            {cardState === 'needs_review' && (
               <button
                 disabled={isBusy || !editText.trim()}
                 onClick={() => { void send() }}
@@ -1717,14 +1747,15 @@ function DmInboxItem({
               </button>
             )}
 
-            {!windowOpen && item.failedReason === 'PENDING_REVIEW' && (
+            {/* Window closed — PENDING_REVIEW only (not SEND_FAILED which has its own label) */}
+            {cardState === 'expired_review' && (
               <span style={{ fontSize: '11px', color: '#c0504a', fontWeight: 600, padding: '5px 0' }}>
                 Window closed — cannot send
               </span>
             )}
 
-            {/* Retry — only for definitive IG failure (IG never sent) */}
-            {(item.failedReason === 'IG_SEND_ERROR' || item.failedReason === 'SEND_FAILED') && (
+            {/* Retry — only when SEND_FAILED and window is still open */}
+            {cardState === 'send_failed_open' && (
               <button
                 disabled={isBusy}
                 onClick={() => {
@@ -1737,33 +1768,46 @@ function DmInboxItem({
               </button>
             )}
 
-            {/* SENDING = in-flight; show status only, no action */}
-            {item.failedReason === 'SENDING' && (
+            {/* SEND_FAILED + window closed: no retry, just explain */}
+            {cardState === 'expired_failed' && (
+              <span style={{ fontSize: '11px', color: '#6b6359', padding: '5px 0' }}>
+                Window closed — cannot retry
+              </span>
+            )}
+
+            {/* SENDING = in-flight; show status only, no actions */}
+            {cardState === 'sending' && (
               <span style={{ fontSize: '11px', color: '#b5975a', padding: '5px 0' }}>
                 Send in progress…
               </span>
             )}
 
             {/* SEND_STATUS_UNKNOWN = IG outcome uncertain — NON-RESENDABLE */}
-            {item.failedReason === 'SEND_STATUS_UNKNOWN' && (
+            {cardState === 'status_unknown' && (
               <div style={{ background: '#1c100a', border: '1px solid #c0504a', borderRadius: '4px', padding: '8px 10px', fontSize: '11px', color: '#c0504a', lineHeight: 1.5 }}>
                 <strong>⚠ Send outcome unknown.</strong> Instagram may or may not have delivered this message.
                 Check your <strong>Instagram outbox</strong> before taking any action.
-                Do <strong>not</strong> retry via this UI — use Supabase to manually resolve after confirming.
+                Do <strong>not</strong> retry via this UI — resolve manually in Supabase after confirming.
               </div>
             )}
 
             <span style={{ width: '1px', background: '#2c2720', alignSelf: 'stretch', margin: '0 2px' }} />
 
-            <button disabled={isBusy} onClick={() => void mutate('requeue')}
-              style={btn('warn')}>
-              {busy === 'requeue' ? '…' : 'Regenerate'}
-            </button>
+            {/* Regenerate — only meaningful for PENDING_REVIEW (re-runs AI) */}
+            {(cardState === 'needs_review' || cardState === 'expired_review') && (
+              <button disabled={isBusy} onClick={() => void mutate('requeue')}
+                style={btn('warn')}>
+                {busy === 'requeue' ? '…' : 'Regenerate'}
+              </button>
+            )}
 
-            <button disabled={isBusy} onClick={() => void mutate('ignore')}
-              style={btn('ghost')}>
-              {busy === 'ignore' ? '…' : 'Ignore'}
-            </button>
+            {/* Ignore — allowed for all unsent states; blocked for SENDING and SEND_STATUS_UNKNOWN */}
+            {cardState !== 'sending' && cardState !== 'status_unknown' && (
+              <button disabled={isBusy} onClick={() => void mutate('ignore')}
+                style={btn('ghost')}>
+                {busy === 'ignore' ? '…' : 'Ignore'}
+              </button>
+            )}
 
             <span style={{ width: '1px', background: '#2c2720', alignSelf: 'stretch', margin: '0 2px' }} />
 
@@ -1823,21 +1867,17 @@ function DmInbox() {
 
   const allItems = items ?? []
 
-  // Needs Review: PENDING_REVIEW with messaging window still open
-  const needsReview = allItems.filter(i =>
-    i.failedReason === 'PENDING_REVIEW' && windowMsRemaining(i.createdAt) > 0
-  )
-  // Needs Attention: send-state failures regardless of window
-  const needsAttention = allItems.filter(i =>
-    i.failedReason === 'SEND_FAILED' ||
-    i.failedReason === 'IG_SEND_ERROR' ||
-    i.failedReason === 'SEND_STATUS_UNKNOWN' ||
-    i.failedReason === 'SENDING'
-  )
-  // Expired: PENDING_REVIEW but window closed — non-actionable, hidden by default
-  const expiredItems = allItems.filter(i =>
-    i.failedReason === 'PENDING_REVIEW' && windowMsRemaining(i.createdAt) <= 0
-  )
+  // Single canonical state per item — drives categories, badges, and buttons
+  const needsReview    = allItems.filter(i => getCardState(i) === 'needs_review')
+  const needsAttention = allItems.filter(i => {
+    const s = getCardState(i)
+    return s === 'sending' || s === 'status_unknown' || s === 'send_failed_open'
+  })
+  // Expired: closed window (PENDING_REVIEW or SEND_FAILED) — hidden by default, inspect/ignore only
+  const expiredItems   = allItems.filter(i => {
+    const s = getCardState(i)
+    return s === 'expired_review' || s === 'expired_failed'
+  })
 
   const urgent = needsReview.filter(i => windowMsRemaining(i.createdAt) < 2 * 3_600_000)
   const oldest = needsReview.length > 0

@@ -906,14 +906,18 @@ export async function markDmStatusUnknown(id: string): Promise<void> {
 }
 
 /**
- * Ignore a PENDING_REVIEW draft — human decided no response is needed.
+ * Ignore an unsent review item — human decided no response is needed.
+ * Allowed from: PENDING_REVIEW, SEND_FAILED, IG_SEND_ERROR (all definitively unsent).
+ * Blocked for: SENDING (in-flight), SEND_STATUS_UNKNOWN (outcome uncertain), SENT, REJECTED.
  * Does NOT block the sender; future inbound messages remain eligible for AI drafting.
- * Conditional PATCH (only acts when still PENDING_REVIEW) — idempotent.
+ * Returns { ignored: true } when the row was transitioned.
+ * Returns { ignored: false, reason } when the row was ineligible or not found.
  */
-export async function ignoreDm(id: string): Promise<boolean> {
+export async function ignoreDm(id: string): Promise<{ ignored: boolean; reason?: string }> {
   const res = await fetch(
     `${base()}/rest/v1/instagram_dm_buffer` +
-    `?id=eq.${encodeURIComponent(id)}&failed_reason=eq.PENDING_REVIEW` +
+    `?id=eq.${encodeURIComponent(id)}` +
+    `&failed_reason=in.(PENDING_REVIEW,SEND_FAILED,IG_SEND_ERROR)` +
     `&select=id`,
     {
       method:  'PATCH',
@@ -921,9 +925,10 @@ export async function ignoreDm(id: string): Promise<boolean> {
       body:    JSON.stringify({ failed_reason: 'IGNORED_BY_HUMAN', processed: true, processing: false }),
     }
   )
-  if (!res.ok) return false
+  if (!res.ok) return { ignored: false, reason: 'supabase_error' }
   const rows = await res.json() as { id: string }[]
-  return rows.length > 0
+  if (rows.length === 0) return { ignored: false, reason: 'not_eligible' }
+  return { ignored: true }
 }
 
 /** Reject a PENDING_REVIEW draft. Idempotent. Used by n8n for blocked-sender flows. */
