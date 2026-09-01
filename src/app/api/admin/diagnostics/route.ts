@@ -17,6 +17,7 @@ export async function GET(req: NextRequest) {
     supabaseServiceRolePresent:  Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
     adminSecretPresent:          Boolean(process.env.ADMIN_SECRET),
     notionTokenPresent:          Boolean(process.env.NOTION_TOKEN),
+    instagramTokenPresent:       Boolean(process.env.INSTAGRAM_ACCESS_TOKEN),
     nodeEnv:                     process.env.NODE_ENV ?? 'unknown',
   })
 }
