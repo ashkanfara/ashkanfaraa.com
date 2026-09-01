@@ -737,9 +737,10 @@ export async function getDmInbox(): Promise<{
         const sid: string = r.sender_id
         if (!historyMap[sid]) historyMap[sid] = []
         if (historyMap[sid].length < 30) {
-          // Only show sentText when the reply was actually delivered
+          // Only show sentText when the reply was actually delivered.
+          // Use || not ?? so that legacy empty-string final_response_text falls through to response_text.
           const sentText = r.response_sent
-            ? (r.final_response_text ?? r.response_text ?? null)
+            ? (r.final_response_text || r.response_text || null)
             : null
           historyMap[sid].push({
             id:             r.id,

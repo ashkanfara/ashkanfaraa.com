@@ -1317,6 +1317,65 @@ function fmtTime(iso: string): string {
   return `${d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })} ${time}`
 }
 
+// A display-level conversation turn after deduplication
+interface DisplayTurn {
+  key:         string
+  type:        'inbound' | 'outbound'
+  text:        string
+  time:        string
+  isStoryReply?: boolean
+}
+
+/**
+ * Convert raw ConvHistoryRow[] into deduplicated display turns.
+ *
+ * Problem: the old n8n system batched multiple rapid-fire inbound messages
+ * and sent ONE reply, storing response_sent=true on EVERY row in the batch
+ * with the identical response_text. Without deduplication this renders the
+ * same "You" bubble 4–6 times in a row.
+ *
+ * Deduplication rule: consecutive identical outbound sentText = one batch reply;
+ * emit it only once. All unique inbound messages are always shown.
+ * ig_message_id is used as an additional dedup key when available.
+ */
+function buildDisplayTurns(rows: ConvHistoryRow[]): DisplayTurn[] {
+  const turns: DisplayTurn[] = []
+  let lastOutboundText: string | null = null
+  const seenIgIds = new Set<string>()
+
+  for (const row of rows) {
+    // Inbound turn — always show
+    if (row.messageText) {
+      turns.push({
+        key:         `in-${row.id}`,
+        type:        'inbound',
+        text:        row.messageText,
+        time:        row.createdAt,
+        isStoryReply: row.isStoryReply,
+      })
+    }
+
+    // Outbound turn — only if genuinely sent and not a duplicate
+    if (row.responseSent && row.sentText) {
+      // Skip if ig_message_id already seen (exact dedup for modern rows)
+      if (row.id && seenIgIds.has(row.id)) continue
+      // Skip consecutive identical text (batch-reply dedup for legacy rows)
+      if (row.sentText === lastOutboundText) continue
+
+      turns.push({
+        key:  `out-${row.id}`,
+        type: 'outbound',
+        text: row.sentText,
+        time: row.responseSentAt ?? row.createdAt,
+      })
+      lastOutboundText = row.sentText
+      if (row.id) seenIgIds.add(row.id)
+    }
+  }
+
+  return turns
+}
+
 function ConversationTimeline({
   history, currentId,
 }: {
@@ -1325,12 +1384,15 @@ function ConversationTimeline({
 }) {
   const [expanded, setExpanded] = useState(false)
 
-  // Exclude the current actionable item — shown separately as the draft below
-  const past       = history.filter(r => r.id !== currentId)
-  const visible    = expanded ? past : past.slice(-5)
-  const hiddenCount = past.length - visible.length
+  // Exclude the current actionable item from history display
+  const past  = history.filter(r => r.id !== currentId)
+  const turns = buildDisplayTurns(past)
 
-  if (past.length === 0) return null
+  // Default: last 5 meaningful turns
+  const visible     = expanded ? turns : turns.slice(-5)
+  const hiddenCount = turns.length - visible.length
+
+  if (turns.length === 0) return null
 
   return (
     <div style={{ marginBottom: '14px' }}>
@@ -1348,40 +1410,27 @@ function ConversationTimeline({
         )}
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-        {visible.map(row => (
-          <div key={row.id}>
-            {/* Inbound turn */}
-            {row.messageText && (
-              <div style={{ marginBottom: row.responseSent && row.sentText ? '3px' : 0 }}>
-                <span style={{ fontSize: '10px', color: '#6b6359', display: 'block', marginBottom: '2px' }}>
-                  Them · {fmtTime(row.createdAt)}
-                  {row.isStoryReply && (
-                    <span style={{ marginLeft: '6px', fontSize: '9px', color: '#b5975a', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' as const }}>
-                      Story Reply
-                    </span>
-                  )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+        {visible.map(turn => (
+          <div key={turn.key} style={{ paddingLeft: turn.type === 'outbound' ? '16px' : 0 }}>
+            <span style={{ fontSize: '10px', color: turn.type === 'outbound' ? '#4a7a55' : '#6b6359', display: 'block', marginBottom: '2px' }}>
+              {turn.type === 'outbound' ? 'You' : 'Them'} · {fmtTime(turn.time)}
+              {turn.isStoryReply && (
+                <span style={{ marginLeft: '6px', fontSize: '9px', color: '#b5975a', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' as const }}>
+                  Story Reply
                 </span>
-                <div style={{ background: '#0e0c0a', border: '1px solid #2c2720', borderRadius: '4px', padding: '5px 8px' }}>
-                  <p style={{ margin: 0, fontSize: '12px', color: '#bfb5a6', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right', lineHeight: 1.5 }}>
-                    {row.messageText}
-                  </p>
-                </div>
-              </div>
-            )}
-            {/* Sent reply */}
-            {row.responseSent && row.sentText && (
-              <div style={{ paddingLeft: '16px' }}>
-                <span style={{ fontSize: '10px', color: '#4a7a55', display: 'block', marginBottom: '2px' }}>
-                  You · {fmtTime(row.responseSentAt ?? row.createdAt)}
-                </span>
-                <div style={{ background: '#0a140c', border: '1px solid #1e3820', borderRadius: '4px', padding: '5px 8px' }}>
-                  <p style={{ margin: 0, fontSize: '12px', color: '#8ec8a0', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right', lineHeight: 1.5 }}>
-                    {row.sentText}
-                  </p>
-                </div>
-              </div>
-            )}
+              )}
+            </span>
+            <div style={{
+              background: turn.type === 'outbound' ? '#0a140c' : '#0e0c0a',
+              border:     `1px solid ${turn.type === 'outbound' ? '#1e3820' : '#2c2720'}`,
+              borderRadius: '4px',
+              padding:    '5px 8px',
+            }}>
+              <p style={{ margin: 0, fontSize: '12px', color: turn.type === 'outbound' ? '#8ec8a0' : '#bfb5a6', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right', lineHeight: 1.5 }}>
+                {turn.text}
+              </p>
+            </div>
           </div>
         ))}
       </div>
@@ -1651,8 +1700,9 @@ function DmInboxItem({
           {/* Actions */}
           <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '12px', paddingTop: '10px', borderTop: '1px solid #1e1c19', alignItems: 'center' }}>
 
-            {/* Primary: Approve & Send */}
-            {windowOpen && (
+            {/* Primary: Approve & Send — only for PENDING_REVIEW with open window.
+                SEND_FAILED uses "Retry Send" below to reset to PENDING_REVIEW first. */}
+            {windowOpen && item.failedReason === 'PENDING_REVIEW' && (
               <button
                 disabled={isBusy || !editText.trim()}
                 onClick={() => { void send() }}
@@ -1667,7 +1717,7 @@ function DmInboxItem({
               </button>
             )}
 
-            {!windowOpen && (
+            {!windowOpen && item.failedReason === 'PENDING_REVIEW' && (
               <span style={{ fontSize: '11px', color: '#c0504a', fontWeight: 600, padding: '5px 0' }}>
                 Window closed — cannot send
               </span>
@@ -1744,10 +1794,11 @@ function DmInboxItem({
 }
 
 function DmInbox() {
-  const [items,   setItems]   = useState<DmItem[] | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [err,     setErr]     = useState<string | null>(null)
+  const [items,       setItems]       = useState<DmItem[] | null>(null)
+  const [loading,     setLoading]     = useState(false)
+  const [err,         setErr]         = useState<string | null>(null)
   const [igConfigured, setIgConfigured] = useState<boolean | null>(null)
+  const [showExpired, setShowExpired] = useState(false)
 
   async function load() {
     setLoading(true); setErr(null)
@@ -1770,24 +1821,42 @@ function DmInbox() {
 
   useEffect(() => { void load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const pending  = (items ?? []).filter(i => windowMsRemaining(i.createdAt) > 0)
-  const expired  = (items ?? []).filter(i => windowMsRemaining(i.createdAt) <= 0)
-  const urgent   = pending.filter(i => windowMsRemaining(i.createdAt) < 2 * 3_600_000)
-  const oldest   = pending.length > 0
-    ? new Date(Math.min(...pending.map(i => new Date(i.createdAt).getTime())))
+  const allItems = items ?? []
+
+  // Needs Review: PENDING_REVIEW with messaging window still open
+  const needsReview = allItems.filter(i =>
+    i.failedReason === 'PENDING_REVIEW' && windowMsRemaining(i.createdAt) > 0
+  )
+  // Needs Attention: send-state failures regardless of window
+  const needsAttention = allItems.filter(i =>
+    i.failedReason === 'SEND_FAILED' ||
+    i.failedReason === 'IG_SEND_ERROR' ||
+    i.failedReason === 'SEND_STATUS_UNKNOWN' ||
+    i.failedReason === 'SENDING'
+  )
+  // Expired: PENDING_REVIEW but window closed — non-actionable, hidden by default
+  const expiredItems = allItems.filter(i =>
+    i.failedReason === 'PENDING_REVIEW' && windowMsRemaining(i.createdAt) <= 0
+  )
+
+  const urgent = needsReview.filter(i => windowMsRemaining(i.createdAt) < 2 * 3_600_000)
+  const oldest = needsReview.length > 0
+    ? new Date(Math.min(...needsReview.map(i => new Date(i.createdAt).getTime())))
     : null
 
   return (
     <section>
+      {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px', marginTop: '28px', paddingBottom: '4px', borderBottom: '1px solid #2c2720' }}>
         <h2 style={{ ...S.sectionHead, margin: 0, borderBottom: 'none', paddingBottom: 0 }}>
           DM REVIEW INBOX
         </h2>
         {items !== null && (
           <span style={{ fontSize: '11px', color: '#6b6359' }}>
-            {pending.length} pending
-            {urgent.length > 0 && <span style={{ color: '#b5975a', marginLeft: '8px', fontWeight: 700 }}>⚠ {urgent.length} urgent</span>}
-            {expired.length > 0 && <span style={{ color: '#c0504a', marginLeft: '8px' }}>{expired.length} expired</span>}
+            {needsReview.length > 0 && <span>{needsReview.length} needs review</span>}
+            {needsAttention.length > 0 && <span style={{ marginLeft: '8px', color: '#b5975a', fontWeight: 700 }}>· {needsAttention.length} needs attention</span>}
+            {urgent.length > 0 && <span style={{ marginLeft: '8px', color: '#b5975a', fontWeight: 700 }}>⚠ {urgent.length} urgent</span>}
+            {expiredItems.length > 0 && <span style={{ marginLeft: '8px', color: '#6b6359' }}>· {expiredItems.length} expired</span>}
           </span>
         )}
         <button onClick={load} disabled={loading}
@@ -1797,24 +1866,27 @@ function DmInbox() {
       </div>
 
       {/* Summary bar */}
-      {items !== null && items.length > 0 && (
+      {items !== null && allItems.length > 0 && (
         <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', padding: '8px 12px', background: '#100e0c', borderRadius: '4px', border: '1px solid #2c2720', marginBottom: '12px', fontSize: '12px' }}>
-          <span><span style={{ color: '#6b6359' }}>Pending: </span><span style={{ color: '#e8e4de', fontWeight: 600 }}>{pending.length}</span></span>
+          <span><span style={{ color: '#6b6359' }}>Needs Review: </span><span style={{ color: '#e8e4de', fontWeight: 600 }}>{needsReview.length}</span></span>
+          {needsAttention.length > 0 && (
+            <span><span style={{ color: '#6b6359' }}>Needs Attention: </span><span style={{ color: '#b5975a', fontWeight: 600 }}>{needsAttention.length}</span></span>
+          )}
           {urgent.length > 0 && (
             <span><span style={{ color: '#6b6359' }}>Urgent (&lt;2h): </span><span style={{ color: '#b5975a', fontWeight: 600 }}>{urgent.length}</span></span>
           )}
           {oldest && (
-            <span><span style={{ color: '#6b6359' }}>Oldest: </span><span style={{ color: '#e8e4de' }}>{new Date(oldest).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span></span>
+            <span><span style={{ color: '#6b6359' }}>Oldest open: </span><span style={{ color: '#e8e4de' }}>{new Date(oldest).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span></span>
           )}
-          {expired.length > 0 && (
-            <span><span style={{ color: '#6b6359' }}>Expired: </span><span style={{ color: '#c0504a', fontWeight: 600 }}>{expired.length}</span></span>
+          {expiredItems.length > 0 && (
+            <span><span style={{ color: '#6b6359' }}>Expired: </span><span style={{ color: '#6b6359' }}>{expiredItems.length}</span></span>
           )}
         </div>
       )}
 
       {err     && <p style={{ color: '#c0504a', fontSize: '12px' }}>{err}</p>}
       {loading && !items && <p style={{ color: '#6b6359', fontSize: '12px' }}>Loading…</p>}
-      {items   && items.length === 0 && (
+      {items   && needsReview.length === 0 && needsAttention.length === 0 && expiredItems.length === 0 && (
         <p style={{ color: '#6b6359', fontSize: '12px' }}>No drafts waiting for review.</p>
       )}
 
@@ -1824,21 +1896,52 @@ function DmInbox() {
         </div>
       )}
 
-      {/* Pending items */}
-      {pending.map(item => (
-        <DmInboxItem key={item.id} item={item} onRefresh={load} />
-      ))}
-
-      {/* Expired items — show for reject/archive only */}
-      {expired.length > 0 && (
-        <>
-          <div style={{ fontSize: '11px', color: '#6b6359', margin: '16px 0 6px', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-            Window Expired — Reject Only
+      {/* ── Needs Review ──────────────────────────────────────── */}
+      {needsReview.length > 0 && (
+        <div style={{ marginBottom: '8px' }}>
+          <div style={{ fontSize: '10px', color: '#5a9e6f', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' as const, margin: '12px 0 6px' }}>
+            Needs Review ({needsReview.length})
           </div>
-          {expired.map(item => (
+          {needsReview.map(item => (
             <DmInboxItem key={item.id} item={item} onRefresh={load} />
           ))}
-        </>
+        </div>
+      )}
+
+      {/* ── Needs Attention (SEND_FAILED etc) ─────────────────── */}
+      {needsAttention.length > 0 && (
+        <div style={{ marginBottom: '8px' }}>
+          <div style={{ fontSize: '10px', color: '#b5975a', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' as const, margin: '12px 0 6px' }}>
+            Needs Attention ({needsAttention.length})
+          </div>
+          {needsAttention.map(item => (
+            <DmInboxItem key={item.id} item={item} onRefresh={load} />
+          ))}
+        </div>
+      )}
+
+      {/* ── Expired — collapsed by default ────────────────────── */}
+      {expiredItems.length > 0 && (
+        <div style={{ marginTop: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 10px', background: '#100e0c', border: '1px solid #2c2720', borderRadius: '4px' }}>
+            <span style={{ fontSize: '11px', color: '#6b6359' }}>
+              Expired: {expiredItems.length} — messaging window closed, cannot send
+            </span>
+            <button
+              onClick={() => setShowExpired(s => !s)}
+              style={{ ...btn('ghost'), fontSize: '10px', padding: '2px 8px', marginLeft: 'auto' }}
+            >
+              {showExpired ? 'Hide' : 'Show'}
+            </button>
+          </div>
+          {showExpired && (
+            <div style={{ marginTop: '6px' }}>
+              {expiredItems.map(item => (
+                <DmInboxItem key={item.id} item={item} onRefresh={load} />
+              ))}
+            </div>
+          )}
+        </div>
       )}
     </section>
   )
