@@ -450,6 +450,12 @@ export interface StoryContext {
   ocrText:       string | null
 }
 
+export interface SenderIdentity {
+  displayName:       string | null   // from IG API: "name" field
+  username:          string | null   // from IG API or stored
+  profilePictureUrl: string | null   // public CDN URL — safe to pass to browser
+}
+
 export interface DmBufferRow {
   id:              string
   senderId:        string
@@ -465,11 +471,12 @@ export interface DmBufferRow {
   responseSent:    boolean
   responseSentAt:  string | null
   finalResponseText: string | null
-  // joined from instagram_users
-  username:        string | null
-  displayName:     string | null
-  messageCount:    number | null
-  notes:           string | null
+  // joined from instagram_users + optional IG API enrichment
+  username:          string | null
+  displayName:       string | null
+  profilePictureUrl: string | null   // public profile pic URL; null if not yet enriched
+  messageCount:      number | null
+  notes:             string | null
   // joined from conversation_state
   conversationOwner:     string | null
   humanTakeoverReason:   string | null
@@ -507,6 +514,89 @@ export interface DmBufferRow {
  *   - ig_message_id will not be stored (ig_message_id column absent → omitted from PATCH)
  *   - sending_started_at will not be stored (ditto)
  */
+
+const IG_GRAPH = 'https://graph.instagram.com/v25.0'
+
+/**
+ * Best-effort: fetch name + profile_pic from the Instagram Graph API for a batch of sender IDs
+ * that have no display_name stored yet. Stores display_name + username back to instagram_users.
+ * Also stores profile_picture_url if that column exists (requires ALTER TABLE — see docs).
+ *
+ * Silently no-ops when INSTAGRAM_ACCESS_TOKEN is absent (local / staging environments).
+ * Never throws — enrichment failure must not break the inbox.
+ */
+async function enrichSenderIdentities(
+  senderIds: string[]
+): Promise<Record<string, SenderIdentity>> {
+  const token = process.env.INSTAGRAM_ACCESS_TOKEN
+  if (!token || senderIds.length === 0) return {}
+
+  const result: Record<string, SenderIdentity> = {}
+  const BATCH = 5  // stay well under IG rate limits
+
+  for (let i = 0; i < senderIds.length; i += BATCH) {
+    const batch = senderIds.slice(i, i + BATCH)
+    await Promise.all(batch.map(async (sid) => {
+      try {
+        const res = await fetch(
+          `${IG_GRAPH}/${encodeURIComponent(sid)}?fields=name,username,profile_pic` +
+          `&access_token=${encodeURIComponent(token)}`,
+          { signal: AbortSignal.timeout(6000), cache: 'no-store' }
+        )
+        if (!res.ok) {
+          console.warn(`[supabase/enrich] IG API ${res.status} for sender ${sid}`)
+          return
+        }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const data = await res.json() as Record<string, any>
+
+        const displayName:       string | null = data.name        ?? null
+        const username:          string | null = data.username     ?? null
+        const profilePictureUrl: string | null = data.profile_pic ?? null
+
+        result[sid] = { displayName, username, profilePictureUrl }
+
+        // Persist what we can — try with profile_picture_url first; if column absent, retry without
+        const patch: Record<string, string | null> = {}
+        if (displayName) patch.display_name = displayName
+        if (username)    patch.username      = username
+        if (profilePictureUrl) patch.profile_picture_url = profilePictureUrl
+
+        if (Object.keys(patch).length === 0) return
+
+        const patchRes = await fetch(
+          `${base()}/rest/v1/instagram_users?sender_id=eq.${encodeURIComponent(sid)}`,
+          {
+            method:  'PATCH',
+            headers: { ...headers(), Prefer: 'return=minimal' },
+            body:    JSON.stringify(patch),
+          }
+        )
+
+        // 400 may mean profile_picture_url column doesn't exist yet — retry without it
+        if (!patchRes.ok && profilePictureUrl) {
+          const patchWithout = { ...patch }
+          delete patchWithout.profile_picture_url
+          if (Object.keys(patchWithout).length > 0) {
+            await fetch(
+              `${base()}/rest/v1/instagram_users?sender_id=eq.${encodeURIComponent(sid)}`,
+              {
+                method:  'PATCH',
+                headers: { ...headers(), Prefer: 'return=minimal' },
+                body:    JSON.stringify(patchWithout),
+              }
+            ).catch(() => { /* ignore */ })
+          }
+        }
+      } catch (err) {
+        // Best-effort only — never propagate
+        console.warn(`[supabase/enrich] failed for sender ${sid}:`, err)
+      }
+    }))
+  }
+
+  return result
+}
 
 /**
  * Fetch rows needing admin attention: PENDING_REVIEW, SEND_FAILED, IG_SEND_ERROR,
@@ -601,6 +691,12 @@ export async function getDmInbox(): Promise<DmBufferRow[]> {
       }
     }
 
+    // Enrich identity for senders with no display_name yet (best-effort, server-side only)
+    const needsEnrich = senderIds.filter(
+      sid => !usersMap[sid]?.display_name && !usersMap[sid]?.username
+    )
+    const enriched = await enrichSenderIdentities(needsEnrich)
+
     return rows.map(r => ({
       id:              r.id,
       senderId:        r.sender_id,
@@ -616,8 +712,6 @@ export async function getDmInbox(): Promise<DmBufferRow[]> {
       responseSent:    r.response_sent    ?? false,
       responseSentAt:  r.response_sent_at ?? null,
       finalResponseText: r.final_response_text ?? null,
-      username:        usersMap[r.sender_id]?.username     ?? null,
-      displayName:     usersMap[r.sender_id]?.display_name ?? null,
       messageCount:    usersMap[r.sender_id]?.message_count ?? null,
       notes:           usersMap[r.sender_id]?.notes         ?? null,
       conversationOwner:   stateMap[r.sender_id]?.conversation_owner    ?? null,
@@ -626,6 +720,12 @@ export async function getDmInbox(): Promise<DmBufferRow[]> {
       storyContext:        (r.is_story_reply && r.story_id && storyMap[r.story_id])
                              ? storyMap[r.story_id]
                              : null,
+      // Identity: DB row takes precedence; fall back to fresh IG API enrichment for this request
+      username:          usersMap[r.sender_id]?.username      ?? enriched[r.sender_id]?.username          ?? null,
+      displayName:       usersMap[r.sender_id]?.display_name  ?? enriched[r.sender_id]?.displayName       ?? null,
+      profilePictureUrl: usersMap[r.sender_id]?.profile_picture_url
+                           ?? enriched[r.sender_id]?.profilePictureUrl
+                           ?? null,
     }))
   } catch (err) {
     console.error('[supabase/getDmInbox] fetch error:', err)

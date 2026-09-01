@@ -1163,6 +1163,7 @@ interface DmItem {
   failedReason:    string | null
   username:        string | null
   displayName:     string | null
+  profilePictureUrl: string | null
   messageCount:    number | null
   notes:           string | null
   conversationOwner:   string | null
@@ -1181,6 +1182,58 @@ function fmtWindowRemaining(ms: number): string {
   if (h >= 2) return `${h}h ${m}m`
   if (h === 1) return `1h ${m}m`
   return `${m}m`
+}
+
+function SenderAvatar({
+  profilePictureUrl, label,
+}: {
+  profilePictureUrl: string | null
+  label: string   // display name or username — used for initials fallback
+}) {
+  const [imgFailed, setImgFailed] = useState(false)
+  const SIZE = 38
+
+  const initials = label
+    .replace(/^@/, '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(w => w[0]?.toUpperCase() ?? '')
+    .join('') || '?'
+
+  const circleCss: React.CSSProperties = {
+    width:        SIZE,
+    height:       SIZE,
+    borderRadius: '50%',
+    flexShrink:   0,
+    overflow:     'hidden',
+    border:       '1.5px solid #3a3020',
+    display:      'flex',
+    alignItems:   'center',
+    justifyContent: 'center',
+    background:   '#2a2018',
+    fontSize:     '14px',
+    fontWeight:   700,
+    color:        '#c8b88a',
+    userSelect:   'none',
+  }
+
+  if (profilePictureUrl && !imgFailed) {
+    return (
+      <div style={circleCss}>
+        <img
+          src={profilePictureUrl}
+          alt={label}
+          width={SIZE}
+          height={SIZE}
+          style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }}
+          onError={() => setImgFailed(true)}
+        />
+      </div>
+    )
+  }
+
+  return <div style={circleCss}>{initials}</div>
 }
 
 function StoryTextFallback({ text }: { text: string | null }) {
@@ -1257,7 +1310,16 @@ function DmInboxItem({
   const msLeft     = windowMsRemaining(item.createdAt)
   const windowOpen = msLeft > 0
   const urgent     = windowOpen && msLeft < 2 * 3_600_000
-  const displayName = item.username ? `@${item.username}` : item.displayName || item.senderId
+  // Primary label: @username > display_name > "Instagram User" (never the raw sender_id as main label)
+  const primaryLabel  = item.username   ? `@${item.username}`
+                      : item.displayName ? item.displayName
+                      : 'Instagram User'
+  const avatarLabel   = item.displayName || item.username || 'I'
+  const igProfileHref = item.username
+    ? `https://www.instagram.com/${encodeURIComponent(item.username)}/`
+    : null
+  // Keep displayName for legacy confirm dialogs
+  const displayName = primaryLabel
 
   async function call(
     path: string,
@@ -1312,34 +1374,59 @@ function DmInboxItem({
     <div style={{ ...S.card, borderLeft: `3px solid ${!windowOpen ? '#c0504a' : '#2c2720'}` }}>
       {/* Header */}
       <div style={{ ...S.cardHeader, alignItems: 'center' }} onClick={() => setExpanded(o => !o)}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <span style={{ fontWeight: 600, fontSize: '13px', color: '#e8e4de' }}>{displayName}</span>
-          {item.isStoryReply && (
-            <span style={{ marginLeft: '8px', fontSize: '10px', color: '#fff', background: '#b5975a', borderRadius: '3px', padding: '2px 6px', fontWeight: 700, letterSpacing: '0.04em' }}>
-              STORY REPLY
-            </span>
-          )}
-          {item.conversationOwner === 'human_temp' && (
-            <span style={{ marginLeft: '8px', fontSize: '10px', color: '#5a9e6f', border: '1px solid #5a9e6f', borderRadius: '3px', padding: '1px 5px' }}>
-              Human Hold
-            </span>
-          )}
-          {(item.failedReason === 'IG_SEND_ERROR' || item.failedReason === 'SEND_FAILED') && (
-            <span style={{ marginLeft: '8px', fontSize: '10px', color: '#c0504a', border: '1px solid #c0504a', borderRadius: '3px', padding: '1px 5px' }}>
-              Send Failed — Safe Retry
-            </span>
-          )}
-          {item.failedReason === 'SENDING' && (
-            <span style={{ marginLeft: '8px', fontSize: '10px', color: '#b5975a', border: '1px solid #b5975a', borderRadius: '3px', padding: '1px 5px' }}>
-              Sending…
-            </span>
-          )}
-          {item.failedReason === 'SEND_STATUS_UNKNOWN' && (
-            <span style={{ marginLeft: '8px', fontSize: '10px', color: '#c0504a', border: '1px solid #c0504a', borderRadius: '3px', padding: '1px 5px', fontWeight: 700 }}>
-              ⚠ Unknown — Check IG Outbox
-            </span>
-          )}
-        </div>
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {/* Avatar */}
+          <div onClick={e => e.stopPropagation()}>
+            <SenderAvatar profilePictureUrl={item.profilePictureUrl} label={avatarLabel} />
+          </div>
+
+          {/* Identity + badges */}
+          <div style={{ minWidth: 0 }}>
+            {/* Primary label: @username or display_name or "Instagram User" */}
+            {igProfileHref ? (
+              <a
+                href={igProfileHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={e => e.stopPropagation()}
+                style={{ fontWeight: 700, fontSize: '13px', color: '#e8e4de', textDecoration: 'none' }}
+                onMouseOver={e => (e.currentTarget.style.textDecoration = 'underline')}
+                onMouseOut={e => (e.currentTarget.style.textDecoration = 'none')}
+              >
+                {primaryLabel}
+              </a>
+            ) : (
+              <span style={{ fontWeight: 700, fontSize: '13px', color: '#e8e4de' }}>{primaryLabel}</span>
+            )}
+
+            {/* Badges inline */}
+            {item.isStoryReply && (
+              <span style={{ marginLeft: '8px', fontSize: '10px', color: '#fff', background: '#b5975a', borderRadius: '3px', padding: '2px 6px', fontWeight: 700, letterSpacing: '0.04em' }}>
+                STORY REPLY
+              </span>
+            )}
+            {item.conversationOwner === 'human_temp' && (
+              <span style={{ marginLeft: '8px', fontSize: '10px', color: '#5a9e6f', border: '1px solid #5a9e6f', borderRadius: '3px', padding: '1px 5px' }}>
+                Human Hold
+              </span>
+            )}
+            {(item.failedReason === 'IG_SEND_ERROR' || item.failedReason === 'SEND_FAILED') && (
+              <span style={{ marginLeft: '8px', fontSize: '10px', color: '#c0504a', border: '1px solid #c0504a', borderRadius: '3px', padding: '1px 5px' }}>
+                Send Failed — Safe Retry
+              </span>
+            )}
+            {item.failedReason === 'SENDING' && (
+              <span style={{ marginLeft: '8px', fontSize: '10px', color: '#b5975a', border: '1px solid #b5975a', borderRadius: '3px', padding: '1px 5px' }}>
+                Sending…
+              </span>
+            )}
+            {item.failedReason === 'SEND_STATUS_UNKNOWN' && (
+              <span style={{ marginLeft: '8px', fontSize: '10px', color: '#c0504a', border: '1px solid #c0504a', borderRadius: '3px', padding: '1px 5px', fontWeight: 700 }}>
+                ⚠ Unknown — Check IG Outbox
+              </span>
+            )}
+          </div>{/* /identity */}
+        </div>{/* /flex: 1 */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
           <span style={{ fontSize: '11px', color: windowColor, fontWeight: urgent || !windowOpen ? 700 : 400 }}>
             {windowOpen ? `⏱ ${fmtWindowRemaining(msLeft)}` : '⛔ Expired'}
