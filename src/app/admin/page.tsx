@@ -1142,6 +1142,14 @@ function AppCard({
 
 const WINDOW_MS = 24 * 60 * 60 * 1000
 
+interface DmStoryContext {
+  mediaType:     string | null
+  mediaUrl:      string | null
+  caption:       string | null
+  aiDescription: string | null
+  ocrText:       string | null
+}
+
 interface DmItem {
   id:              string
   senderId:        string
@@ -1159,6 +1167,7 @@ interface DmItem {
   notes:           string | null
   conversationOwner:   string | null
   humanTakeoverReason: string | null
+  storyContext:    DmStoryContext | null
 }
 
 function windowMsRemaining(createdAt: string): number {
@@ -1172,6 +1181,65 @@ function fmtWindowRemaining(ms: number): string {
   if (h >= 2) return `${h}h ${m}m`
   if (h === 1) return `1h ${m}m`
   return `${m}m`
+}
+
+function StoryTextFallback({ text }: { text: string | null }) {
+  if (!text) return null
+  return (
+    <div style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <span style={{ fontSize: '24px', lineHeight: 1 }}>📖</span>
+      <p style={{ margin: 0, fontSize: '12px', color: '#9e8e6a', fontStyle: 'italic' }}>{text}</p>
+    </div>
+  )
+}
+
+function StoryThumbnail({
+  mediaUrl, mediaType, fallbackText,
+}: {
+  mediaUrl:    string
+  mediaType:   string | null
+  fallbackText: string | null
+}) {
+  const [failed, setFailed] = useState(false)
+
+  if (failed) {
+    return <StoryTextFallback text={fallbackText || 'Story media unavailable'} />
+  }
+
+  if (mediaType === 'VIDEO') {
+    return (
+      <div
+        style={{ position: 'relative', maxHeight: '180px', overflow: 'hidden', background: '#0d0a04', cursor: 'pointer' }}
+        onClick={() => window.open(mediaUrl, '_blank', 'noopener,noreferrer')}
+        title="Click to open story video"
+      >
+        <video
+          src={mediaUrl}
+          style={{ width: '100%', maxHeight: '180px', objectFit: 'contain', display: 'block' }}
+          preload="none"
+          muted
+          playsInline
+          onError={() => setFailed(true)}
+        />
+        {/* Play icon overlay */}
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+          <span style={{ fontSize: '36px', opacity: 0.85 }}>▶️</span>
+        </div>
+      </div>
+    )
+  }
+
+  // IMAGE (or unknown type treated as image)
+  return (
+    <img
+      src={mediaUrl}
+      alt="Story"
+      style={{ width: '100%', maxHeight: '180px', objectFit: 'contain', display: 'block', background: '#0d0a04', cursor: 'pointer' }}
+      onClick={() => window.open(mediaUrl, '_blank', 'noopener,noreferrer')}
+      title="Click to open full story image"
+      onError={() => setFailed(true)}
+    />
+  )
 }
 
 function DmInboxItem({
@@ -1247,8 +1315,8 @@ function DmInboxItem({
         <div style={{ flex: 1, minWidth: 0 }}>
           <span style={{ fontWeight: 600, fontSize: '13px', color: '#e8e4de' }}>{displayName}</span>
           {item.isStoryReply && (
-            <span style={{ marginLeft: '8px', fontSize: '10px', color: '#b5975a', border: '1px solid #b5975a', borderRadius: '3px', padding: '1px 5px' }}>
-              Story Reply
+            <span style={{ marginLeft: '8px', fontSize: '10px', color: '#fff', background: '#b5975a', borderRadius: '3px', padding: '2px 6px', fontWeight: 700, letterSpacing: '0.04em' }}>
+              STORY REPLY
             </span>
           )}
           {item.conversationOwner === 'human_temp' && (
@@ -1285,6 +1353,58 @@ function DmInboxItem({
 
       {expanded && (
         <div style={S.cardBody}>
+
+          {/* ── Story context (only for story replies) ──────────── */}
+          {item.isStoryReply && (
+            <div style={{ marginBottom: '14px', borderRadius: '6px', border: '1px solid #3a3020', background: '#1a1508', overflow: 'hidden' }}>
+
+              {/* Thumbnail */}
+              {item.storyContext?.mediaUrl ? (
+                <StoryThumbnail
+                  mediaUrl={item.storyContext.mediaUrl}
+                  mediaType={item.storyContext.mediaType}
+                  fallbackText={item.storyContext.aiDescription || item.storyContext.caption || item.storyContext.ocrText}
+                />
+              ) : (
+                /* No media URL stored — show text fallback if any context exists */
+                (item.storyContext?.aiDescription || item.storyContext?.caption || item.storyContext?.ocrText) && (
+                  <StoryTextFallback text={item.storyContext.aiDescription || item.storyContext.caption || item.storyContext.ocrText} />
+                )
+              )}
+
+              {/* Story context / caption — shown separately from inbound DM */}
+              {(item.storyContext?.caption || item.storyContext?.ocrText) && (
+                <div style={{ padding: '8px 10px', borderTop: item.storyContext?.mediaUrl ? '1px solid #3a3020' : undefined }}>
+                  <span style={{ fontSize: '10px', color: '#b5975a', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', display: 'block', marginBottom: '3px' }}>
+                    Story Caption
+                  </span>
+                  <p style={{ margin: 0, fontSize: '12px', color: '#c8b88a', direction: 'rtl', textAlign: 'right', whiteSpace: 'pre-wrap' }}>
+                    {item.storyContext.caption || item.storyContext.ocrText}
+                  </p>
+                </div>
+              )}
+
+              {/* AI scene description (shown only when no caption, as supplementary context) */}
+              {!item.storyContext?.caption && !item.storyContext?.ocrText && item.storyContext?.aiDescription && (
+                <div style={{ padding: '8px 10px' }}>
+                  <span style={{ fontSize: '10px', color: '#b5975a', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', display: 'block', marginBottom: '3px' }}>
+                    Story Context
+                  </span>
+                  <p style={{ margin: 0, fontSize: '12px', color: '#9e8e6a', fontStyle: 'italic' }}>
+                    {item.storyContext.aiDescription}
+                  </p>
+                </div>
+              )}
+
+              {/* No story_context row found — show minimal notice */}
+              {!item.storyContext && (
+                <div style={{ padding: '8px 10px' }}>
+                  <span style={{ fontSize: '11px', color: '#6b6359' }}>Story context not available</span>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Inbound message */}
           <span style={S.label}>Their Message</span>
           <p style={{ ...S.value, whiteSpace: 'pre-wrap', lineHeight: 1.65, marginTop: '2px', direction: 'rtl', textAlign: 'right', background: '#0e0c0a', padding: '8px 10px', borderRadius: '4px', border: '1px solid #2c2720' }}>

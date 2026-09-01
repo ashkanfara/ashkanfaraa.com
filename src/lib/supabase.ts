@@ -442,6 +442,14 @@ export async function saveAdminData(
 
 // ── DM Inbox (instagram_dm_buffer) ───────────────────────────
 
+export interface StoryContext {
+  mediaType:     string | null   // 'IMAGE' | 'VIDEO' | null
+  mediaUrl:      string | null   // from story_context table (may be a short-lived Meta CDN URL)
+  caption:       string | null
+  aiDescription: string | null
+  ocrText:       string | null
+}
+
 export interface DmBufferRow {
   id:              string
   senderId:        string
@@ -466,6 +474,8 @@ export interface DmBufferRow {
   conversationOwner:     string | null
   humanTakeoverReason:   string | null
   humanTakeoverUntil:    string | null
+  // joined from story_context (only populated when isStoryReply=true and story_id matches a row)
+  storyContext:    StoryContext | null
 }
 
 /**
@@ -527,7 +537,17 @@ export async function getDmInbox(): Promise<DmBufferRow[]> {
     const senderIds = [...new Set(rows.map((r: { sender_id: string }) => r.sender_id))]
     const idList    = `(${senderIds.map(id => encodeURIComponent(id)).join(',')})`
 
-    const [usersRes, stateRes] = await Promise.all([
+    // Collect story_ids for story-reply rows (never use instagram_dm_buffer.story_url for display)
+    const storyIds = [...new Set(
+      rows
+        .filter((r: { is_story_reply: boolean; story_id: string | null }) => r.is_story_reply && r.story_id)
+        .map((r: { story_id: string }) => r.story_id)
+    )]
+    const storyIdList = storyIds.length > 0
+      ? `(${storyIds.map(id => encodeURIComponent(id)).join(',')})`
+      : null
+
+    const [usersRes, stateRes, storyRes] = await Promise.all([
       fetch(
         `${base()}/rest/v1/instagram_users` +
         `?sender_id=in.${idList}` +
@@ -540,6 +560,14 @@ export async function getDmInbox(): Promise<DmBufferRow[]> {
         `&select=sender_id,conversation_owner,human_takeover_reason,human_takeover_until`,
         { headers: headers(), cache: 'no-store' }
       ),
+      storyIdList
+        ? fetch(
+            `${base()}/rest/v1/story_context` +
+            `?story_id=in.${storyIdList}` +
+            `&select=story_id,media_type,media_url,caption,ai_description,ocr_text`,
+            { headers: headers(), cache: 'no-store' }
+          )
+        : Promise.resolve(null),
     ])
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -554,6 +582,23 @@ export async function getDmInbox(): Promise<DmBufferRow[]> {
     if (stateRes.ok) {
       const states = await stateRes.json() as { sender_id: string }[]
       for (const s of states) stateMap[s.sender_id] = s
+    }
+
+    const storyMap: Record<string, StoryContext> = {}
+    if (storyRes && storyRes.ok) {
+      const stories = await storyRes.json() as {
+        story_id: string; media_type: string | null; media_url: string | null
+        caption: string | null; ai_description: string | null; ocr_text: string | null
+      }[]
+      for (const s of stories) {
+        storyMap[s.story_id] = {
+          mediaType:     s.media_type     ?? null,
+          mediaUrl:      s.media_url      ?? null,
+          caption:       s.caption        ?? null,
+          aiDescription: s.ai_description ?? null,
+          ocrText:       s.ocr_text       ?? null,
+        }
+      }
     }
 
     return rows.map(r => ({
@@ -578,6 +623,9 @@ export async function getDmInbox(): Promise<DmBufferRow[]> {
       conversationOwner:   stateMap[r.sender_id]?.conversation_owner    ?? null,
       humanTakeoverReason: stateMap[r.sender_id]?.human_takeover_reason ?? null,
       humanTakeoverUntil:  stateMap[r.sender_id]?.human_takeover_until  ?? null,
+      storyContext:        (r.is_story_reply && r.story_id && storyMap[r.story_id])
+                             ? storyMap[r.story_id]
+                             : null,
     }))
   } catch (err) {
     console.error('[supabase/getDmInbox] fetch error:', err)
