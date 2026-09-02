@@ -636,7 +636,7 @@ export async function getDmInbox(): Promise<{
     // Step 1: fetch inbox rows (no FK join hints — FK constraints are not declared)
     const mainRes = await fetch(
       `${base()}/rest/v1/instagram_dm_buffer` +
-      `?failed_reason=in.(PENDING_REVIEW,SEND_FAILED,IG_SEND_ERROR,SEND_STATUS_UNKNOWN,SENDING)` +
+      `?failed_reason=in.(PENDING_REVIEW,SEND_FAILED,IG_SEND_ERROR,SEND_STATUS_UNKNOWN,SENDING,AI_RECOMMENDED_IGNORE,HUMAN_TEMP_SKIP,STORY_MENTION_HUMAN_HOLD)` +
       `&select=id,sender_id,message_text,message_type,created_at,is_story_reply,is_story_mention,` +
       `story_id,story_url,response_text,failed_reason,response_sent,response_sent_at,final_response_text` +
       `&order=created_at.asc`,
@@ -811,14 +811,15 @@ export async function getDmInbox(): Promise<{
 }
 
 /**
- * Atomically claim a PENDING_REVIEW row for sending.
+ * Atomically claim a PENDING_REVIEW or AI_RECOMMENDED_IGNORE row for sending.
  *
  * The claim PATCH also persists final_response_text immediately so that
  * if the server dies between claim and markDmSent, the intended text is
  * recorded and the item transitions to SEND_STATUS_UNKNOWN (not silently lost).
  *
  * Returns { senderId, createdAt, responseText } or null if already handled.
- * Uses conditional PATCH: only updates if failed_reason is still PENDING_REVIEW.
+ * Uses conditional PATCH: only updates if failed_reason is PENDING_REVIEW or AI_RECOMMENDED_IGNORE.
+ * AI_RECOMMENDED_IGNORE items can be sent via "Write Reply" in the admin UI.
  *
  */
 export async function claimDmForSend(id: string, finalText: string): Promise<{
@@ -831,7 +832,7 @@ export async function claimDmForSend(id: string, finalText: string): Promise<{
   }
   const res = await fetch(
     `${base()}/rest/v1/instagram_dm_buffer` +
-    `?id=eq.${encodeURIComponent(id)}&failed_reason=eq.PENDING_REVIEW` +
+    `?id=eq.${encodeURIComponent(id)}&failed_reason=in.(PENDING_REVIEW,AI_RECOMMENDED_IGNORE)` +
     `&select=sender_id,created_at,response_text`,
     {
       method:  'PATCH',
@@ -907,7 +908,7 @@ export async function markDmStatusUnknown(id: string): Promise<void> {
 
 /**
  * Ignore an unsent review item — human decided no response is needed.
- * Allowed from: PENDING_REVIEW, SEND_FAILED, IG_SEND_ERROR (all definitively unsent).
+ * Allowed from: PENDING_REVIEW, SEND_FAILED, IG_SEND_ERROR, AI_RECOMMENDED_IGNORE (all definitively unsent).
  * Blocked for: SENDING (in-flight), SEND_STATUS_UNKNOWN (outcome uncertain), SENT, REJECTED.
  * Does NOT block the sender; future inbound messages remain eligible for AI drafting.
  * Returns { ignored: true } when the row was transitioned.
@@ -917,7 +918,7 @@ export async function ignoreDm(id: string): Promise<{ ignored: boolean; reason?:
   const res = await fetch(
     `${base()}/rest/v1/instagram_dm_buffer` +
     `?id=eq.${encodeURIComponent(id)}` +
-    `&failed_reason=in.(PENDING_REVIEW,SEND_FAILED,IG_SEND_ERROR)` +
+    `&failed_reason=in.(PENDING_REVIEW,SEND_FAILED,IG_SEND_ERROR,AI_RECOMMENDED_IGNORE)` +
     `&select=id`,
     {
       method:  'PATCH',

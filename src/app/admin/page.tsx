@@ -1203,12 +1203,16 @@ function fmtWindowRemaining(ms: number): string {
 // All badge, section, and button logic must derive from this — never from
 // failedReason + windowOpen independently, which produces contradictions.
 type CardState =
-  | 'sending'           // SENDING — in-flight, no admin actions
-  | 'status_unknown'    // SEND_STATUS_UNKNOWN — manual reconciliation required
-  | 'needs_review'      // PENDING_REVIEW + window open → primary actionable
-  | 'send_failed_open'  // SEND_FAILED/IG_SEND_ERROR + window open → Retry Send
-  | 'expired_review'    // PENDING_REVIEW + window closed → inspect/ignore only
-  | 'expired_failed'    // SEND_FAILED/IG_SEND_ERROR + window closed → inspect/ignore only
+  | 'sending'               // SENDING — in-flight, no admin actions
+  | 'status_unknown'        // SEND_STATUS_UNKNOWN — manual reconciliation required
+  | 'needs_review'          // PENDING_REVIEW + window open → primary actionable
+  | 'send_failed_open'      // SEND_FAILED/IG_SEND_ERROR + window open → Retry Send
+  | 'expired_review'        // PENDING_REVIEW + window closed → inspect/ignore only
+  | 'expired_failed'        // SEND_FAILED/IG_SEND_ERROR + window closed → inspect/ignore only
+  | 'ai_suggested_ignore'     // AI_RECOMMENDED_IGNORE + window open → dedicated actionable section
+  | 'ai_suggested_ignore_exp' // AI_RECOMMENDED_IGNORE + window closed → Expired
+  | 'human_managed'           // HUMAN_TEMP_SKIP → audit/history only
+  | 'story_mention'           // STORY_MENTION_HUMAN_HOLD → audit/history only
 
 function getCardState(item: DmItem, msLeft?: number): CardState {
   const open = (msLeft ?? windowMsRemaining(item.createdAt)) > 0
@@ -1217,6 +1221,11 @@ function getCardState(item: DmItem, msLeft?: number): CardState {
   if (item.failedReason === 'SEND_FAILED' || item.failedReason === 'IG_SEND_ERROR') {
     return open ? 'send_failed_open' : 'expired_failed'
   }
+  if (item.failedReason === 'AI_RECOMMENDED_IGNORE') {
+    return open ? 'ai_suggested_ignore' : 'ai_suggested_ignore_exp'
+  }
+  if (item.failedReason === 'HUMAN_TEMP_SKIP')          return 'human_managed'
+  if (item.failedReason === 'STORY_MENTION_HUMAN_HOLD') return 'story_mention'
   return open ? 'needs_review' : 'expired_review'
 }
 
@@ -1346,6 +1355,7 @@ interface DisplayTurn {
   text:         string
   time:         string
   isStoryReply?: boolean
+  label?:       string
 }
 
 /**
@@ -1366,14 +1376,22 @@ function buildDisplayTurns(rows: ConvHistoryRow[]): DisplayTurn[] {
   const seenIgIds = new Set<string>()
 
   for (const row of rows) {
+    // State annotation — AI_RECOMMENDED_IGNORE, HUMAN_TEMP_SKIP, STORY_MENTION_HUMAN_HOLD
+    const inboundLabel: string | undefined =
+      row.failedReason === 'AI_RECOMMENDED_IGNORE'      ? 'AI RECOMMENDED IGNORE'
+      : row.failedReason === 'HUMAN_TEMP_SKIP'          ? 'HUMAN-MANAGED'
+      : row.failedReason === 'STORY_MENTION_HUMAN_HOLD' ? 'STORY MENTION'
+      : undefined
+
     // Inbound turn — always show
     if (row.messageText) {
       turns.push({
-        key:         `in-${row.id}`,
-        type:        'inbound',
-        text:        row.messageText,
-        time:        row.createdAt,
+        key:          `in-${row.id}`,
+        type:         'inbound',
+        text:         row.messageText,
+        time:         row.createdAt,
         isStoryReply: row.isStoryReply,
+        label:        inboundLabel,
       })
     }
 
@@ -1435,8 +1453,8 @@ function ConversationTimeline({
       <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
         {visible.map(turn => (
           <div key={turn.key} style={{ paddingLeft: turn.type === 'outbound' ? '16px' : 0 }}>
-            <span style={{ fontSize: '10px', color: turn.type === 'outbound' ? '#4a7a55' : '#6b6359', display: 'block', marginBottom: '2px', fontWeight: turn.type === 'outbound' ? 700 : 400, letterSpacing: turn.type === 'outbound' ? '0.04em' : 0 }}>
-              {turn.type === 'outbound' ? 'SENT BY YOU' : 'THEM'} · {fmtTime(turn.time)}
+            <span style={{ fontSize: '10px', color: turn.label ? '#b5975a' : (turn.type === 'outbound' ? '#4a7a55' : '#6b6359'), display: 'block', marginBottom: '2px', fontWeight: turn.type === 'outbound' ? 700 : 400, letterSpacing: turn.type === 'outbound' ? '0.04em' : 0 }}>
+              {turn.label ?? (turn.type === 'outbound' ? 'SENT BY YOU' : 'THEM')} · {fmtTime(turn.time)}
               {turn.isStoryReply && (
                 <span style={{ marginLeft: '6px', fontSize: '9px', color: '#b5975a', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' as const }}>
                   Story Reply
@@ -1466,11 +1484,12 @@ function DmInboxItem({
   item:      DmItem
   onRefresh: () => void
 }) {
-  const [editText,  setEditText]  = useState(item.responseText ?? '')
-  const [busy,      setBusy]      = useState<string | null>(null)
-  const [err,       setErr]       = useState<string | null>(null)
-  const [success,   setSuccess]   = useState<string | null>(null)
-  const [expanded,  setExpanded]  = useState(true)
+  const [editText,     setEditText]     = useState(item.responseText ?? '')
+  const [busy,         setBusy]         = useState<string | null>(null)
+  const [err,          setErr]          = useState<string | null>(null)
+  const [success,      setSuccess]      = useState<string | null>(null)
+  const [expanded,     setExpanded]     = useState(true)
+  const [showComposer, setShowComposer] = useState(false)
 
   const msLeft     = windowMsRemaining(item.createdAt)
   const windowOpen = msLeft > 0
@@ -1536,6 +1555,53 @@ function DmInboxItem({
   const isBusy = busy !== null
   const windowColor = !windowOpen ? '#c0504a' : urgent ? '#b5975a' : '#5a9e6f'
 
+  // Early returns for audit-only states
+  if (cardState === 'human_managed' || cardState === 'story_mention') {
+    const stateLabel = cardState === 'human_managed' ? 'HUMAN-MANAGED' : 'STORY MENTION'
+    return (
+      <div style={{ ...S.card, borderLeft: '3px solid #2c2720', opacity: 0.8 }}>
+        <div style={{ ...S.cardHeader, alignItems: 'center' }}>
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <SenderAvatar profilePictureUrl={item.profilePictureUrl} label={avatarLabel} />
+            <div style={{ minWidth: 0 }}>
+              <span style={{ fontWeight: 700, fontSize: '13px', color: '#e8e4de' }}>{primaryLabel}</span>
+              <span style={{ marginLeft: '8px', fontSize: '10px', color: '#6b6359', border: '1px solid #6b6359', borderRadius: '3px', padding: '1px 5px' }}>
+                {stateLabel}
+              </span>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+            <span style={{ fontSize: '11px', color: '#6b6359' }}>
+              {new Date(item.createdAt).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+            </span>
+          </div>
+        </div>
+        {item.messageText && (
+          <div style={{ padding: '0 14px 10px' }}>
+            <p style={{ ...S.value, whiteSpace: 'pre-wrap', fontSize: '12px', color: '#9e9289', margin: 0 }}>
+              {item.messageText}
+            </p>
+            {cardState === 'human_managed' && (
+              <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
+                {item.conversationOwner !== 'human_temp' ? (
+                  <button disabled={isBusy} onClick={() => mutate('takeover')} style={btn('ghost')}>
+                    {busy === 'takeover' ? '…' : 'Take Over'}
+                  </button>
+                ) : (
+                  <button disabled={isBusy} onClick={() => mutate('release')} style={{ ...btn('ghost'), color: '#5a9e6f', borderColor: '#5a9e6f' }}>
+                    {busy === 'release' ? '…' : 'Release to AI'}
+                  </button>
+                )}
+                {err     && <span style={{ color: '#c0504a', fontSize: '11px' }}>{err}</span>}
+                {success && <span style={{ color: '#5a9e6f', fontSize: '11px' }}>{success}</span>}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div style={{ ...S.card, borderLeft: `3px solid ${!windowOpen ? '#c0504a' : '#2c2720'}` }}>
       {/* Header */}
@@ -1595,6 +1661,16 @@ function DmInboxItem({
             {cardState === 'status_unknown' && (
               <span style={{ marginLeft: '8px', fontSize: '10px', color: '#c0504a', border: '1px solid #c0504a', borderRadius: '3px', padding: '1px 5px', fontWeight: 700 }}>
                 ⚠ Unknown — Check IG Outbox
+              </span>
+            )}
+            {cardState === 'ai_suggested_ignore' && (
+              <span style={{ marginLeft: '8px', fontSize: '10px', color: '#b5975a', border: '1px solid #b5975a', borderRadius: '3px', padding: '1px 5px', fontWeight: 700 }}>
+                AI Suggested Ignore
+              </span>
+            )}
+            {cardState === 'ai_suggested_ignore_exp' && (
+              <span style={{ marginLeft: '8px', fontSize: '10px', color: '#6b6359', border: '1px solid #6b6359', borderRadius: '3px', padding: '1px 5px' }}>
+                AI Suggested Ignore — Window Closed
               </span>
             )}
           </div>{/* /identity */}
@@ -1667,31 +1743,74 @@ function DmInboxItem({
             </div>
           )}
 
+          {/* AI Recommended Ignore notice */}
+          {cardState === 'ai_suggested_ignore' && (
+            <div style={{ marginBottom: '12px', padding: '10px 12px', background: '#1a1508', border: '1px solid #3a3020', borderRadius: '4px', fontSize: '12px', color: '#c8b88a', lineHeight: 1.6 }}>
+              AI evaluated this Story reply and recommended no response.
+              Nothing has been sent. You can Write Reply, Ignore, or Take Over.
+            </div>
+          )}
+
           {/* Inbound message — current review item */}
           <span style={{ ...S.label, marginTop: '14px', color: '#9e9289', fontWeight: 700 }}>CURRENT MESSAGE FROM THEM</span>
           <p style={{ ...S.value, whiteSpace: 'pre-wrap', lineHeight: 1.65, marginTop: '2px', direction: 'rtl', textAlign: 'right', background: '#0e0c0a', padding: '8px 10px', borderRadius: '4px', border: '1px solid #2c2720' }}>
             {item.messageText || <em style={{ color: '#6b6359' }}>(no text — {item.messageType})</em>}
           </p>
 
-          {/* AI Draft — editable. Never shown as sent until the human approves. */}
-          <span style={{ ...S.label, marginTop: '12px' }}>
-            AI DRAFT — NOT SENT
-            <span style={{ color: '#6b6359', fontWeight: 400, marginLeft: '6px' }}>
-              {cardState === 'needs_review' ? '· edit before approving' : '· window closed, cannot send'}
-            </span>
-          </span>
-          {cardState === 'needs_review' || cardState === 'send_failed_open' ? (
-            <textarea
-              value={editText}
-              onChange={e => setEditText(e.target.value)}
-              rows={5}
-              style={{ ...S.textarea, direction: 'rtl', lineHeight: 1.7, marginTop: '4px' }}
-              placeholder="AI draft will appear here…"
-            />
+          {/* AI Draft / Composer — editable. Never shown as sent until the human approves. */}
+          {cardState === 'ai_suggested_ignore' ? (
+            <>
+              {!showComposer ? (
+                <div style={{ marginTop: '12px' }}>
+                  <button onClick={() => setShowComposer(true)} style={{ ...btn('warn'), fontSize: '12px' }}>
+                    Write Reply
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <span style={{ ...S.label, marginTop: '12px' }}>YOUR REPLY — NOT SENT YET</span>
+                  <textarea
+                    value={editText}
+                    onChange={e => setEditText(e.target.value)}
+                    rows={5}
+                    style={{ ...S.textarea, direction: 'rtl', lineHeight: 1.7, marginTop: '4px' }}
+                    placeholder="Type your reply…"
+                  />
+                  {editText.trim() && (
+                    <div style={{ marginTop: '10px', padding: '8px 10px', background: '#0a1a0f', border: '1px solid #2a4a30', borderRadius: '4px' }}>
+                      <span style={{ fontSize: '10px', color: '#5a9e6f', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>
+                        WILL SEND IF APPROVED:
+                      </span>
+                      <p style={{ margin: 0, fontSize: '12px', color: '#c8e0cc', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right', lineHeight: 1.65 }}>
+                        {editText.trim()}
+                      </p>
+                    </div>
+                  )}
+                </>
+              )}
+            </>
           ) : (
-            <p style={{ ...S.value, whiteSpace: 'pre-wrap', lineHeight: 1.65, marginTop: '2px', color: '#6b6359', fontStyle: 'italic', background: '#0e0c0a', padding: '8px 10px', borderRadius: '4px', border: '1px solid #2c2720' }}>
-              {item.responseText || '—'}
-            </p>
+            <>
+              <span style={{ ...S.label, marginTop: '12px' }}>
+                AI DRAFT — NOT SENT
+                <span style={{ color: '#6b6359', fontWeight: 400, marginLeft: '6px' }}>
+                  {cardState === 'needs_review' ? '· edit before approving' : '· window closed, cannot send'}
+                </span>
+              </span>
+              {cardState === 'needs_review' || cardState === 'send_failed_open' ? (
+                <textarea
+                  value={editText}
+                  onChange={e => setEditText(e.target.value)}
+                  rows={5}
+                  style={{ ...S.textarea, direction: 'rtl', lineHeight: 1.7, marginTop: '4px' }}
+                  placeholder="AI draft will appear here…"
+                />
+              ) : (
+                <p style={{ ...S.value, whiteSpace: 'pre-wrap', lineHeight: 1.65, marginTop: '2px', color: '#6b6359', fontStyle: 'italic', background: '#0e0c0a', padding: '8px 10px', borderRadius: '4px', border: '1px solid #2c2720' }}>
+                  {item.responseText || '—'}
+                </p>
+              )}
+            </>
           )}
 
           {/* Metadata */}
@@ -1731,8 +1850,8 @@ function DmInboxItem({
           {/* Actions — all derived from cardState, never from failedReason + windowOpen independently */}
           <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '12px', paddingTop: '10px', borderTop: '1px solid #1e1c19', alignItems: 'center' }}>
 
-            {/* Approve & Send — only for needs_review (PENDING_REVIEW + open window) */}
-            {cardState === 'needs_review' && (
+            {/* Approve & Send — for needs_review or ai_suggested_ignore (when composer open and has text) */}
+            {(cardState === 'needs_review' || (cardState === 'ai_suggested_ignore' && showComposer && editText.trim())) && (
               <button
                 disabled={isBusy || !editText.trim()}
                 onClick={() => { void send() }}
@@ -1843,6 +1962,7 @@ function DmInbox() {
   const [err,         setErr]         = useState<string | null>(null)
   const [igConfigured, setIgConfigured] = useState<boolean | null>(null)
   const [showExpired, setShowExpired] = useState(false)
+  const [showAudit,   setShowAudit]   = useState(false)
 
   async function load() {
     setLoading(true); setErr(null)
@@ -1869,14 +1989,19 @@ function DmInbox() {
 
   // Single canonical state per item — drives categories, badges, and buttons
   const needsReview    = allItems.filter(i => getCardState(i) === 'needs_review')
+  const aiIgnoreItems  = allItems.filter(i => getCardState(i) === 'ai_suggested_ignore')
   const needsAttention = allItems.filter(i => {
     const s = getCardState(i)
     return s === 'sending' || s === 'status_unknown' || s === 'send_failed_open'
   })
-  // Expired: closed window (PENDING_REVIEW or SEND_FAILED) — hidden by default, inspect/ignore only
+  // Expired: closed window — hidden by default, inspect/ignore only
   const expiredItems   = allItems.filter(i => {
     const s = getCardState(i)
-    return s === 'expired_review' || s === 'expired_failed'
+    return s === 'expired_review' || s === 'expired_failed' || s === 'ai_suggested_ignore_exp'
+  })
+  const auditItems     = allItems.filter(i => {
+    const s = getCardState(i)
+    return s === 'human_managed' || s === 'story_mention'
   })
 
   const urgent = needsReview.filter(i => windowMsRemaining(i.createdAt) < 2 * 3_600_000)
@@ -1894,6 +2019,7 @@ function DmInbox() {
         {items !== null && (
           <span style={{ fontSize: '11px', color: '#6b6359' }}>
             {needsReview.length > 0 && <span>{needsReview.length} needs review</span>}
+            {aiIgnoreItems.length > 0 && <span style={{ marginLeft: '8px', color: '#b5975a' }}>· {aiIgnoreItems.length} AI suggested ignore</span>}
             {needsAttention.length > 0 && <span style={{ marginLeft: '8px', color: '#b5975a', fontWeight: 700 }}>· {needsAttention.length} needs attention</span>}
             {urgent.length > 0 && <span style={{ marginLeft: '8px', color: '#b5975a', fontWeight: 700 }}>⚠ {urgent.length} urgent</span>}
             {expiredItems.length > 0 && <span style={{ marginLeft: '8px', color: '#6b6359' }}>· {expiredItems.length} expired</span>}
@@ -1909,6 +2035,9 @@ function DmInbox() {
       {items !== null && allItems.length > 0 && (
         <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', padding: '8px 12px', background: '#100e0c', borderRadius: '4px', border: '1px solid #2c2720', marginBottom: '12px', fontSize: '12px' }}>
           <span><span style={{ color: '#6b6359' }}>Needs Review: </span><span style={{ color: '#e8e4de', fontWeight: 600 }}>{needsReview.length}</span></span>
+          {aiIgnoreItems.length > 0 && (
+            <span><span style={{ color: '#6b6359' }}>AI Suggested Ignore: </span><span style={{ color: '#b5975a', fontWeight: 600 }}>{aiIgnoreItems.length}</span></span>
+          )}
           {needsAttention.length > 0 && (
             <span><span style={{ color: '#6b6359' }}>Needs Attention: </span><span style={{ color: '#b5975a', fontWeight: 600 }}>{needsAttention.length}</span></span>
           )}
@@ -1926,7 +2055,7 @@ function DmInbox() {
 
       {err     && <p style={{ color: '#c0504a', fontSize: '12px' }}>{err}</p>}
       {loading && !items && <p style={{ color: '#6b6359', fontSize: '12px' }}>Loading…</p>}
-      {items   && needsReview.length === 0 && needsAttention.length === 0 && expiredItems.length === 0 && (
+      {items && needsReview.length === 0 && needsAttention.length === 0 && expiredItems.length === 0 && aiIgnoreItems.length === 0 && auditItems.length === 0 && (
         <p style={{ color: '#6b6359', fontSize: '12px' }}>No drafts waiting for review.</p>
       )}
 
@@ -1943,6 +2072,18 @@ function DmInbox() {
             Needs Review ({needsReview.length})
           </div>
           {needsReview.map(item => (
+            <DmInboxItem key={item.id} item={item} onRefresh={load} />
+          ))}
+        </div>
+      )}
+
+      {/* ── AI Suggested Ignore (Story replies — no AI draft) ───── */}
+      {aiIgnoreItems.length > 0 && (
+        <div style={{ marginBottom: '8px' }}>
+          <div style={{ fontSize: '10px', color: '#b5975a', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' as const, margin: '12px 0 6px' }}>
+            Story Replies — AI Suggested Ignore ({aiIgnoreItems.length})
+          </div>
+          {aiIgnoreItems.map(item => (
             <DmInboxItem key={item.id} item={item} onRefresh={load} />
           ))}
         </div>
@@ -1977,6 +2118,29 @@ function DmInbox() {
           {showExpired && (
             <div style={{ marginTop: '6px' }}>
               {expiredItems.map(item => (
+                <DmInboxItem key={item.id} item={item} onRefresh={load} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {/* ── Audit Log (human_managed + story_mention) ─────────── */}
+      {auditItems.length > 0 && (
+        <div style={{ marginTop: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 10px', background: '#100e0c', border: '1px solid #2c2720', borderRadius: '4px' }}>
+            <span style={{ fontSize: '11px', color: '#6b6359' }}>
+              Audit Log: {auditItems.length} — human-managed or story mention items
+            </span>
+            <button
+              onClick={() => setShowAudit(s => !s)}
+              style={{ ...btn('ghost'), fontSize: '10px', padding: '2px 8px', marginLeft: 'auto' }}
+            >
+              {showAudit ? 'Hide' : 'Show'}
+            </button>
+          </div>
+          {showAudit && (
+            <div style={{ marginTop: '6px' }}>
+              {auditItems.map(item => (
                 <DmInboxItem key={item.id} item={item} onRefresh={load} />
               ))}
             </div>
