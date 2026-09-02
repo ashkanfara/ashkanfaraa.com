@@ -1202,31 +1202,26 @@ function fmtWindowRemaining(ms: number): string {
 // Single authoritative state derived from (failedReason × windowOpen).
 // All badge, section, and button logic must derive from this — never from
 // failedReason + windowOpen independently, which produces contradictions.
+// Expired rows are excluded at the server query level (created_at window filter in getDmInbox).
+// All rows that reach the client are within the 24-hour Instagram messaging window,
+// so there is no expired CardState — every row is actionable or audit-only.
 type CardState =
-  | 'sending'               // SENDING — in-flight, no admin actions
-  | 'status_unknown'        // SEND_STATUS_UNKNOWN — manual reconciliation required
-  | 'needs_review'          // PENDING_REVIEW + window open → primary actionable
-  | 'send_failed_open'      // SEND_FAILED/IG_SEND_ERROR + window open → Retry Send
-  | 'expired_review'        // PENDING_REVIEW + window closed → inspect/ignore only
-  | 'expired_failed'        // SEND_FAILED/IG_SEND_ERROR + window closed → inspect/ignore only
-  | 'ai_suggested_ignore'     // AI_RECOMMENDED_IGNORE + window open → dedicated actionable section
-  | 'ai_suggested_ignore_exp' // AI_RECOMMENDED_IGNORE + window closed → Expired
-  | 'human_managed'           // HUMAN_TEMP_SKIP → audit/history only
-  | 'story_mention'           // STORY_MENTION_HUMAN_HOLD → audit/history only
+  | 'sending'          // SENDING — in-flight, no admin actions
+  | 'status_unknown'   // SEND_STATUS_UNKNOWN — manual reconciliation required
+  | 'needs_review'     // PENDING_REVIEW — primary actionable
+  | 'send_failed_open' // SEND_FAILED/IG_SEND_ERROR — window still open, Retry Send available
+  | 'ai_suggested_ignore' // AI_RECOMMENDED_IGNORE — dedicated section, Write Reply available
+  | 'human_managed'    // HUMAN_TEMP_SKIP — audit/history only
+  | 'story_mention'    // STORY_MENTION_HUMAN_HOLD — audit/history only
 
-function getCardState(item: DmItem, msLeft?: number): CardState {
-  const open = (msLeft ?? windowMsRemaining(item.createdAt)) > 0
+function getCardState(item: DmItem): CardState {
   if (item.failedReason === 'SENDING')             return 'sending'
   if (item.failedReason === 'SEND_STATUS_UNKNOWN') return 'status_unknown'
-  if (item.failedReason === 'SEND_FAILED' || item.failedReason === 'IG_SEND_ERROR') {
-    return open ? 'send_failed_open' : 'expired_failed'
-  }
-  if (item.failedReason === 'AI_RECOMMENDED_IGNORE') {
-    return open ? 'ai_suggested_ignore' : 'ai_suggested_ignore_exp'
-  }
+  if (item.failedReason === 'SEND_FAILED' || item.failedReason === 'IG_SEND_ERROR') return 'send_failed_open'
+  if (item.failedReason === 'AI_RECOMMENDED_IGNORE') return 'ai_suggested_ignore'
   if (item.failedReason === 'HUMAN_TEMP_SKIP')          return 'human_managed'
   if (item.failedReason === 'STORY_MENTION_HUMAN_HOLD') return 'story_mention'
-  return open ? 'needs_review' : 'expired_review'
+  return 'needs_review'
 }
 
 function SenderAvatar({
@@ -1491,10 +1486,9 @@ function DmInboxItem({
   const [expanded,     setExpanded]     = useState(true)
   const [showComposer, setShowComposer] = useState(false)
 
-  const msLeft     = windowMsRemaining(item.createdAt)
-  const windowOpen = msLeft > 0
-  const urgent     = windowOpen && msLeft < 2 * 3_600_000
-  const cardState  = getCardState(item, msLeft)
+  const msLeft    = windowMsRemaining(item.createdAt)
+  const urgent    = msLeft < 2 * 3_600_000
+  const cardState = getCardState(item)
   // Primary label: @username > display_name > "Instagram User" (never the raw sender_id as main label)
   const primaryLabel  = item.username   ? `@${item.username}`
                       : item.displayName ? item.displayName
@@ -1553,7 +1547,7 @@ function DmInboxItem({
   }
 
   const isBusy = busy !== null
-  const windowColor = !windowOpen ? '#c0504a' : urgent ? '#b5975a' : '#5a9e6f'
+  const windowColor = urgent ? '#b5975a' : '#5a9e6f'
 
   // Early returns for audit-only states
   if (cardState === 'human_managed' || cardState === 'story_mention') {
@@ -1603,7 +1597,7 @@ function DmInboxItem({
   }
 
   return (
-    <div style={{ ...S.card, borderLeft: `3px solid ${!windowOpen ? '#c0504a' : '#2c2720'}` }}>
+    <div style={{ ...S.card, borderLeft: '3px solid #2c2720' }}>
       {/* Header */}
       <div style={{ ...S.cardHeader, alignItems: 'center' }} onClick={() => setExpanded(o => !o)}>
         <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -1648,11 +1642,6 @@ function DmInboxItem({
                 Send Failed — Retry Available
               </span>
             )}
-            {cardState === 'expired_failed' && (
-              <span style={{ marginLeft: '8px', fontSize: '10px', color: '#6b6359', border: '1px solid #6b6359', borderRadius: '3px', padding: '1px 5px' }}>
-                Send Failed — Window Closed
-              </span>
-            )}
             {cardState === 'sending' && (
               <span style={{ marginLeft: '8px', fontSize: '10px', color: '#b5975a', border: '1px solid #b5975a', borderRadius: '3px', padding: '1px 5px' }}>
                 Sending…
@@ -1668,16 +1657,11 @@ function DmInboxItem({
                 AI Suggested Ignore
               </span>
             )}
-            {cardState === 'ai_suggested_ignore_exp' && (
-              <span style={{ marginLeft: '8px', fontSize: '10px', color: '#6b6359', border: '1px solid #6b6359', borderRadius: '3px', padding: '1px 5px' }}>
-                AI Suggested Ignore — Window Closed
-              </span>
-            )}
           </div>{/* /identity */}
         </div>{/* /flex: 1 */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
-          <span style={{ fontSize: '11px', color: windowColor, fontWeight: urgent || !windowOpen ? 700 : 400 }}>
-            {windowOpen ? `⏱ ${fmtWindowRemaining(msLeft)}` : '⛔ Expired'}
+          <span style={{ fontSize: '11px', color: windowColor, fontWeight: urgent ? 700 : 400 }}>
+            ⏱ {fmtWindowRemaining(msLeft)}
           </span>
           <span style={{ fontSize: '11px', color: '#6b6359' }}>
             {new Date(item.createdAt).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
@@ -1866,13 +1850,6 @@ function DmInboxItem({
               </button>
             )}
 
-            {/* Window closed — PENDING_REVIEW only (not SEND_FAILED which has its own label) */}
-            {cardState === 'expired_review' && (
-              <span style={{ fontSize: '11px', color: '#c0504a', fontWeight: 600, padding: '5px 0' }}>
-                Window closed — cannot send
-              </span>
-            )}
-
             {/* Retry — only when SEND_FAILED and window is still open */}
             {cardState === 'send_failed_open' && (
               <button
@@ -1885,13 +1862,6 @@ function DmInboxItem({
               >
                 {busy === 'retry_send_failed' ? '…' : 'Retry Send'}
               </button>
-            )}
-
-            {/* SEND_FAILED + window closed: no retry, just explain */}
-            {cardState === 'expired_failed' && (
-              <span style={{ fontSize: '11px', color: '#6b6359', padding: '5px 0' }}>
-                Window closed — cannot retry
-              </span>
             )}
 
             {/* SENDING = in-flight; show status only, no actions */}
@@ -1912,8 +1882,8 @@ function DmInboxItem({
 
             <span style={{ width: '1px', background: '#2c2720', alignSelf: 'stretch', margin: '0 2px' }} />
 
-            {/* Regenerate — only meaningful for PENDING_REVIEW (re-runs AI) */}
-            {(cardState === 'needs_review' || cardState === 'expired_review') && (
+            {/* Regenerate — only for PENDING_REVIEW (re-runs AI) */}
+            {cardState === 'needs_review' && (
               <button disabled={isBusy} onClick={() => void mutate('requeue')}
                 style={btn('warn')}>
                 {busy === 'requeue' ? '…' : 'Regenerate'}
@@ -1961,7 +1931,7 @@ function DmInbox() {
   const [loading,     setLoading]     = useState(false)
   const [err,         setErr]         = useState<string | null>(null)
   const [igConfigured, setIgConfigured] = useState<boolean | null>(null)
-  const [showExpired, setShowExpired] = useState(false)
+
   const [showAudit,   setShowAudit]   = useState(false)
 
   async function load() {
@@ -1994,11 +1964,6 @@ function DmInbox() {
     const s = getCardState(i)
     return s === 'sending' || s === 'status_unknown' || s === 'send_failed_open'
   })
-  // Expired: closed window — hidden by default, inspect/ignore only
-  const expiredItems   = allItems.filter(i => {
-    const s = getCardState(i)
-    return s === 'expired_review' || s === 'expired_failed' || s === 'ai_suggested_ignore_exp'
-  })
   const auditItems     = allItems.filter(i => {
     const s = getCardState(i)
     return s === 'human_managed' || s === 'story_mention'
@@ -2022,7 +1987,6 @@ function DmInbox() {
             {aiIgnoreItems.length > 0 && <span style={{ marginLeft: '8px', color: '#b5975a' }}>· {aiIgnoreItems.length} AI suggested ignore</span>}
             {needsAttention.length > 0 && <span style={{ marginLeft: '8px', color: '#b5975a', fontWeight: 700 }}>· {needsAttention.length} needs attention</span>}
             {urgent.length > 0 && <span style={{ marginLeft: '8px', color: '#b5975a', fontWeight: 700 }}>⚠ {urgent.length} urgent</span>}
-            {expiredItems.length > 0 && <span style={{ marginLeft: '8px', color: '#6b6359' }}>· {expiredItems.length} expired</span>}
           </span>
         )}
         <button onClick={load} disabled={loading}
@@ -2047,15 +2011,12 @@ function DmInbox() {
           {oldest && (
             <span><span style={{ color: '#6b6359' }}>Oldest open: </span><span style={{ color: '#e8e4de' }}>{new Date(oldest).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span></span>
           )}
-          {expiredItems.length > 0 && (
-            <span><span style={{ color: '#6b6359' }}>Expired: </span><span style={{ color: '#6b6359' }}>{expiredItems.length}</span></span>
-          )}
         </div>
       )}
 
       {err     && <p style={{ color: '#c0504a', fontSize: '12px' }}>{err}</p>}
       {loading && !items && <p style={{ color: '#6b6359', fontSize: '12px' }}>Loading…</p>}
-      {items && needsReview.length === 0 && needsAttention.length === 0 && expiredItems.length === 0 && aiIgnoreItems.length === 0 && auditItems.length === 0 && (
+      {items && needsReview.length === 0 && needsAttention.length === 0 && aiIgnoreItems.length === 0 && auditItems.length === 0 && (
         <p style={{ color: '#6b6359', fontSize: '12px' }}>No drafts waiting for review.</p>
       )}
 
@@ -2101,29 +2062,6 @@ function DmInbox() {
         </div>
       )}
 
-      {/* ── Expired — collapsed by default ────────────────────── */}
-      {expiredItems.length > 0 && (
-        <div style={{ marginTop: '16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 10px', background: '#100e0c', border: '1px solid #2c2720', borderRadius: '4px' }}>
-            <span style={{ fontSize: '11px', color: '#6b6359' }}>
-              Expired: {expiredItems.length} — messaging window closed, cannot send
-            </span>
-            <button
-              onClick={() => setShowExpired(s => !s)}
-              style={{ ...btn('ghost'), fontSize: '10px', padding: '2px 8px', marginLeft: 'auto' }}
-            >
-              {showExpired ? 'Hide' : 'Show'}
-            </button>
-          </div>
-          {showExpired && (
-            <div style={{ marginTop: '6px' }}>
-              {expiredItems.map(item => (
-                <DmInboxItem key={item.id} item={item} onRefresh={load} />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
       {/* ── Audit Log (human_managed + story_mention) ─────────── */}
       {auditItems.length > 0 && (
         <div style={{ marginTop: '16px' }}>
