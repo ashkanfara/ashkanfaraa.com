@@ -1350,7 +1350,7 @@ function fmtTime(iso: string): string {
 // A display-level conversation turn after deduplication
 interface DisplayTurn {
   key:          string
-  type:         'inbound' | 'outbound'
+  type:         'inbound' | 'outbound' | 'event'  // event = story reaction with no text
   text:         string
   time:         string
   isStoryReply?: boolean
@@ -1360,14 +1360,10 @@ interface DisplayTurn {
 /**
  * Convert raw ConvHistoryRow[] into deduplicated display turns.
  *
- * Problem: the old n8n system batched multiple rapid-fire inbound messages
- * and sent ONE reply, storing response_sent=true on EVERY row in the batch
- * with the identical response_text. Without deduplication this renders the
- * same "You" bubble 4–6 times in a row.
- *
  * Deduplication rule: consecutive identical outbound sentText = one batch reply;
  * emit it only once. All unique inbound messages are always shown.
- * ig_message_id is used as an additional dedup key when available.
+ * Empty story replies (no text) render as compact 'event' rows, not full bubbles.
+ * Outbound turns are ONLY emitted when response_sent=true — drafts are never shown here.
  */
 function buildDisplayTurns(rows: ConvHistoryRow[]): DisplayTurn[] {
   const turns: DisplayTurn[] = []
@@ -1375,14 +1371,12 @@ function buildDisplayTurns(rows: ConvHistoryRow[]): DisplayTurn[] {
   const seenIgIds = new Set<string>()
 
   for (const row of rows) {
-    // State annotation — AI_RECOMMENDED_IGNORE, HUMAN_TEMP_SKIP, STORY_MENTION_HUMAN_HOLD
     const inboundLabel: string | undefined =
       row.failedReason === 'AI_RECOMMENDED_IGNORE'      ? 'AI RECOMMENDED IGNORE'
       : row.failedReason === 'HUMAN_TEMP_SKIP'          ? 'HUMAN-MANAGED'
       : row.failedReason === 'STORY_MENTION_HUMAN_HOLD' ? 'STORY MENTION'
       : undefined
 
-    // Inbound turn — always show
     if (row.messageText) {
       turns.push({
         key:          `in-${row.id}`,
@@ -1392,15 +1386,20 @@ function buildDisplayTurns(rows: ConvHistoryRow[]): DisplayTurn[] {
         isStoryReply: row.isStoryReply,
         label:        inboundLabel,
       })
+    } else if (row.isStoryReply) {
+      // Story reaction with no accompanying text — render as a compact event pill
+      turns.push({
+        key:  `ev-${row.id}`,
+        type: 'event',
+        text: 'Story reaction',
+        time: row.createdAt,
+      })
     }
 
-    // Outbound turn — only if genuinely sent and not a duplicate
+    // Outbound — only when genuinely delivered (response_sent=true). Never for drafts.
     if (row.responseSent && row.sentText) {
-      // Skip if ig_message_id already seen (exact dedup for modern rows)
       if (row.id && seenIgIds.has(row.id)) continue
-      // Skip consecutive identical text (batch-reply dedup for legacy rows)
       if (row.sentText === lastOutboundText) continue
-
       turns.push({
         key:  `out-${row.id}`,
         type: 'outbound',
@@ -1415,64 +1414,117 @@ function buildDisplayTurns(rows: ConvHistoryRow[]): DisplayTurn[] {
   return turns
 }
 
-function ConversationTimeline({
-  history, currentId,
-}: {
-  history:   ConvHistoryRow[]
-  currentId: string
-}) {
-  const [expanded, setExpanded] = useState(false)
+// Chat bubble styles
+const bubble = {
+  them: {
+    alignSelf:    'flex-start' as const,
+    maxWidth:     '76%',
+  } as React.CSSProperties,
+  you: {
+    alignSelf:    'flex-end' as const,
+    maxWidth:     '76%',
+  } as React.CSSProperties,
+}
 
-  // Exclude the current actionable item from history display
+function ConversationTimeline({
+  history,
+  currentId,
+  currentItem,
+}: {
+  history:     ConvHistoryRow[]
+  currentId:   string
+  currentItem: { id: string; messageText: string | null; messageType: string; createdAt: string; isStoryReply: boolean }
+}) {
+  const [histExpanded, setHistExpanded] = useState(false)
+
   const past  = history.filter(r => r.id !== currentId)
   const turns = buildDisplayTurns(past)
 
-  // Default: last 5 meaningful turns
-  const visible     = expanded ? turns : turns.slice(-5)
-  const hiddenCount = turns.length - visible.length
-
-  if (turns.length === 0) return null
+  const visibleTurns = histExpanded ? turns : turns.slice(-7)
+  const hiddenCount  = turns.length - visibleTurns.length
 
   return (
-    <div style={{ marginBottom: '14px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-        <span style={{ fontSize: '10px', color: '#6b6359', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' as const }}>
-          Recent Conversation
-        </span>
-        {hiddenCount > 0 && !expanded && (
-          <button
-            onClick={e => { e.stopPropagation(); setExpanded(true) }}
-            style={{ ...btn('ghost'), fontSize: '10px', padding: '1px 7px' }}
-          >
-            + {hiddenCount} earlier
-          </button>
-        )}
-      </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '0' }}>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-        {visible.map(turn => (
-          <div key={turn.key} style={{ paddingLeft: turn.type === 'outbound' ? '16px' : 0 }}>
-            <span style={{ fontSize: '10px', color: turn.label ? '#b5975a' : (turn.type === 'outbound' ? '#4a7a55' : '#6b6359'), display: 'block', marginBottom: '2px', fontWeight: turn.type === 'outbound' ? 700 : 400, letterSpacing: turn.type === 'outbound' ? '0.04em' : 0 }}>
-              {turn.label ?? (turn.type === 'outbound' ? 'SENT BY YOU' : 'THEM')} · {fmtTime(turn.time)}
-              {turn.isStoryReply && (
-                <span style={{ marginLeft: '6px', fontSize: '9px', color: '#b5975a', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' as const }}>
-                  Story Reply
-                </span>
-              )}
-            </span>
-            <div style={{
-              background: turn.type === 'outbound' ? '#0a140c' : '#0e0c0a',
-              border:     `1px solid ${turn.type === 'outbound' ? '#1e3820' : '#2c2720'}`,
-              borderRadius: '4px',
-              padding:    '5px 8px',
-            }}>
-              <p style={{ margin: 0, fontSize: '12px', color: turn.type === 'outbound' ? '#8ec8a0' : '#bfb5a6', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right', lineHeight: 1.5 }}>
+      {/* Show-earlier button */}
+      {hiddenCount > 0 && !histExpanded && (
+        <button
+          onClick={e => { e.stopPropagation(); setHistExpanded(true) }}
+          style={{ alignSelf: 'center', ...btn('ghost'), fontSize: '10px', padding: '2px 10px' }}
+        >
+          Show earlier {hiddenCount} messages
+        </button>
+      )}
+
+      {/* Past turns */}
+      {visibleTurns.map(turn => {
+
+        if (turn.type === 'event') {
+          return (
+            <div key={turn.key} style={{ alignSelf: 'center', fontSize: '10px', color: '#6b6359', background: '#0e0c0a', border: '1px solid #1e1c19', borderRadius: '20px', padding: '3px 10px' }}>
+              {turn.text} · {fmtTime(turn.time)}
+            </div>
+          )
+        }
+
+        if (turn.type === 'outbound') {
+          return (
+            <div key={turn.key} style={{ ...bubble.you, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '3px' }}>
+              <div style={{ background: '#071a0d', border: '1px solid #1e4228', borderRadius: '14px 14px 3px 14px', padding: '8px 12px' }}>
+                <p style={{ margin: 0, fontSize: '13px', color: '#8ec8a0', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right', lineHeight: 1.55 }}>
+                  {turn.text}
+                </p>
+              </div>
+              <span style={{ fontSize: '10px', color: '#3d6e4a', letterSpacing: '0.04em' }}>
+                SENT · {fmtTime(turn.time)}
+              </span>
+            </div>
+          )
+        }
+
+        // Inbound (past)
+        return (
+          <div key={turn.key} style={{ ...bubble.them, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '3px' }}>
+            {turn.label && (
+              <span style={{ fontSize: '10px', color: '#b5975a', fontWeight: 700, letterSpacing: '0.06em' }}>
+                {turn.label}
+              </span>
+            )}
+            <div style={{ background: '#141210', border: '1px solid #2c2720', borderRadius: '3px 14px 14px 14px', padding: '8px 12px' }}>
+              <p style={{ margin: 0, fontSize: '13px', color: '#bfb5a6', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right', lineHeight: 1.55 }}>
                 {turn.text}
               </p>
             </div>
+            <span style={{ fontSize: '10px', color: '#6b6359' }}>
+              {turn.isStoryReply && <span style={{ color: '#b5975a', marginRight: '4px' }}>↩ Story reply ·</span>}
+              {fmtTime(turn.time)}
+            </span>
           </div>
-        ))}
-      </div>
+        )
+      })}
+
+      {/* Current inbound — highlighted "NEW MESSAGE", always last */}
+      {currentItem.messageText ? (
+        <div style={{ ...bubble.them, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '3px' }}>
+          <span style={{ fontSize: '10px', color: '#c8b070', fontWeight: 700, letterSpacing: '0.08em' }}>
+            NEW MESSAGE
+          </span>
+          <div style={{ background: '#1a160a', border: '2px solid #b5975a', borderRadius: '3px 14px 14px 14px', padding: '9px 13px' }}>
+            <p style={{ margin: 0, fontSize: '13px', color: '#f0dfa8', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right', lineHeight: 1.6 }}>
+              {currentItem.messageText}
+            </p>
+          </div>
+          <span style={{ fontSize: '10px', color: '#c8b070' }}>
+            {currentItem.isStoryReply && <span style={{ marginRight: '4px' }}>↩ Story reply ·</span>}
+            {fmtTime(currentItem.createdAt)}
+          </span>
+        </div>
+      ) : currentItem.isStoryReply ? (
+        // Story reaction with no message text
+        <div style={{ alignSelf: 'center', fontSize: '10px', color: '#c8b070', background: '#1a160a', border: '2px solid #b5975a', borderRadius: '20px', padding: '4px 14px', fontWeight: 700 }}>
+          Story reaction — no text · {fmtTime(currentItem.createdAt)} · NEW
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -1679,105 +1731,82 @@ function DmInboxItem({
     )
   }
 
+  // Human-readable state description for the header subtitle
+  const stateDesc =
+    cardState === 'needs_review'     ? 'Needs reply'
+    : cardState === 'send_failed_open' ? 'Send failed'
+    : cardState === 'sending'          ? 'Sending…'
+    : cardState === 'status_unknown'   ? '⚠ Send outcome unknown'
+    : cardState === 'ai_suggested_ignore' ? 'AI suggests no reply'
+    : 'Needs reply'
+
   return (
-    <div style={{ ...S.card, borderLeft: '3px solid #2c2720' }}>
-      {/* Header */}
+    <div style={{ ...S.card, borderLeft: `3px solid ${cardState === 'send_failed_open' || cardState === 'status_unknown' ? '#c0504a' : '#2c2720'}` }}>
+
+      {/* ── Header ──────────────────────────────────────────────── */}
       <div style={{ ...S.cardHeader, alignItems: 'center' }} onClick={() => setExpanded(o => !o)}>
         <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
-          {/* Avatar */}
           <div onClick={e => e.stopPropagation()}>
             <SenderAvatar profilePictureUrl={item.profilePictureUrl} label={avatarLabel} />
           </div>
-
-          {/* Identity + badges */}
           <div style={{ minWidth: 0 }}>
-            {/* Primary label: @username or display_name or "Instagram User" */}
-            {igProfileHref ? (
-              <a
-                href={igProfileHref}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={e => e.stopPropagation()}
-                style={{ fontWeight: 700, fontSize: '13px', color: '#e8e4de', textDecoration: 'none' }}
-                onMouseOver={e => (e.currentTarget.style.textDecoration = 'underline')}
-                onMouseOut={e => (e.currentTarget.style.textDecoration = 'none')}
-              >
-                {primaryLabel}
-              </a>
-            ) : (
-              <span style={{ fontWeight: 700, fontSize: '13px', color: '#e8e4de' }}>{primaryLabel}</span>
-            )}
-
-            {/* Badges inline */}
-            {item.isStoryReply && (
-              <span style={{ marginLeft: '8px', fontSize: '10px', color: '#fff', background: '#b5975a', borderRadius: '3px', padding: '2px 6px', fontWeight: 700, letterSpacing: '0.04em' }}>
-                STORY REPLY
-              </span>
-            )}
-            {item.conversationOwner === 'human_temp' && (
-              <span style={{ marginLeft: '8px', fontSize: '10px', color: '#5a9e6f', border: '1px solid #5a9e6f', borderRadius: '3px', padding: '1px 5px' }}>
-                Human Hold
-              </span>
-            )}
-            {/* State badge — derived from cardState (never from failedReason alone) */}
-            {cardState === 'send_failed_open' && (
-              <span style={{ marginLeft: '8px', fontSize: '10px', color: '#c0504a', border: '1px solid #c0504a', borderRadius: '3px', padding: '1px 5px' }}>
-                Send Failed — Retry Available
-              </span>
-            )}
-            {cardState === 'sending' && (
-              <span style={{ marginLeft: '8px', fontSize: '10px', color: '#b5975a', border: '1px solid #b5975a', borderRadius: '3px', padding: '1px 5px' }}>
-                Sending…
-              </span>
-            )}
-            {cardState === 'status_unknown' && (
-              <span style={{ marginLeft: '8px', fontSize: '10px', color: '#c0504a', border: '1px solid #c0504a', borderRadius: '3px', padding: '1px 5px', fontWeight: 700 }}>
-                ⚠ Unknown — Check IG Outbox
-              </span>
-            )}
-            {cardState === 'ai_suggested_ignore' && (
-              <span style={{ marginLeft: '8px', fontSize: '10px', color: '#b5975a', border: '1px solid #b5975a', borderRadius: '3px', padding: '1px 5px', fontWeight: 700 }}>
-                AI Suggested Ignore
-              </span>
-            )}
-          </div>{/* /identity */}
-        </div>{/* /flex: 1 */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
-          <span style={{ fontSize: '11px', color: windowColor, fontWeight: urgent ? 700 : 400 }}>
-            ⏱ {fmtWindowRemaining(msLeft)}
-          </span>
-          <span style={{ fontSize: '11px', color: '#6b6359' }}>
-            {new Date(item.createdAt).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-          </span>
-          <span style={{ color: '#6b6359', fontSize: '11px' }}>{expanded ? '▲' : '▼'}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              {igProfileHref ? (
+                <a
+                  href={igProfileHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={e => e.stopPropagation()}
+                  style={{ fontWeight: 700, fontSize: '14px', color: '#e8e4de', textDecoration: 'none' }}
+                  onMouseOver={e => (e.currentTarget.style.textDecoration = 'underline')}
+                  onMouseOut={e => (e.currentTarget.style.textDecoration = 'none')}
+                >
+                  {primaryLabel}
+                </a>
+              ) : (
+                <span style={{ fontWeight: 700, fontSize: '14px', color: '#e8e4de' }}>{primaryLabel}</span>
+              )}
+              {item.isStoryReply && (
+                <span style={{ fontSize: '10px', color: '#fff', background: '#b5975a', borderRadius: '3px', padding: '1px 6px', fontWeight: 700 }}>
+                  STORY REPLY
+                </span>
+              )}
+              {item.conversationOwner === 'human_temp' && (
+                <span style={{ fontSize: '10px', color: '#5a9e6f', border: '1px solid #5a9e6f', borderRadius: '3px', padding: '1px 5px' }}>
+                  Human Hold
+                </span>
+              )}
+            </div>
+            <div style={{ fontSize: '11px', color: windowColor, marginTop: '2px', fontWeight: urgent ? 700 : 400 }}>
+              {stateDesc} · ⏱ {fmtWindowRemaining(msLeft)} remaining
+            </div>
+          </div>
         </div>
+        <span style={{ color: '#6b6359', fontSize: '11px', flexShrink: 0, marginLeft: '8px' }}>{expanded ? '▲' : '▼'}</span>
       </div>
 
       {expanded && (
-        <div style={S.cardBody}>
+        <div style={{ ...S.cardBody, paddingTop: '14px' }}>
 
-          {/* ── Conversation timeline ───────────────────────────── */}
-          <ConversationTimeline history={item.history} currentId={item.id} />
+          {/* ── Chat thread ─────────────────────────────────────── */}
+          <ConversationTimeline
+            history={item.history}
+            currentId={item.id}
+            currentItem={item}
+          />
 
-          {/* ── Story context (only for story replies) ──────────── */}
+          {/* ── Story context ────────────────────────────────────── */}
           {item.isStoryReply && (
-            <div style={{ marginBottom: '14px', borderRadius: '6px', border: '1px solid #3a3020', background: '#1a1508', overflow: 'hidden' }}>
-
-              {/* Thumbnail */}
+            <div style={{ margin: '14px 0 4px', borderRadius: '6px', border: '1px solid #3a3020', background: '#1a1508', overflow: 'hidden' }}>
               {item.storyContext?.mediaUrl ? (
                 <StoryThumbnail
                   mediaUrl={item.storyContext.mediaUrl}
                   mediaType={item.storyContext.mediaType}
                   fallbackText={item.storyContext.aiDescription || item.storyContext.caption || item.storyContext.ocrText}
                 />
-              ) : (
-                /* No media URL stored — show text fallback if any context exists */
-                (item.storyContext?.aiDescription || item.storyContext?.caption || item.storyContext?.ocrText) && (
-                  <StoryTextFallback text={item.storyContext.aiDescription || item.storyContext.caption || item.storyContext.ocrText} />
-                )
-              )}
-
-              {/* Story context / caption — shown separately from inbound DM */}
+              ) : (item.storyContext?.aiDescription || item.storyContext?.caption || item.storyContext?.ocrText) ? (
+                <StoryTextFallback text={item.storyContext.aiDescription || item.storyContext.caption || item.storyContext.ocrText} />
+              ) : null}
               {(item.storyContext?.caption || item.storyContext?.ocrText) && (
                 <div style={{ padding: '8px 10px', borderTop: item.storyContext?.mediaUrl ? '1px solid #3a3020' : undefined }}>
                   <span style={{ fontSize: '10px', color: '#b5975a', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', display: 'block', marginBottom: '3px' }}>
@@ -1788,20 +1817,12 @@ function DmInboxItem({
                   </p>
                 </div>
               )}
-
-              {/* AI scene description (shown only when no caption, as supplementary context) */}
               {!item.storyContext?.caption && !item.storyContext?.ocrText && item.storyContext?.aiDescription && (
                 <div style={{ padding: '8px 10px' }}>
-                  <span style={{ fontSize: '10px', color: '#b5975a', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', display: 'block', marginBottom: '3px' }}>
-                    Story Context
-                  </span>
-                  <p style={{ margin: 0, fontSize: '12px', color: '#9e8e6a', fontStyle: 'italic' }}>
-                    {item.storyContext.aiDescription}
-                  </p>
+                  <span style={{ fontSize: '10px', color: '#b5975a', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', display: 'block', marginBottom: '3px' }}>Story Context</span>
+                  <p style={{ margin: 0, fontSize: '12px', color: '#9e8e6a', fontStyle: 'italic' }}>{item.storyContext.aiDescription}</p>
                 </div>
               )}
-
-              {/* No story_context row found — show minimal notice */}
               {!item.storyContext && (
                 <div style={{ padding: '8px 10px' }}>
                   <span style={{ fontSize: '11px', color: '#6b6359' }}>Story context not available</span>
@@ -1810,198 +1831,200 @@ function DmInboxItem({
             </div>
           )}
 
-          {/* AI Recommended Ignore notice */}
-          {cardState === 'ai_suggested_ignore' && (
-            <div style={{ marginBottom: '12px', padding: '10px 12px', background: '#1a1508', border: '1px solid #3a3020', borderRadius: '4px', fontSize: '12px', color: '#c8b88a', lineHeight: 1.6 }}>
-              AI evaluated this Story reply and recommended no response.
-              Nothing has been sent. You can Write Reply, Ignore, or Take Over.
-            </div>
-          )}
+          {/* ── Composer panel ───────────────────────────────────── */}
+          {/* Visually separated from the chat thread above */}
+          <div style={{ marginTop: '16px', paddingTop: '14px', borderTop: '1px solid #1e1c19' }}>
 
-          {/* Inbound message — current review item */}
-          <span style={{ ...S.label, marginTop: '14px', color: '#9e9289', fontWeight: 700 }}>CURRENT MESSAGE FROM THEM</span>
-          <p style={{ ...S.value, whiteSpace: 'pre-wrap', lineHeight: 1.65, marginTop: '2px', direction: 'rtl', textAlign: 'right', background: '#0e0c0a', padding: '8px 10px', borderRadius: '4px', border: '1px solid #2c2720' }}>
-            {item.messageText || <em style={{ color: '#6b6359' }}>(no text — {item.messageType})</em>}
-          </p>
-
-          {/* AI Draft / Composer — editable. Never shown as sent until the human approves. */}
-          {cardState === 'ai_suggested_ignore' ? (
-            <>
-              {!showComposer ? (
-                <div style={{ marginTop: '12px' }}>
-                  <button onClick={() => setShowComposer(true)} style={{ ...btn('warn'), fontSize: '12px' }}>
-                    Write Reply
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <span style={{ ...S.label, marginTop: '12px' }}>YOUR REPLY — NOT SENT YET</span>
-                  <textarea
-                    value={editText}
-                    onChange={e => setEditText(e.target.value)}
-                    rows={5}
-                    style={{ ...S.textarea, direction: 'rtl', lineHeight: 1.7, marginTop: '4px' }}
-                    placeholder="Type your reply…"
-                  />
-                  {editText.trim() && (
-                    <div style={{ marginTop: '10px', padding: '8px 10px', background: '#0a1a0f', border: '1px solid #2a4a30', borderRadius: '4px' }}>
-                      <span style={{ fontSize: '10px', color: '#5a9e6f', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>
-                        WILL SEND IF APPROVED:
-                      </span>
-                      <p style={{ margin: 0, fontSize: '12px', color: '#c8e0cc', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right', lineHeight: 1.65 }}>
-                        {editText.trim()}
-                      </p>
-                    </div>
-                  )}
-                </>
-              )}
-            </>
-          ) : (
-            <>
-              <span style={{ ...S.label, marginTop: '12px' }}>
-                AI DRAFT — NOT SENT
-                <span style={{ color: '#6b6359', fontWeight: 400, marginLeft: '6px' }}>
-                  {cardState === 'needs_review' ? '· edit before approving' : '· window closed, cannot send'}
+            {/* PENDING_REVIEW ─────────────────────────────────── */}
+            {cardState === 'needs_review' && (
+              <>
+                <span style={{ ...S.label, color: '#c8b070', fontWeight: 700, letterSpacing: '0.08em' }}>
+                  AI SUGGESTED REPLY — NOT SENT
                 </span>
-              </span>
-              {cardState === 'needs_review' || cardState === 'send_failed_open' ? (
                 <textarea
                   value={editText}
                   onChange={e => setEditText(e.target.value)}
-                  rows={5}
-                  style={{ ...S.textarea, direction: 'rtl', lineHeight: 1.7, marginTop: '4px' }}
+                  rows={4}
+                  style={{ ...S.textarea, direction: 'rtl', lineHeight: 1.7, marginTop: '6px' }}
                   placeholder="AI draft will appear here…"
                 />
-              ) : (
-                <p style={{ ...S.value, whiteSpace: 'pre-wrap', lineHeight: 1.65, marginTop: '2px', color: '#6b6359', fontStyle: 'italic', background: '#0e0c0a', padding: '8px 10px', borderRadius: '4px', border: '1px solid #2c2720' }}>
-                  {item.responseText || '—'}
-                </p>
-              )}
-            </>
-          )}
-
-          {/* Metadata */}
-          <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '8px' }}>
-            {item.messageCount !== null && (
-              <span style={{ fontSize: '11px', color: '#6b6359' }}>
-                <span style={{ color: '#9e9289' }}>Messages from them:</span> {item.messageCount}
-              </span>
+                {editText.trim() && (
+                  <div style={{ marginTop: '8px', padding: '8px 10px', background: '#071a0d', border: '1px solid #1e4228', borderRadius: '4px' }}>
+                    <span style={{ fontSize: '10px', color: '#5a9e6f', fontWeight: 700, letterSpacing: '0.06em', display: 'block', marginBottom: '4px' }}>
+                      WILL SEND:
+                    </span>
+                    <p style={{ margin: 0, fontSize: '13px', color: '#9ee0b0', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right', lineHeight: 1.6 }}>
+                      {editText.trim()}
+                    </p>
+                  </div>
+                )}
+                {err     && <p style={{ color: '#c0504a', fontSize: '11px', margin: '8px 0 0' }}>{err}</p>}
+                {success && <p style={{ color: '#5a9e6f', fontSize: '11px', margin: '8px 0 0' }}>{success}</p>}
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '10px' }}>
+                  <button
+                    disabled={isBusy || !editText.trim()}
+                    onClick={() => { void send() }}
+                    style={{ ...btn('primary'), opacity: (isBusy || !editText.trim()) ? 0.5 : 1, fontSize: '12px' }}
+                  >
+                    {busy === 'send' ? '…' : 'Approve & Send'}
+                  </button>
+                  <button disabled={isBusy} onClick={() => void mutate('requeue')} style={{ ...btn('warn'), fontSize: '12px' }}>
+                    {busy === 'requeue' ? '…' : 'Regenerate'}
+                  </button>
+                  <button disabled={isBusy} onClick={() => void mutate('ignore')} style={{ ...btn('ghost'), fontSize: '12px' }}>
+                    {busy === 'ignore' ? '…' : 'Ignore'}
+                  </button>
+                  {item.conversationOwner !== 'human_temp' ? (
+                    <button disabled={isBusy} onClick={() => mutate('takeover')} style={{ ...btn('ghost'), fontSize: '12px' }}>
+                      {busy === 'takeover' ? '…' : 'Take Over'}
+                    </button>
+                  ) : (
+                    <button disabled={isBusy} onClick={() => mutate('release')} style={{ ...btn('ghost'), fontSize: '12px', color: '#5a9e6f', borderColor: '#5a9e6f' }}>
+                      {busy === 'release' ? '…' : 'Release to AI'}
+                    </button>
+                  )}
+                  <button disabled={isBusy} onClick={() => {
+                    if (!window.confirm(`Block ${displayName}? AI will never reply to them again.`)) return
+                    void mutate('block', { displayName: item.displayName || item.senderId })
+                  }} style={{ ...btn('danger'), fontSize: '12px' }}>
+                    {busy === 'block' ? '…' : 'Block'}
+                  </button>
+                </div>
+              </>
             )}
-            <span style={{ fontSize: '11px', color: '#6b6359' }}>
-              <span style={{ color: '#9e9289' }}>Sender ID:</span> {item.senderId}
-            </span>
-            {item.conversationOwner && (
-              <span style={{ fontSize: '11px', color: '#6b6359' }}>
-                <span style={{ color: '#9e9289' }}>Owner:</span> {item.conversationOwner}
-                {item.humanTakeoverReason ? ` (${item.humanTakeoverReason})` : ''}
-              </span>
+
+            {/* AI_RECOMMENDED_IGNORE ─────────────────────────── */}
+            {cardState === 'ai_suggested_ignore' && (
+              <>
+                <div style={{ padding: '10px 12px', background: '#1a1508', border: '1px solid #3a3020', borderRadius: '4px', fontSize: '12px', color: '#c8b88a', lineHeight: 1.6, marginBottom: '10px' }}>
+                  AI recommends no reply. Nothing has been sent.
+                </div>
+                {!showComposer ? (
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    <button onClick={() => setShowComposer(true)} style={{ ...btn('warn'), fontSize: '12px' }}>Write Reply</button>
+                    <button disabled={isBusy} onClick={() => void mutate('ignore')} style={{ ...btn('ghost'), fontSize: '12px' }}>
+                      {busy === 'ignore' ? '…' : 'Ignore'}
+                    </button>
+                    {item.conversationOwner !== 'human_temp' ? (
+                      <button disabled={isBusy} onClick={() => mutate('takeover')} style={{ ...btn('ghost'), fontSize: '12px' }}>
+                        {busy === 'takeover' ? '…' : 'Take Over'}
+                      </button>
+                    ) : (
+                      <button disabled={isBusy} onClick={() => mutate('release')} style={{ ...btn('ghost'), fontSize: '12px', color: '#5a9e6f', borderColor: '#5a9e6f' }}>
+                        {busy === 'release' ? '…' : 'Release to AI'}
+                      </button>
+                    )}
+                    <button disabled={isBusy} onClick={() => {
+                      if (!window.confirm(`Block ${displayName}? AI will never reply to them again.`)) return
+                      void mutate('block', { displayName: item.displayName || item.senderId })
+                    }} style={{ ...btn('danger'), fontSize: '12px' }}>
+                      {busy === 'block' ? '…' : 'Block'}
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <span style={{ ...S.label, color: '#c8b070', fontWeight: 700, letterSpacing: '0.08em' }}>
+                      YOUR REPLY — NOT SENT
+                    </span>
+                    <textarea
+                      value={editText}
+                      onChange={e => setEditText(e.target.value)}
+                      rows={4}
+                      style={{ ...S.textarea, direction: 'rtl', lineHeight: 1.7, marginTop: '6px' }}
+                      placeholder="Type your reply…"
+                    />
+                    {editText.trim() && (
+                      <div style={{ marginTop: '8px', padding: '8px 10px', background: '#071a0d', border: '1px solid #1e4228', borderRadius: '4px' }}>
+                        <span style={{ fontSize: '10px', color: '#5a9e6f', fontWeight: 700, letterSpacing: '0.06em', display: 'block', marginBottom: '4px' }}>WILL SEND:</span>
+                        <p style={{ margin: 0, fontSize: '13px', color: '#9ee0b0', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right', lineHeight: 1.6 }}>{editText.trim()}</p>
+                      </div>
+                    )}
+                    {err     && <p style={{ color: '#c0504a', fontSize: '11px', margin: '8px 0 0' }}>{err}</p>}
+                    {success && <p style={{ color: '#5a9e6f', fontSize: '11px', margin: '8px 0 0' }}>{success}</p>}
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '10px' }}>
+                      <button
+                        disabled={isBusy || !editText.trim()}
+                        onClick={() => { void send() }}
+                        style={{ ...btn('primary'), opacity: (isBusy || !editText.trim()) ? 0.5 : 1, fontSize: '12px' }}
+                      >
+                        {busy === 'send' ? '…' : 'Approve & Send'}
+                      </button>
+                      <button disabled={isBusy} onClick={() => void mutate('ignore')} style={{ ...btn('ghost'), fontSize: '12px' }}>
+                        {busy === 'ignore' ? '…' : 'Ignore'}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+
+            {/* SEND_FAILED ────────────────────────────────────── */}
+            {cardState === 'send_failed_open' && (
+              <>
+                <div style={{ padding: '10px 12px', background: '#1c0a0a', border: '1px solid #c0504a', borderRadius: '4px', marginBottom: '10px' }}>
+                  <span style={{ fontSize: '11px', color: '#c0504a', fontWeight: 700, display: 'block', marginBottom: '4px' }}>SEND FAILED</span>
+                  {item.responseText && (
+                    <p style={{ margin: 0, fontSize: '12px', color: '#bfb5a6', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right' }}>
+                      Attempted: {item.responseText}
+                    </p>
+                  )}
+                </div>
+                {err     && <p style={{ color: '#c0504a', fontSize: '11px', margin: '0 0 8px' }}>{err}</p>}
+                {success && <p style={{ color: '#5a9e6f', fontSize: '11px', margin: '0 0 8px' }}>{success}</p>}
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  <button
+                    disabled={isBusy}
+                    onClick={() => {
+                      if (!window.confirm('Reset this failed send attempt? You will need to re-approve before it sends.')) return
+                      void mutate('retry_send_failed')
+                    }}
+                    style={{ ...btn('warn'), fontSize: '12px' }}
+                  >
+                    {busy === 'retry_send_failed' ? '…' : 'Retry Send'}
+                  </button>
+                  <button disabled={isBusy} onClick={() => void mutate('ignore')} style={{ ...btn('ghost'), fontSize: '12px' }}>
+                    {busy === 'ignore' ? '…' : 'Ignore'}
+                  </button>
+                  {item.conversationOwner !== 'human_temp' ? (
+                    <button disabled={isBusy} onClick={() => mutate('takeover')} style={{ ...btn('ghost'), fontSize: '12px' }}>
+                      {busy === 'takeover' ? '…' : 'Take Over'}
+                    </button>
+                  ) : (
+                    <button disabled={isBusy} onClick={() => mutate('release')} style={{ ...btn('ghost'), fontSize: '12px', color: '#5a9e6f', borderColor: '#5a9e6f' }}>
+                      {busy === 'release' ? '…' : 'Release to AI'}
+                    </button>
+                  )}
+                  <button disabled={isBusy} onClick={() => {
+                    if (!window.confirm(`Block ${displayName}? AI will never reply to them again.`)) return
+                    void mutate('block', { displayName: item.displayName || item.senderId })
+                  }} style={{ ...btn('danger'), fontSize: '12px' }}>
+                    {busy === 'block' ? '…' : 'Block'}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* SENDING ────────────────────────────────────────── */}
+            {cardState === 'sending' && (
+              <span style={{ fontSize: '12px', color: '#b5975a' }}>Send in progress…</span>
+            )}
+
+            {/* STATUS_UNKNOWN ─────────────────────────────────── */}
+            {cardState === 'status_unknown' && (
+              <div style={{ background: '#1c100a', border: '1px solid #c0504a', borderRadius: '4px', padding: '10px 12px', fontSize: '12px', color: '#c0504a', lineHeight: 1.6 }}>
+                <strong>⚠ Send outcome unknown.</strong> Instagram may or may not have delivered this message.
+                Check your <strong>Instagram outbox</strong> before taking any action. Do <strong>not</strong> retry via this UI — resolve manually in Supabase after confirming.
+              </div>
             )}
           </div>
 
-          {/* Will send if approved — only shown for PENDING_REVIEW with open window */}
-          {cardState === 'needs_review' && editText.trim() && (
-            <div style={{ marginTop: '10px', padding: '8px 10px', background: '#0a1a0f', border: '1px solid #2a4a30', borderRadius: '4px' }}>
-              <span style={{ fontSize: '10px', color: '#5a9e6f', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>
-                WILL SEND IF APPROVED:
-              </span>
-              <p style={{ margin: 0, fontSize: '12px', color: '#c8e0cc', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right', lineHeight: 1.65 }}>
-                {editText.trim()}
-              </p>
-            </div>
-          )}
-
-          {/* Feedback */}
-          {err     && <p style={{ color: '#c0504a', fontSize: '11px', marginTop: '8px', margin: '8px 0 0' }}>{err}</p>}
-          {success && <p style={{ color: '#5a9e6f', fontSize: '11px', marginTop: '8px', margin: '8px 0 0' }}>{success}</p>}
-
-          {/* Actions — all derived from cardState, never from failedReason + windowOpen independently */}
-          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '12px', paddingTop: '10px', borderTop: '1px solid #1e1c19', alignItems: 'center' }}>
-
-            {/* Approve & Send — for needs_review or ai_suggested_ignore (when composer open and has text) */}
-            {(cardState === 'needs_review' || (cardState === 'ai_suggested_ignore' && showComposer && editText.trim())) && (
-              <button
-                disabled={isBusy || !editText.trim()}
-                onClick={() => { void send() }}
-                style={{
-                  ...btn('primary'),
-                  opacity: (isBusy || !editText.trim()) ? 0.5 : 1,
-                  padding: '5px 14px',
-                  fontSize: '12px',
-                }}
-              >
-                {busy === 'send' ? '…' : 'Approve & Send'}
-              </button>
+          {/* ── Minimal metadata ────────────────────────────────── */}
+          <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', marginTop: '10px', paddingTop: '8px', borderTop: '1px solid #141210', fontSize: '11px', color: '#3a3530' }}>
+            {item.conversationOwner && (
+              <span>Owner: {item.conversationOwner}{item.humanTakeoverReason ? ` (${item.humanTakeoverReason})` : ''}</span>
             )}
-
-            {/* Retry — only when SEND_FAILED and window is still open */}
-            {cardState === 'send_failed_open' && (
-              <button
-                disabled={isBusy}
-                onClick={() => {
-                  if (!window.confirm('Reset this failed send attempt? You will need to re-approve before it sends.')) return
-                  void mutate('retry_send_failed')
-                }}
-                style={{ ...btn('warn'), fontSize: '12px' }}
-              >
-                {busy === 'retry_send_failed' ? '…' : 'Retry Send'}
-              </button>
-            )}
-
-            {/* SENDING = in-flight; show status only, no actions */}
-            {cardState === 'sending' && (
-              <span style={{ fontSize: '11px', color: '#b5975a', padding: '5px 0' }}>
-                Send in progress…
-              </span>
-            )}
-
-            {/* SEND_STATUS_UNKNOWN = IG outcome uncertain — NON-RESENDABLE */}
-            {cardState === 'status_unknown' && (
-              <div style={{ background: '#1c100a', border: '1px solid #c0504a', borderRadius: '4px', padding: '8px 10px', fontSize: '11px', color: '#c0504a', lineHeight: 1.5 }}>
-                <strong>⚠ Send outcome unknown.</strong> Instagram may or may not have delivered this message.
-                Check your <strong>Instagram outbox</strong> before taking any action.
-                Do <strong>not</strong> retry via this UI — resolve manually in Supabase after confirming.
-              </div>
-            )}
-
-            <span style={{ width: '1px', background: '#2c2720', alignSelf: 'stretch', margin: '0 2px' }} />
-
-            {/* Regenerate — only for PENDING_REVIEW (re-runs AI) */}
-            {cardState === 'needs_review' && (
-              <button disabled={isBusy} onClick={() => void mutate('requeue')}
-                style={btn('warn')}>
-                {busy === 'requeue' ? '…' : 'Regenerate'}
-              </button>
-            )}
-
-            {/* Ignore — allowed for all unsent states; blocked for SENDING and SEND_STATUS_UNKNOWN */}
-            {cardState !== 'sending' && cardState !== 'status_unknown' && (
-              <button disabled={isBusy} onClick={() => void mutate('ignore')}
-                style={btn('ghost')}>
-                {busy === 'ignore' ? '…' : 'Ignore'}
-              </button>
-            )}
-
-            <span style={{ width: '1px', background: '#2c2720', alignSelf: 'stretch', margin: '0 2px' }} />
-
-            {item.conversationOwner !== 'human_temp' ? (
-              <button disabled={isBusy} onClick={() => mutate('takeover')}
-                style={btn('ghost')}>
-                {busy === 'takeover' ? '…' : 'Take Over'}
-              </button>
-            ) : (
-              <button disabled={isBusy} onClick={() => mutate('release')}
-                style={{ ...btn('ghost'), color: '#5a9e6f', borderColor: '#5a9e6f' }}>
-                {busy === 'release' ? '…' : 'Release to AI'}
-              </button>
-            )}
-
-            <button disabled={isBusy} onClick={() => {
-              if (!window.confirm(`Block ${displayName}? AI will never reply to them again.`)) return
-              void mutate('block', { displayName: item.displayName || item.senderId })
-            }}
-              style={btn('danger')}>
-              {busy === 'block' ? '…' : 'Block'}
-            </button>
+            <span>ID: {item.senderId}</span>
+            {item.messageCount !== null && <span>{item.messageCount} messages</span>}
           </div>
         </div>
       )}
