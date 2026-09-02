@@ -1536,7 +1536,7 @@ function DmInboxItem({
       const data = await call('/api/admin/dm-inbox', { action, id: item.id, senderId: item.senderId, ...extra })
       if (data.ok) {
         if (action === 'ignore')            setSuccess('Ignored')
-        if (action === 'requeue')           setSuccess('Re-queued for AI')
+        if (action === 'requeue')           setSuccess('Regeneration requested — refresh to see new draft')
         if (action === 'retry_send_failed') setSuccess('Reset — re-approve to send')
         if (action === 'takeover')          setSuccess('Taken over — AI paused')
         if (action === 'release')           setSuccess('Released to AI')
@@ -1552,17 +1552,40 @@ function DmInboxItem({
   const isBusy = busy !== null
   const windowColor = urgent ? '#b5975a' : '#5a9e6f'
 
-  // Regenerating: failed_reason=null + processed=false — queued for AI re-draft
+  // Regenerating: failed_reason=null + processed=false — queued for AI re-draft.
+  // Old draft is preserved in item.responseText (requeueDm no longer clears it).
+  // After 10 minutes without n8n pickup, show a timeout notice + Cancel button.
   if (cardState === 'regenerating') {
+    const regenElapsedMs  = Date.now() - new Date(item.createdAt).getTime()
+    const regenTimedOut   = regenElapsedMs > 10 * 60 * 1000 // 10 min
+    const regenElapsedMin = Math.floor(regenElapsedMs / 60000)
+
+    async function cancelRegen() {
+      // Restore row to PENDING_REVIEW with the preserved old draft still in response_text.
+      // Uses a PATCH with no failed_reason WHERE-guard because the row is currently null.
+      setBusy('cancel_regen'); setErr(null)
+      try {
+        const res = await fetch('/api/admin/dm-inbox', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ action: 'cancel_regen', id: item.id }),
+        })
+        const data = await res.json() as { ok: boolean; error?: string }
+        if (data.ok) { setTimeout(onRefresh, 400) }
+        else          { setErr(data.error ?? 'Cancel failed') }
+      } catch { setErr('Network error') }
+      finally { setBusy(null) }
+    }
+
     return (
-      <div style={{ ...S.card, borderLeft: '3px solid #b5975a' }}>
+      <div style={{ ...S.card, borderLeft: `3px solid ${regenTimedOut ? '#c0504a' : '#b5975a'}` }}>
         <div style={{ ...S.cardHeader, alignItems: 'center' }}>
           <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
             <SenderAvatar profilePictureUrl={item.profilePictureUrl} label={avatarLabel} />
             <div style={{ minWidth: 0 }}>
               <span style={{ fontWeight: 700, fontSize: '13px', color: '#e8e4de' }}>{primaryLabel}</span>
-              <span style={{ marginLeft: '8px', fontSize: '10px', color: '#b5975a', border: '1px solid #b5975a', borderRadius: '3px', padding: '1px 5px', fontWeight: 700 }}>
-                Regenerating…
+              <span style={{ marginLeft: '8px', fontSize: '10px', color: regenTimedOut ? '#c0504a' : '#b5975a', border: `1px solid ${regenTimedOut ? '#c0504a' : '#b5975a'}`, borderRadius: '3px', padding: '1px 5px', fontWeight: 700 }}>
+                {regenTimedOut ? `Regeneration delayed (${regenElapsedMin}m)` : 'Regenerating…'}
               </span>
             </div>
           </div>
@@ -1572,16 +1595,34 @@ function DmInboxItem({
             </span>
           </div>
         </div>
-        <div style={{ padding: '0 14px 12px', fontSize: '12px', color: '#6b6359' }}>
+        <div style={{ padding: '0 14px 12px', fontSize: '12px' }}>
           {item.messageText && (
             <p style={{ ...S.value, whiteSpace: 'pre-wrap', fontSize: '12px', color: '#9e9289', margin: '0 0 8px' }}>
               {item.messageText}
             </p>
           )}
-          <p style={{ margin: '0 0 8px', color: '#b5975a', fontStyle: 'italic' }}>
-            AI is generating a new draft — refresh to see it.
+          {item.responseText ? (
+            <div style={{ marginBottom: '8px' }}>
+              <p style={{ fontSize: '10px', color: '#6b6359', margin: '0 0 4px', fontWeight: 600, letterSpacing: '0.06em' }}>
+                PREVIOUS DRAFT — PRESERVED
+              </p>
+              <p style={{ ...S.value, whiteSpace: 'pre-wrap', fontSize: '12px', color: '#9e9289', fontStyle: 'italic', margin: 0 }}>
+                {item.responseText}
+              </p>
+            </div>
+          ) : null}
+          <p style={{ margin: '0 0 10px', color: regenTimedOut ? '#c0504a' : '#b5975a', fontSize: '11px' }}>
+            {regenTimedOut
+              ? 'AI draft has not arrived yet. Cancel to keep the previous draft, or refresh to check again.'
+              : 'AI is generating a new draft — refresh in a moment.'}
           </p>
-          <button onClick={onRefresh} style={{ ...btn('ghost'), fontSize: '11px' }}>Refresh</button>
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <button onClick={onRefresh} style={{ ...btn('ghost'), fontSize: '11px' }}>Refresh</button>
+            <button disabled={busy !== null} onClick={() => void cancelRegen()} style={{ ...btn('warn'), fontSize: '11px' }}>
+              {busy === 'cancel_regen' ? '…' : 'Cancel Regeneration'}
+            </button>
+          </div>
+          {err && <p style={{ color: '#c0504a', fontSize: '11px', marginTop: '6px' }}>{err}</p>}
         </div>
       </div>
     )

@@ -19,6 +19,7 @@ import {
   ignoreDm,
   rejectDm,
   requeueDm,
+  cancelRegenDm,
   retryDmSendFailed,
   takeoverConversation,
   releaseToAi,
@@ -80,7 +81,28 @@ export async function POST(req: NextRequest) {
       case 'requeue': {
         if (!id) return NextResponse.json({ error: 'id required' }, { status: 422 })
         const requeued = await requeueDm(id)
-        return NextResponse.json({ ok: true, requeued })
+        if (!requeued) {
+          return NextResponse.json(
+            { ok: false, error: 'Cannot regenerate: row is not in PENDING_REVIEW state (may have been sent, ignored, or already requeued)' },
+            { status: 422 }
+          )
+        }
+        return NextResponse.json({ ok: true, requeued: true })
+      }
+
+      case 'cancel_regen': {
+        // Restore a regenerating row (failed_reason=null, processed=false) back to PENDING_REVIEW.
+        // The old draft in response_text is preserved — not touched by this action.
+        // Uses no WHERE guard on failed_reason so it can target null rows.
+        if (!id) return NextResponse.json({ error: 'id required' }, { status: 422 })
+        const cancelled = await cancelRegenDm(id)
+        if (!cancelled) {
+          return NextResponse.json(
+            { ok: false, error: 'Cancel failed: row may have already been processed or is no longer regenerating' },
+            { status: 422 }
+          )
+        }
+        return NextResponse.json({ ok: true })
       }
 
       case 'retry_send_failed': {
@@ -117,7 +139,7 @@ export async function POST(req: NextRequest) {
 
       default:
         return NextResponse.json(
-          { error: 'action must be: ignore | requeue | retry_send_failed | takeover | release | block | unblock' },
+          { error: 'action must be: ignore | requeue | cancel_regen | retry_send_failed | takeover | release | block | unblock' },
           { status: 422 }
         )
     }

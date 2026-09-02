@@ -1014,7 +1014,17 @@ export async function retryDmSendFailed(id: string): Promise<boolean> {
   return rows.length > 0
 }
 
-/** Re-queue for AI. Clears processed/response_text/failed_reason so n8n picks it up again. */
+/**
+ * Re-queue a PENDING_REVIEW row for AI re-drafting.
+ *
+ * Sets failed_reason=null + processed=false so n8n's polling workflow picks it up.
+ * Does NOT clear response_text — the existing draft is preserved until n8n overwrites
+ * it with a fresh one. This means if n8n fails or times out, the old draft is still
+ * available; the admin sees the old draft in the 'regenerating' card and can cancel.
+ *
+ * Only matches rows that are currently PENDING_REVIEW (atomic guard: prevents
+ * double-requeue and guards against requeuing an already-sent or in-flight row).
+ */
 export async function requeueDm(id: string): Promise<boolean> {
   const res = await fetch(
     `${base()}/rest/v1/instagram_dm_buffer` +
@@ -1023,7 +1033,30 @@ export async function requeueDm(id: string): Promise<boolean> {
     {
       method:  'PATCH',
       headers: { ...headers(), Prefer: 'return=representation' },
-      body:    JSON.stringify({ processed: false, processing: false, response_text: null, failed_reason: null }),
+      // response_text intentionally NOT cleared: old draft preserved until n8n overwrites it.
+      // If n8n never picks this up (timeout), admin can cancel and the old draft is still there.
+      body:    JSON.stringify({ processed: false, processing: false, failed_reason: null }),
+    }
+  )
+  if (!res.ok) return false
+  const rows = await res.json() as { id: string }[]
+  return rows.length > 0
+}
+
+/**
+ * Cancel a regeneration request — restore a regenerating row (failed_reason=null, processed=false)
+ * back to PENDING_REVIEW without touching response_text.
+ * Old draft is preserved; admin can review it and decide whether to send, edit, or ignore.
+ */
+export async function cancelRegenDm(id: string): Promise<boolean> {
+  const res = await fetch(
+    `${base()}/rest/v1/instagram_dm_buffer` +
+    `?id=eq.${encodeURIComponent(id)}&failed_reason=is.null&processed=eq.false` +
+    `&select=id`,
+    {
+      method:  'PATCH',
+      headers: { ...headers(), Prefer: 'return=representation' },
+      body:    JSON.stringify({ failed_reason: 'PENDING_REVIEW', processed: true, processing: false }),
     }
   )
   if (!res.ok) return false
