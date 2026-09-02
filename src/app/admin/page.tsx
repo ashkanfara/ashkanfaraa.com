@@ -1169,6 +1169,7 @@ interface DmItem {
   messageText:     string | null
   messageType:     string
   createdAt:       string
+  processingStartedAt: string | null
   isStoryReply:    boolean
   isStoryMention:  boolean
   storyId:         string | null
@@ -1556,7 +1557,10 @@ function DmInboxItem({
   // Old draft is preserved in item.responseText (requeueDm no longer clears it).
   // After 10 minutes without n8n pickup, show a timeout notice + Cancel button.
   if (cardState === 'regenerating') {
-    const regenElapsedMs  = Date.now() - new Date(item.createdAt).getTime()
+    // Use processing_started_at (stamped by requeueDm at click-time) so elapsed reflects
+    // actual regeneration age, not the original DM arrival age (created_at).
+    const regenOrigin     = item.processingStartedAt ?? item.createdAt
+    const regenElapsedMs  = Date.now() - new Date(regenOrigin).getTime()
     const regenTimedOut   = regenElapsedMs > 10 * 60 * 1000 // 10 min
     const regenElapsedMin = Math.floor(regenElapsedMs / 60000)
 

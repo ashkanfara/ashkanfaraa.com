@@ -478,6 +478,7 @@ export interface DmBufferRow {
   messageText:     string | null
   messageType:     string
   createdAt:       string
+  processingStartedAt: string | null  // set by requeueDm() on regeneration; overwritten by n8n on claim
   isStoryReply:    boolean
   isStoryMention:  boolean
   storyId:         string | null
@@ -641,7 +642,7 @@ export async function getDmInbox(): Promise<{
     // within the window in practice, so a single created_at cutoff covers all states.
     const windowCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
     const SELECT =
-      `id,sender_id,message_text,message_type,created_at,is_story_reply,is_story_mention,` +
+      `id,sender_id,message_text,message_type,created_at,processing_started_at,is_story_reply,is_story_mention,` +
       `story_id,story_url,response_text,failed_reason,response_sent,response_sent_at,final_response_text`
     // Main query: rows with explicit actionable failed_reason values
     const mainRes = await fetch(
@@ -810,8 +811,9 @@ export async function getDmInbox(): Promise<{
       senderId:        r.sender_id,
       messageText:     r.message_text,
       messageType:     r.message_type,
-      createdAt:       r.created_at,
-      isStoryReply:    r.is_story_reply   ?? false,
+      createdAt:           r.created_at,
+      processingStartedAt: r.processing_started_at ?? null,
+      isStoryReply:        r.is_story_reply   ?? false,
       isStoryMention:  r.is_story_mention ?? false,
       storyId:         r.story_id         ?? null,
       storyUrl:        r.story_url        ?? null,
@@ -1035,7 +1037,15 @@ export async function requeueDm(id: string): Promise<boolean> {
       headers: { ...headers(), Prefer: 'return=representation' },
       // response_text intentionally NOT cleared: old draft preserved until n8n overwrites it.
       // If n8n never picks this up (timeout), admin can cancel and the old draft is still there.
-      body:    JSON.stringify({ processed: false, processing: false, failed_reason: null }),
+      // processing_started_at is stamped to now() so the UI timer counts from this moment,
+      // not from the original created_at. n8n will overwrite it when it claims the row (~30s later),
+      // which is acceptable — the timer resets to ~0 at that point and the card resolves shortly after.
+      body:    JSON.stringify({
+        processed: false,
+        processing: false,
+        failed_reason: null,
+        processing_started_at: new Date().toISOString(),
+      }),
     }
   )
   if (!res.ok) return false
@@ -1056,7 +1066,7 @@ export async function cancelRegenDm(id: string): Promise<boolean> {
     {
       method:  'PATCH',
       headers: { ...headers(), Prefer: 'return=representation' },
-      body:    JSON.stringify({ failed_reason: 'PENDING_REVIEW', processed: true, processing: false }),
+      body:    JSON.stringify({ failed_reason: 'PENDING_REVIEW', processed: true, processing: false, processing_started_at: null }),
     }
   )
   if (!res.ok) return false
