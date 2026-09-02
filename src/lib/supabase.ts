@@ -640,12 +640,15 @@ export async function getDmInbox(): Promise<{
     // SENDING and SEND_STATUS_UNKNOWN are transient (30s timeout) and will always be
     // within the window in practice, so a single created_at cutoff covers all states.
     const windowCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    const SELECT =
+      `id,sender_id,message_text,message_type,created_at,is_story_reply,is_story_mention,` +
+      `story_id,story_url,response_text,failed_reason,response_sent,response_sent_at,final_response_text`
+    // Main query: rows with explicit actionable failed_reason values
     const mainRes = await fetch(
       `${base()}/rest/v1/instagram_dm_buffer` +
       `?failed_reason=in.(PENDING_REVIEW,SEND_FAILED,IG_SEND_ERROR,SEND_STATUS_UNKNOWN,SENDING,AI_RECOMMENDED_IGNORE,HUMAN_TEMP_SKIP,STORY_MENTION_HUMAN_HOLD)` +
       `&created_at=gt.${encodeURIComponent(windowCutoff)}` +
-      `&select=id,sender_id,message_text,message_type,created_at,is_story_reply,is_story_mention,` +
-      `story_id,story_url,response_text,failed_reason,response_sent,response_sent_at,final_response_text` +
+      `&select=${SELECT}` +
       `&order=created_at.asc`,
       { headers: headers(), cache: 'no-store' }
     )
@@ -653,8 +656,30 @@ export async function getDmInbox(): Promise<{
       console.error('[supabase/getDmInbox] main query failed:', mainRes.status, await mainRes.text())
       return { items: [], history: {} }
     }
+    // Secondary query: failed_reason=null AND processed=false — rows requeued for AI re-drafting.
+    // These are shown as 'regenerating' cards so the admin never sees the card disappear mid-regeneration.
+    // processed=true null rows are n8n "no reply needed" completions — excluded.
+    const requeueRes = await fetch(
+      `${base()}/rest/v1/instagram_dm_buffer` +
+      `?failed_reason=is.null&processed=eq.false&response_sent=eq.false` +
+      `&created_at=gt.${encodeURIComponent(windowCutoff)}` +
+      `&select=${SELECT}` +
+      `&order=created_at.asc`,
+      { headers: headers(), cache: 'no-store' }
+    )
+    // Merge both result sets — requeue failures are non-fatal (log and continue with main only)
+    const requeueRows: unknown[] = requeueRes.ok ? await requeueRes.json() : []
+    if (!requeueRes.ok) {
+      console.warn('[supabase/getDmInbox] requeue query failed:', requeueRes.status)
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rows = await mainRes.json() as any[]
+    const mainRows = await mainRes.json() as any[]
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rows: any[] = [
+      ...mainRows,
+      // Deduplicate: exclude requeue rows whose id already appears in main results
+      ...(requeueRows as { id: string }[]).filter(r => !mainRows.some((m: { id: string }) => m.id === r.id)),
+    ].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
     if (rows.length === 0) return { items: [], history: {} }
 
     // Step 2: enrich with instagram_users + conversation_state for the collected sender_ids

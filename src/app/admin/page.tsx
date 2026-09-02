@@ -1213,8 +1213,11 @@ type CardState =
   | 'ai_suggested_ignore' // AI_RECOMMENDED_IGNORE — dedicated section, Write Reply available
   | 'human_managed'    // HUMAN_TEMP_SKIP — audit/history only
   | 'story_mention'    // STORY_MENTION_HUMAN_HOLD — audit/history only
+  | 'regenerating'     // failed_reason=null + processed=false — queued for AI re-draft; card stays visible
 
 function getCardState(item: DmItem): CardState {
+  // null = queued for n8n re-drafting (Regenerate was clicked); keep card visible
+  if (item.failedReason === null)                  return 'regenerating'
   if (item.failedReason === 'SENDING')             return 'sending'
   if (item.failedReason === 'SEND_STATUS_UNKNOWN') return 'status_unknown'
   if (item.failedReason === 'SEND_FAILED' || item.failedReason === 'IG_SEND_ERROR') return 'send_failed_open'
@@ -1548,6 +1551,41 @@ function DmInboxItem({
 
   const isBusy = busy !== null
   const windowColor = urgent ? '#b5975a' : '#5a9e6f'
+
+  // Regenerating: failed_reason=null + processed=false — queued for AI re-draft
+  if (cardState === 'regenerating') {
+    return (
+      <div style={{ ...S.card, borderLeft: '3px solid #b5975a' }}>
+        <div style={{ ...S.cardHeader, alignItems: 'center' }}>
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <SenderAvatar profilePictureUrl={item.profilePictureUrl} label={avatarLabel} />
+            <div style={{ minWidth: 0 }}>
+              <span style={{ fontWeight: 700, fontSize: '13px', color: '#e8e4de' }}>{primaryLabel}</span>
+              <span style={{ marginLeft: '8px', fontSize: '10px', color: '#b5975a', border: '1px solid #b5975a', borderRadius: '3px', padding: '1px 5px', fontWeight: 700 }}>
+                Regenerating…
+              </span>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+            <span style={{ fontSize: '11px', color: '#6b6359' }}>
+              {new Date(item.createdAt).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+            </span>
+          </div>
+        </div>
+        <div style={{ padding: '0 14px 12px', fontSize: '12px', color: '#6b6359' }}>
+          {item.messageText && (
+            <p style={{ ...S.value, whiteSpace: 'pre-wrap', fontSize: '12px', color: '#9e9289', margin: '0 0 8px' }}>
+              {item.messageText}
+            </p>
+          )}
+          <p style={{ margin: '0 0 8px', color: '#b5975a', fontStyle: 'italic' }}>
+            AI is generating a new draft — refresh to see it.
+          </p>
+          <button onClick={onRefresh} style={{ ...btn('ghost'), fontSize: '11px' }}>Refresh</button>
+        </div>
+      </div>
+    )
+  }
 
   // Early returns for audit-only states
   if (cardState === 'human_managed' || cardState === 'story_mention') {
@@ -1962,7 +2000,7 @@ function DmInbox() {
   const aiIgnoreItems  = allItems.filter(i => getCardState(i) === 'ai_suggested_ignore')
   const needsAttention = allItems.filter(i => {
     const s = getCardState(i)
-    return s === 'sending' || s === 'status_unknown' || s === 'send_failed_open'
+    return s === 'sending' || s === 'status_unknown' || s === 'send_failed_open' || s === 'regenerating'
   })
   const auditItems     = allItems.filter(i => {
     const s = getCardState(i)
