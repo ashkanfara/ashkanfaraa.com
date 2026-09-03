@@ -44,6 +44,7 @@ import {
   markDmSendFailed,
   markDmStatusUnknown,
   getBlockedSenderIds,
+  saveDmFeedback,
 } from '@/lib/supabase'
 import { requireAdminSession, validateSameOrigin } from '@/lib/adminSession'
 
@@ -76,9 +77,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
   }
 
-  // ── 3. Parse and validate browser input (id + finalText only) ─
-  // Validation runs before server-config checks so callers get meaningful errors.
-  let body: { id?: unknown; finalText?: unknown }
+  // ── 3. Parse and validate browser input ───────────────────────
+  // Required: id, finalText
+  // Optional: feedbackRating, feedbackCategory, feedbackNote (never trusted for send logic)
+  let body: { id?: unknown; finalText?: unknown; feedbackRating?: unknown; feedbackCategory?: unknown; feedbackNote?: unknown }
   try { body = await req.json() }
   catch { return NextResponse.json({ ok: false, error: 'Invalid JSON' }, { status: 400 }) }
 
@@ -88,6 +90,12 @@ export async function POST(req: NextRequest) {
   if (!id)              return NextResponse.json({ ok: false, error: 'id is required' }, { status: 422 })
   if (!finalText)       return NextResponse.json({ ok: false, error: 'finalText is required' }, { status: 422 })
   if (finalText.length > 1000) return NextResponse.json({ ok: false, error: 'Message too long (max 1000 chars)' }, { status: 422 })
+
+  const ALLOWED_RATINGS    = ['good', 'ok', 'bad']
+  const ALLOWED_CATEGORIES = ['good', 'too_long', 'too_short', 'too_soft', 'too_salesy', 'wrong_tone', 'wrong_context', 'missed_context', 'other']
+  const feedbackRating   = typeof body.feedbackRating   === 'string' && ALLOWED_RATINGS.includes(body.feedbackRating)    ? body.feedbackRating   : null
+  const feedbackCategory = typeof body.feedbackCategory === 'string' && ALLOWED_CATEGORIES.includes(body.feedbackCategory) ? body.feedbackCategory : null
+  const feedbackNote     = typeof body.feedbackNote     === 'string' ? body.feedbackNote.slice(0, 500) : null
 
   if (!supabaseConfigured()) {
     return NextResponse.json({ ok: false, error: 'Supabase is not configured.' }, { status: 503 })
@@ -112,7 +120,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, alreadySent: true })
   }
 
-  const { senderId, createdAt } = claimed
+  const { senderId, createdAt, responseText: originalDraft, messageText, draftSource } = claimed
 
   // ── 5. Re-check: messaging window (server-side) ──────────────
   const windowExpiry = new Date(createdAt).getTime() + WINDOW_MS
@@ -187,6 +195,24 @@ export async function POST(req: NextRequest) {
         error: 'send_status_unknown',
         hint:  'Instagram sent the message but the database could not be updated. Check your Instagram outbox. Do not retry.',
       })
+    }
+
+    // Write feedback record — fire-and-forget, never blocks or fails the send response
+    try {
+      await saveDmFeedback({
+        bufferId:          id,
+        senderId:          senderId,
+        inboundContext:    messageText,
+        originalDraft:     originalDraft ?? null,
+        finalSentResponse: finalText,
+        draftSource:       draftSource ?? null,
+        wasEdited:         originalDraft !== null && finalText !== originalDraft,
+        feedbackRating:    feedbackRating,
+        feedbackCategory:  feedbackCategory,
+        feedbackNote:      feedbackNote,
+      })
+    } catch (fbErr) {
+      console.error('[dm-inbox/send] feedback save failed (non-fatal):', fbErr)
     }
 
     console.log(`[dm-inbox/send] ✓ SENT | review=${id} sender=${senderId} ig_msg=${igMessageId}`)

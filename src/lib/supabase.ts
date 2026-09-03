@@ -857,7 +857,7 @@ export async function getDmInbox(): Promise<{
  *
  */
 export async function claimDmForSend(id: string, finalText: string): Promise<{
-  senderId: string; createdAt: string; responseText: string | null
+  senderId: string; createdAt: string; responseText: string | null; messageText: string | null; draftSource: string | null
 } | null> {
   const patchBody: Record<string, string | null> = {
     failed_reason:       'SENDING',
@@ -867,7 +867,7 @@ export async function claimDmForSend(id: string, finalText: string): Promise<{
   const res = await fetch(
     `${base()}/rest/v1/instagram_dm_buffer` +
     `?id=eq.${encodeURIComponent(id)}&failed_reason=in.(PENDING_REVIEW,AI_RECOMMENDED_IGNORE)` +
-    `&select=sender_id,created_at,response_text`,
+    `&select=sender_id,created_at,response_text,message_text,draft_source`,
     {
       method:  'PATCH',
       headers: { ...headers(), Prefer: 'return=representation' },
@@ -878,9 +878,67 @@ export async function claimDmForSend(id: string, finalText: string): Promise<{
     console.error('[supabase/claimDmForSend] PATCH failed:', res.status, await res.text())
     return null
   }
-  const rows = await res.json() as { sender_id: string; created_at: string; response_text: string | null }[]
+  const rows = await res.json() as {
+    sender_id: string; created_at: string; response_text: string | null
+    message_text: string | null; draft_source: string | null
+  }[]
   if (rows.length === 0) return null
-  return { senderId: rows[0].sender_id, createdAt: rows[0].created_at, responseText: rows[0].response_text }
+  return {
+    senderId:    rows[0].sender_id,
+    createdAt:   rows[0].created_at,
+    responseText: rows[0].response_text,
+    messageText: rows[0].message_text  ?? null,
+    draftSource: rows[0].draft_source  ?? null,
+  }
+}
+
+export interface DmFeedbackRecord {
+  bufferId:          string
+  senderId:          string
+  inboundContext:    string | null
+  originalDraft:     string | null
+  finalSentResponse: string
+  draftSource:       string | null
+  wasEdited:         boolean
+  feedbackRating:    string | null
+  feedbackCategory:  string | null
+  feedbackNote:      string | null
+}
+
+export async function saveDmFeedback(data: DmFeedbackRecord): Promise<void> {
+  const res = await fetch(`${base()}/rest/v1/dm_response_feedback`, {
+    method:  'POST',
+    headers: headers(),
+    body: JSON.stringify({
+      buffer_id:           data.bufferId,
+      sender_id:           data.senderId,
+      inbound_context:     data.inboundContext,
+      original_draft:      data.originalDraft,
+      final_sent_response: data.finalSentResponse,
+      draft_source:        data.draftSource,
+      was_edited:          data.wasEdited,
+      feedback_rating:     data.feedbackRating,
+      feedback_category:   data.feedbackCategory,
+      feedback_note:       data.feedbackNote,
+    }),
+  })
+  if (!res.ok) {
+    console.error('[supabase/saveDmFeedback] POST failed:', res.status, await res.text())
+    throw new Error(`saveDmFeedback failed: ${res.status}`)
+  }
+}
+
+export async function getDmFeedback(limit = 100, offsetN = 0): Promise<Record<string, unknown>[]> {
+  const res = await fetch(
+    `${base()}/rest/v1/dm_response_feedback` +
+    `?order=created_at.desc&limit=${limit}&offset=${offsetN}`,
+    { headers: headers() }
+  )
+  if (!res.ok) {
+    console.error('[supabase/getDmFeedback] fetch failed:', res.status)
+    return []
+  }
+  return res.json()
 }
 
 /**

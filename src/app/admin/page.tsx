@@ -1529,18 +1529,79 @@ function ConversationTimeline({
   )
 }
 
+const FB_CATEGORIES: { value: string; label: string }[] = [
+  { value: 'good',           label: 'Good draft' },
+  { value: 'too_long',       label: 'Too long' },
+  { value: 'too_short',      label: 'Too short' },
+  { value: 'too_soft',       label: 'Too soft' },
+  { value: 'too_salesy',     label: 'Too salesy' },
+  { value: 'wrong_tone',     label: 'Wrong tone' },
+  { value: 'missed_context', label: 'Missed context' },
+  { value: 'other',          label: 'Other' },
+]
+
+function FeedbackControls({
+  category, note, onCategory, onNote,
+}: {
+  category:    string | null
+  note:        string
+  onCategory:  (v: string | null) => void
+  onNote:      (v: string) => void
+}) {
+  return (
+    <div style={{ marginTop: '10px' }}>
+      <span style={{ fontSize: '10px', color: '#4a443c', letterSpacing: '0.06em', fontWeight: 600 }}>
+        FEEDBACK (OPTIONAL)
+      </span>
+      <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '5px' }}>
+        {FB_CATEGORIES.map(c => (
+          <button
+            key={c.value}
+            onClick={() => onCategory(category === c.value ? null : c.value)}
+            style={{
+              fontSize: '10px', padding: '2px 8px', borderRadius: '10px', cursor: 'pointer',
+              border: `1px solid ${category === c.value ? '#5a9e6f' : '#2c2720'}`,
+              background: category === c.value ? '#0a2414' : 'transparent',
+              color: category === c.value ? '#5a9e6f' : '#5a5248',
+            }}
+          >
+            {c.label}
+          </button>
+        ))}
+      </div>
+      {category && (
+        <textarea
+          value={note}
+          onChange={e => onNote(e.target.value)}
+          rows={2}
+          maxLength={500}
+          placeholder="Optional note…"
+          style={{
+            marginTop: '6px', width: '100%', resize: 'vertical', boxSizing: 'border-box',
+            background: '#111009', border: '1px solid #2c2720', borderRadius: '4px',
+            color: '#c8c0b0', fontSize: '11px', padding: '5px 8px', fontFamily: 'inherit',
+            direction: 'rtl',
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
 function DmInboxItem({
   item, onRefresh,
 }: {
   item:      DmItem
   onRefresh: () => void
 }) {
-  const [editText,     setEditText]     = useState(item.responseText ?? '')
-  const [busy,         setBusy]         = useState<string | null>(null)
-  const [err,          setErr]          = useState<string | null>(null)
-  const [success,      setSuccess]      = useState<string | null>(null)
-  const [expanded,     setExpanded]     = useState(true)
-  const [showComposer, setShowComposer] = useState(false)
+  const [editText,        setEditText]        = useState(item.responseText ?? '')
+  const [busy,            setBusy]            = useState<string | null>(null)
+  const [err,             setErr]             = useState<string | null>(null)
+  const [success,         setSuccess]         = useState<string | null>(null)
+  const [expanded,        setExpanded]        = useState(true)
+  const [showComposer,    setShowComposer]     = useState(false)
+  const [fbCategory,      setFbCategory]      = useState<string | null>(null)
+  const [fbNote,          setFbNote]          = useState('')
 
   const msLeft    = windowMsRemaining(item.createdAt)
   const urgent    = msLeft < 2 * 3_600_000
@@ -1558,7 +1619,7 @@ function DmInboxItem({
 
   async function call(
     path: string,
-    body: Record<string, string>
+    body: Record<string, string | null | boolean>
   ): Promise<{ ok: boolean; error?: string }> {
     const res = await fetch(path, {
       method:  'POST',
@@ -1572,7 +1633,12 @@ function DmInboxItem({
     if (!editText.trim()) return
     setBusy('send'); setErr(null); setSuccess(null)
     try {
-      const data = await call('/api/admin/dm-inbox/send', { id: item.id, finalText: editText })
+      const data = await call('/api/admin/dm-inbox/send', {
+        id:               item.id,
+        finalText:        editText,
+        feedbackCategory: fbCategory,
+        feedbackNote:     fbNote.trim() || null,
+      })
       if (data.ok) {
         setSuccess('✓ Sent')
         setTimeout(onRefresh, 1200)
@@ -1860,6 +1926,8 @@ function DmInboxItem({
                 )}
                 {err     && <p style={{ color: '#c0504a', fontSize: '11px', margin: '8px 0 0' }}>{err}</p>}
                 {success && <p style={{ color: '#5a9e6f', fontSize: '11px', margin: '8px 0 0' }}>{success}</p>}
+                {/* Optional feedback controls — captured on send, not blocking */}
+                <FeedbackControls category={fbCategory} note={fbNote} onCategory={setFbCategory} onNote={setFbNote} />
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '10px' }}>
                   <button
                     disabled={isBusy || !editText.trim()}
@@ -1941,6 +2009,7 @@ function DmInboxItem({
                     )}
                     {err     && <p style={{ color: '#c0504a', fontSize: '11px', margin: '8px 0 0' }}>{err}</p>}
                     {success && <p style={{ color: '#5a9e6f', fontSize: '11px', margin: '8px 0 0' }}>{success}</p>}
+                    <FeedbackControls category={fbCategory} note={fbNote} onCategory={setFbCategory} onNote={setFbNote} />
                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '10px' }}>
                       <button
                         disabled={isBusy || !editText.trim()}
