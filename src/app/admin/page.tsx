@@ -1210,15 +1210,20 @@ type CardState =
   | 'sending'          // SENDING — in-flight, no admin actions
   | 'status_unknown'   // SEND_STATUS_UNKNOWN — manual reconciliation required
   | 'needs_review'     // PENDING_REVIEW — primary actionable
+  | 'needs_generation' // failed_reason=null + psa=null — fresh inbound, no draft yet; human chooses generation mode
   | 'send_failed_open' // SEND_FAILED/IG_SEND_ERROR — window still open, Retry Send available
   | 'ai_suggested_ignore' // AI_RECOMMENDED_IGNORE — dedicated section, Write Reply available
   | 'human_managed'    // HUMAN_TEMP_SKIP — audit/history only
   | 'story_mention'    // STORY_MENTION_HUMAN_HOLD — audit/history only
-  | 'regenerating'     // failed_reason=null + processed=false — queued for AI re-draft; card stays visible
+  | 'regenerating'     // failed_reason=null + psa=SET — admin-requeued for AI re-draft; card stays visible
 
 function getCardState(item: DmItem): CardState {
-  // null = queued for n8n re-drafting (Regenerate was clicked); keep card visible
-  if (item.failedReason === null)                  return 'regenerating'
+  if (item.failedReason === null) {
+    // Discriminate by processing_started_at:
+    //   null  = fresh inbound (manual_claude mode — n8n never auto-drafted)
+    //   SET   = admin clicked Regenerate (requeueDm stamped psa at click-time)
+    return item.processingStartedAt ? 'regenerating' : 'needs_generation'
+  }
   if (item.failedReason === 'SENDING')             return 'sending'
   if (item.failedReason === 'SEND_STATUS_UNKNOWN') return 'status_unknown'
   if (item.failedReason === 'SEND_FAILED' || item.failedReason === 'IG_SEND_ERROR') return 'send_failed_open'
@@ -1671,8 +1676,92 @@ function DmInboxItem({
   const isBusy = busy !== null
   const windowColor = urgent ? '#b5975a' : '#5a9e6f'
 
-  // Regenerating: failed_reason=null + processed=false — queued for AI re-draft.
-  // Old draft is preserved in item.responseText (requeueDm no longer clears it).
+  // needs_generation: fresh inbound in manual_claude mode — n8n never auto-drafted.
+  // Human must explicitly choose how to generate (or write directly).
+  if (cardState === 'needs_generation') {
+    async function generate(mode: 'claude' | 'api') {
+      setBusy(`generate_${mode}` as 'generate_claude' | 'generate_api'); setErr(null)
+      try {
+        const res = await fetch('/api/admin/dm-inbox/generate', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ id: item.id, mode }),
+        })
+        const data = await res.json() as { ok: boolean; error?: string }
+        if (data.ok) { setTimeout(onRefresh, 400) }
+        else          { setErr(data.error ?? 'Generation failed') }
+      } catch { setErr('Network error') }
+      finally { setBusy(null) }
+    }
+
+    return (
+      <div style={{ ...S.card, borderLeft: '3px solid #5a7eb5' }}>
+        <div style={{ ...S.cardHeader, alignItems: 'center' }}>
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <SenderAvatar profilePictureUrl={item.profilePictureUrl} label={avatarLabel} />
+            <div style={{ minWidth: 0 }}>
+              <span style={{ fontWeight: 700, fontSize: '13px', color: '#e8e4de' }}>{primaryLabel}</span>
+              <span style={{ marginLeft: '8px', fontSize: '10px', color: '#5a7eb5', border: '1px solid #5a7eb5', borderRadius: '3px', padding: '1px 5px', fontWeight: 700 }}>
+                Needs Generation
+              </span>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+            <span style={{ fontSize: '11px', color: windowColor }}>
+              {fmtWindowRemaining(windowMsRemaining(item.createdAt))}
+            </span>
+            <span style={{ fontSize: '11px', color: '#6b6359' }}>
+              {new Date(item.createdAt).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+            </span>
+          </div>
+        </div>
+        <div style={{ padding: '0 14px 12px', fontSize: '12px' }}>
+          {item.messageText && (
+            <p style={{ ...S.value, whiteSpace: 'pre-wrap', fontSize: '13px', color: '#c8c0b0', margin: '0 0 10px', direction: 'rtl', textAlign: 'right', lineHeight: 1.6 }}>
+              {item.messageText}
+            </p>
+          )}
+          <p style={{ margin: '0 0 10px', color: '#7a9bcc', fontSize: '11px' }}>
+            No draft yet. Choose how to generate a reply, or write one directly.
+          </p>
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+            <button
+              disabled={isBusy}
+              onClick={() => void generate('claude')}
+              style={{ ...btn('primary'), fontSize: '12px' }}
+            >
+              {busy === 'generate_claude' ? '…' : 'Generate with Claude'}
+            </button>
+            <button
+              disabled={isBusy}
+              onClick={() => void generate('api')}
+              style={{ ...btn('ghost'), fontSize: '12px', color: '#7a9bcc', borderColor: '#3a5070' }}
+            >
+              {busy === 'generate_api' ? '…' : 'Generate with API'}
+            </button>
+            <button
+              disabled={isBusy}
+              onClick={() => void mutate('takeover')}
+              style={{ ...btn('ghost'), fontSize: '12px' }}
+            >
+              {busy === 'takeover' ? '…' : 'Write Reply'}
+            </button>
+            <button
+              disabled={isBusy}
+              onClick={() => void mutate('ignore')}
+              style={{ ...btn('ghost'), fontSize: '12px' }}
+            >
+              {busy === 'ignore' ? '…' : 'Ignore'}
+            </button>
+          </div>
+          {err && <p style={{ color: '#c0504a', fontSize: '11px', marginTop: '6px' }}>{err}</p>}
+        </div>
+      </div>
+    )
+  }
+
+  // Regenerating: failed_reason=null + psa=SET — admin-requeued for AI re-draft.
+  // Old draft is preserved in item.responseText.
   // After 10 minutes without n8n pickup, show a timeout notice + Cancel button.
   if (cardState === 'regenerating') {
     // Use processing_started_at (stamped by requeueDm at click-time) so elapsed reflects
@@ -1683,8 +1772,6 @@ function DmInboxItem({
     const regenElapsedMin = Math.floor(regenElapsedMs / 60000)
 
     async function cancelRegen() {
-      // Restore row to PENDING_REVIEW with the preserved old draft still in response_text.
-      // Uses a PATCH with no failed_reason WHERE-guard because the row is currently null.
       setBusy('cancel_regen'); setErr(null)
       try {
         const res = await fetch('/api/admin/dm-inbox', {
@@ -1798,11 +1885,12 @@ function DmInboxItem({
   }
 
   // Human-readable state description for the header subtitle
+  // (needs_generation and regenerating have early returns above — not reachable here)
   const stateDesc =
-    cardState === 'needs_review'     ? 'Needs reply'
-    : cardState === 'send_failed_open' ? 'Send failed'
-    : cardState === 'sending'          ? 'Sending…'
-    : cardState === 'status_unknown'   ? '⚠ Send outcome unknown'
+    cardState === 'needs_review'        ? 'Needs reply'
+    : cardState === 'send_failed_open'  ? 'Send failed'
+    : cardState === 'sending'           ? 'Sending…'
+    : cardState === 'status_unknown'    ? '⚠ Send outcome unknown'
     : cardState === 'ai_suggested_ignore' ? 'AI suggests no reply'
     : 'Needs reply'
 
@@ -1935,9 +2023,6 @@ function DmInboxItem({
                     style={{ ...btn('primary'), opacity: (isBusy || !editText.trim()) ? 0.5 : 1, fontSize: '12px' }}
                   >
                     {busy === 'send' ? '…' : 'Approve & Send'}
-                  </button>
-                  <button disabled={isBusy} onClick={() => void mutate('requeue')} style={{ ...btn('warn'), fontSize: '12px' }}>
-                    {busy === 'requeue' ? '…' : 'Regenerate'}
                   </button>
                   <button disabled={isBusy} onClick={() => void mutate('ignore')} style={{ ...btn('ghost'), fontSize: '12px' }}>
                     {busy === 'ignore' ? '…' : 'Ignore'}
@@ -2133,7 +2218,7 @@ function DmInbox() {
   const allItems = items ?? []
 
   // Single canonical state per item — drives categories, badges, and buttons
-  const needsReview    = allItems.filter(i => getCardState(i) === 'needs_review')
+  const needsReview    = allItems.filter(i => { const s = getCardState(i); return s === 'needs_review' || s === 'needs_generation' })
   const aiIgnoreItems  = allItems.filter(i => getCardState(i) === 'ai_suggested_ignore')
   const needsAttention = allItems.filter(i => {
     const s = getCardState(i)
