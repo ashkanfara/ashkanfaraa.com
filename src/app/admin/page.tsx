@@ -1679,23 +1679,89 @@ function DmInboxItem({
   // needs_generation: fresh inbound in manual_claude mode — n8n never auto-drafted.
   // Human must explicitly choose how to generate (or write directly).
   if (cardState === 'needs_generation') {
-    async function generate(mode: 'claude' | 'api') {
-      setBusy(`generate_${mode}` as 'generate_claude' | 'generate_api'); setErr(null)
+    // ── local UI state for this card ──────────────────────────
+    // promptPackage: set after "Generate with Claude" returns — triggers modal
+    // writeMode: 'write' = inline composer open; null = closed
+    // pasteText: what the admin typed/pasted in either composer
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    const [promptPackage, setPromptPackage] = useState<string | null>(null)
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    const [pasteText, setPasteText]         = useState('')
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    const [writeMode, setWriteMode]         = useState<'write' | 'paste' | null>(null)
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    const [copied, setCopied]               = useState(false)
+
+    // ── Generate with Claude: build prompt package, no API call ─
+    async function buildPrompt() {
+      setBusy('generate_claude'); setErr(null)
       try {
         const res = await fetch('/api/admin/dm-inbox/generate', {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ id: item.id, mode }),
+          body:    JSON.stringify({ id: item.id, mode: 'claude' }),
         })
-        const data = await res.json() as { ok: boolean; error?: string }
-        if (data.ok) { setTimeout(onRefresh, 400) }
-        else          { setErr(data.error ?? 'Generation failed') }
+        const data = await res.json() as { ok: boolean; promptPackage?: string; error?: string }
+        if (data.ok && data.promptPackage) {
+          setPromptPackage(data.promptPackage)
+          setWriteMode('paste')
+          setPasteText('')
+        } else {
+          setErr(data.error ?? 'Failed to build prompt')
+        }
       } catch { setErr('Network error') }
       finally { setBusy(null) }
     }
 
+    // ── Generate with API: one Anthropic call, auto-saves draft ─
+    async function generateWithApi() {
+      setBusy('generate_api'); setErr(null)
+      try {
+        const res = await fetch('/api/admin/dm-inbox/generate', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ id: item.id, mode: 'api' }),
+        })
+        const data = await res.json() as { ok: boolean; error?: string }
+        if (data.ok) { setTimeout(onRefresh, 400) }
+        else          { setErr(data.error ?? 'API generation failed') }
+      } catch { setErr('Network error') }
+      finally { setBusy(null) }
+    }
+
+    // ── Save draft (Claude paste or Write Reply) ─────────────────
+    async function saveDraft(draftSource: 'CLAUDE_MANUAL' | 'HUMAN') {
+      const text = pasteText.trim()
+      if (!text) { setErr('Draft cannot be empty'); return }
+      setBusy('save_draft'); setErr(null)
+      try {
+        const res = await fetch('/api/admin/dm-inbox/save-draft', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ id: item.id, text, draftSource }),
+        })
+        const data = await res.json() as { ok: boolean; error?: string }
+        if (data.ok) { setTimeout(onRefresh, 400) }
+        else          { setErr(data.error ?? 'Save failed') }
+      } catch { setErr('Network error') }
+      finally { setBusy(null) }
+    }
+
+    // ── Copy prompt to clipboard ─────────────────────────────────
+    async function copyPrompt() {
+      if (!promptPackage) return
+      try {
+        await navigator.clipboard.writeText(promptPackage)
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      } catch { setErr('Clipboard not available — select all text above and copy manually') }
+    }
+
+    const msLeft = windowMsRemaining(item.createdAt)
+
     return (
       <div style={{ ...S.card, borderLeft: '3px solid #5a7eb5' }}>
+        {/* ── Header ─────────────────────────────────────────────── */}
         <div style={{ ...S.cardHeader, alignItems: 'center' }}>
           <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
             <SenderAvatar profilePictureUrl={item.profilePictureUrl} label={avatarLabel} />
@@ -1707,54 +1773,178 @@ function DmInboxItem({
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-            <span style={{ fontSize: '11px', color: windowColor }}>
-              {fmtWindowRemaining(windowMsRemaining(item.createdAt))}
+            <span style={{ fontSize: '11px', color: msLeft < 2 * 3_600_000 ? '#b5975a' : '#5a9e6f' }}>
+              ⏱ {fmtWindowRemaining(msLeft)}
             </span>
             <span style={{ fontSize: '11px', color: '#6b6359' }}>
               {new Date(item.createdAt).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
             </span>
           </div>
         </div>
-        <div style={{ padding: '0 14px 12px', fontSize: '12px' }}>
+
+        {/* ── Inbound message ─────────────────────────────────────── */}
+        <div style={{ padding: '0 14px 12px' }}>
           {item.messageText && (
             <p style={{ ...S.value, whiteSpace: 'pre-wrap', fontSize: '13px', color: '#c8c0b0', margin: '0 0 10px', direction: 'rtl', textAlign: 'right', lineHeight: 1.6 }}>
               {item.messageText}
             </p>
           )}
-          <p style={{ margin: '0 0 10px', color: '#7a9bcc', fontSize: '11px' }}>
-            No draft yet. Choose how to generate a reply, or write one directly.
-          </p>
-          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-            <button
-              disabled={isBusy}
-              onClick={() => void generate('claude')}
-              style={{ ...btn('primary'), fontSize: '12px' }}
-            >
-              {busy === 'generate_claude' ? '…' : 'Generate with Claude'}
-            </button>
-            <button
-              disabled={isBusy}
-              onClick={() => void generate('api')}
-              style={{ ...btn('ghost'), fontSize: '12px', color: '#7a9bcc', borderColor: '#3a5070' }}
-            >
-              {busy === 'generate_api' ? '…' : 'Generate with API'}
-            </button>
-            <button
-              disabled={isBusy}
-              onClick={() => void mutate('takeover')}
-              style={{ ...btn('ghost'), fontSize: '12px' }}
-            >
-              {busy === 'takeover' ? '…' : 'Write Reply'}
-            </button>
-            <button
-              disabled={isBusy}
-              onClick={() => void mutate('ignore')}
-              style={{ ...btn('ghost'), fontSize: '12px' }}
-            >
-              {busy === 'ignore' ? '…' : 'Ignore'}
-            </button>
-          </div>
-          {err && <p style={{ color: '#c0504a', fontSize: '11px', marginTop: '6px' }}>{err}</p>}
+
+          {/* ── Action buttons (shown when no sub-mode active) ──── */}
+          {writeMode === null && (
+            <>
+              <p style={{ margin: '0 0 10px', color: '#7a9bcc', fontSize: '11px' }}>
+                No draft yet. Choose how to generate a reply, or write one directly.
+              </p>
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                <button
+                  disabled={isBusy}
+                  onClick={() => void buildPrompt()}
+                  style={{ ...btn('primary'), fontSize: '12px' }}
+                  title="Build a Claude prompt you can copy into Claude.ai — zero API cost"
+                >
+                  {busy === 'generate_claude' ? '…' : 'Generate with Claude'}
+                </button>
+                <button
+                  disabled={isBusy}
+                  onClick={() => void generateWithApi()}
+                  style={{ ...btn('ghost'), fontSize: '12px', color: '#7a9bcc', borderColor: '#3a5070' }}
+                  title="Call the Anthropic API (haiku) to auto-draft — one paid API call"
+                >
+                  {busy === 'generate_api' ? '…' : 'Generate with API'}
+                </button>
+                <button
+                  disabled={isBusy}
+                  onClick={() => { setWriteMode('write'); setPasteText(''); setErr(null) }}
+                  style={{ ...btn('ghost'), fontSize: '12px' }}
+                  title="Type a reply manually — no AI call"
+                >
+                  Write Reply
+                </button>
+                <button
+                  disabled={isBusy}
+                  onClick={() => void mutate('ignore')}
+                  style={{ ...btn('ghost'), fontSize: '12px' }}
+                >
+                  {busy === 'ignore' ? '…' : 'Ignore'}
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* ── Generate with Claude: prompt + paste flow ────────── */}
+          {writeMode === 'paste' && (
+            <div>
+              {/* Prompt package display */}
+              {promptPackage && (
+                <div style={{ marginBottom: '10px' }}>
+                  <p style={{ fontSize: '10px', color: '#6b6359', margin: '0 0 4px', fontWeight: 700, letterSpacing: '0.06em' }}>
+                    CLAUDE PROMPT READY — copy below and paste into Claude.ai
+                  </p>
+                  <textarea
+                    readOnly
+                    value={promptPackage}
+                    rows={6}
+                    style={{ ...S.textarea, fontSize: '10px', color: '#9e9289', fontFamily: 'monospace', direction: 'ltr', resize: 'vertical', cursor: 'text' }}
+                    onClick={e => (e.currentTarget as HTMLTextAreaElement).select()}
+                  />
+                  <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
+                    <button
+                      onClick={() => void copyPrompt()}
+                      style={{ ...btn('primary'), fontSize: '11px' }}
+                    >
+                      {copied ? '✓ Copied!' : 'Copy Claude Prompt'}
+                    </button>
+                    <a
+                      href="https://claude.ai"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ ...btn('ghost'), fontSize: '11px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
+                    >
+                      Open Claude.ai ↗
+                    </a>
+                  </div>
+                </div>
+              )}
+              {/* Paste result */}
+              <p style={{ fontSize: '10px', color: '#6b6359', margin: '6px 0 4px', fontWeight: 700, letterSpacing: '0.06em' }}>
+                PASTE CLAUDE&apos;S REPLY HERE
+              </p>
+              <textarea
+                value={pasteText}
+                onChange={e => setPasteText(e.target.value)}
+                rows={4}
+                placeholder="Paste Claude's reply here…"
+                style={{ ...S.textarea, direction: 'rtl', lineHeight: 1.7 }}
+              />
+              {pasteText.trim() && (
+                <div style={{ marginTop: '6px', padding: '8px 10px', background: '#071a0d', border: '1px solid #1e4228', borderRadius: '4px' }}>
+                  <span style={{ fontSize: '10px', color: '#5a9e6f', fontWeight: 700, letterSpacing: '0.06em', display: 'block', marginBottom: '4px' }}>WILL SAVE AS DRAFT:</span>
+                  <p style={{ margin: 0, fontSize: '12px', color: '#9ee0b0', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right' }}>{pasteText.trim()}</p>
+                </div>
+              )}
+              {err && <p style={{ color: '#c0504a', fontSize: '11px', margin: '6px 0 0' }}>{err}</p>}
+              <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
+                <button
+                  disabled={isBusy || !pasteText.trim()}
+                  onClick={() => void saveDraft('CLAUDE_MANUAL')}
+                  style={{ ...btn('primary'), fontSize: '12px', opacity: !pasteText.trim() ? 0.5 : 1 }}
+                >
+                  {busy === 'save_draft' ? '…' : 'Save Draft'}
+                </button>
+                <button
+                  disabled={isBusy}
+                  onClick={() => { setWriteMode(null); setPromptPackage(null); setPasteText(''); setErr(null) }}
+                  style={{ ...btn('ghost'), fontSize: '12px' }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Write Reply: inline human composer ───────────────── */}
+          {/* No DB action, no takeover — just a local textarea.    */}
+          {/* Saving transitions the row to PENDING_REVIEW so the   */}
+          {/* normal Approve & Send flow can complete it.           */}
+          {writeMode === 'write' && (
+            <div>
+              <p style={{ fontSize: '10px', color: '#6b6359', margin: '0 0 4px', fontWeight: 700, letterSpacing: '0.06em' }}>
+                WRITE YOUR REPLY
+              </p>
+              <textarea
+                value={pasteText}
+                onChange={e => setPasteText(e.target.value)}
+                rows={4}
+                placeholder="Type your reply…"
+                style={{ ...S.textarea, direction: 'rtl', lineHeight: 1.7 }}
+                autoFocus
+              />
+              {pasteText.trim() && (
+                <div style={{ marginTop: '6px', padding: '8px 10px', background: '#071a0d', border: '1px solid #1e4228', borderRadius: '4px' }}>
+                  <span style={{ fontSize: '10px', color: '#5a9e6f', fontWeight: 700, letterSpacing: '0.06em', display: 'block', marginBottom: '4px' }}>WILL SAVE AS DRAFT:</span>
+                  <p style={{ margin: 0, fontSize: '12px', color: '#9ee0b0', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right' }}>{pasteText.trim()}</p>
+                </div>
+              )}
+              {err && <p style={{ color: '#c0504a', fontSize: '11px', margin: '6px 0 0' }}>{err}</p>}
+              <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
+                <button
+                  disabled={isBusy || !pasteText.trim()}
+                  onClick={() => void saveDraft('HUMAN')}
+                  style={{ ...btn('primary'), fontSize: '12px', opacity: !pasteText.trim() ? 0.5 : 1 }}
+                >
+                  {busy === 'save_draft' ? '…' : 'Save Draft'}
+                </button>
+                <button
+                  disabled={isBusy}
+                  onClick={() => { setWriteMode(null); setPasteText(''); setErr(null) }}
+                  style={{ ...btn('ghost'), fontSize: '12px' }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     )
