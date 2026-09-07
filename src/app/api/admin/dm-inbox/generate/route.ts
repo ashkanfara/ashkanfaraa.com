@@ -195,21 +195,24 @@ async function fetchStoryCtxBatch(storyIds: string[]): Promise<Record<string, St
   return Object.fromEntries(rows.map(r => [r.story_id, r]))
 }
 
+type RowClass = 'fresh_inbound' | 'draft_failed' | 'pending_no_draft'
 /** Validate that a row is in a legal pre-generation state. */
-function classifyRow(row: DmRow): { valid: true; isFreshInbound: boolean } | { valid: false; error: string; status: number } {
+function classifyRow(row: DmRow): { valid: true; rowClass: RowClass } | { valid: false; error: string; status: number } {
   if (row.response_sent === true)
     return { valid: false, error: 'Message already sent — cannot draft again', status: 409 }
 
   const isFreshInbound   = row.failed_reason === null && row.processed === false && row.processing_started_at === null
+  const isDraftFailed    = row.failed_reason === 'DRAFT_FAILED'
   const isPendingNoDraft = row.failed_reason === 'PENDING_REVIEW' && (!row.response_text)
-  if (!isFreshInbound && !isPendingNoDraft)
+  if (!isFreshInbound && !isDraftFailed && !isPendingNoDraft)
     return { valid: false, error: `Row is not in a pre-generation state (failed_reason=${row.failed_reason})`, status: 409 }
 
   const windowMs = 24 * 60 * 60 * 1000
   if (Date.now() > new Date(row.created_at).getTime() + windowMs)
     return { valid: false, error: 'messaging_window_expired', status: 409 }
 
-  return { valid: true, isFreshInbound }
+  const rowClass: RowClass = isFreshInbound ? 'fresh_inbound' : isDraftFailed ? 'draft_failed' : 'pending_no_draft'
+  return { valid: true, rowClass }
 }
 
 /** Build the Anthropic Messages API messages array. */
@@ -375,7 +378,8 @@ export async function POST(req: NextRequest) {
   if (!classification.valid)
     return NextResponse.json({ ok: false, error: classification.error }, { status: classification.status })
 
-  const { isFreshInbound } = classification
+  const { rowClass } = classification
+  const isFreshInbound = rowClass === 'fresh_inbound' || rowClass === 'draft_failed'
 
   // ── Shared: fetch history + story context + earlier pending inbound ─────
   const [histRows, storyCtx, pendingRows] = await Promise.all([
@@ -453,9 +457,11 @@ export async function POST(req: NextRequest) {
   const patchRes = await fetch(
     `${base}/rest/v1/instagram_dm_buffer?id=eq.${encodeURIComponent(id)}` +
     `&response_sent=eq.false` +
-    (isFreshInbound
+    (rowClass === 'fresh_inbound'
       ? `&failed_reason=is.null&processed=eq.false&processing_started_at=is.null`
-      : `&failed_reason=eq.PENDING_REVIEW`),
+      : rowClass === 'draft_failed'
+        ? `&failed_reason=eq.DRAFT_FAILED`
+        : `&failed_reason=eq.PENDING_REVIEW`),
     {
       method:  'PATCH',
       headers: { ...hdrs, Prefer: 'return=representation' },

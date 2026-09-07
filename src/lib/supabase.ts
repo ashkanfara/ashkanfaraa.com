@@ -647,7 +647,7 @@ export async function getDmInbox(): Promise<{
     // Main query: rows with explicit actionable failed_reason values
     const mainRes = await fetch(
       `${base()}/rest/v1/instagram_dm_buffer` +
-      `?failed_reason=in.(PENDING_REVIEW,SEND_FAILED,IG_SEND_ERROR,SEND_STATUS_UNKNOWN,SENDING,AI_RECOMMENDED_IGNORE,HUMAN_TEMP_SKIP,STORY_MENTION_HUMAN_HOLD)` +
+      `?failed_reason=in.(PENDING_REVIEW,DRAFT_FAILED,SEND_FAILED,IG_SEND_ERROR,SEND_STATUS_UNKNOWN,SENDING,AI_RECOMMENDED_IGNORE,HUMAN_TEMP_SKIP,STORY_MENTION_HUMAN_HOLD)` +
       `&created_at=gt.${encodeURIComponent(windowCutoff)}` +
       `&select=${SELECT}` +
       `&order=created_at.asc`,

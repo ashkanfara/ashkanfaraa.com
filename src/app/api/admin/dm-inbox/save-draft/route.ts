@@ -85,8 +85,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Message already sent — cannot save draft' }, { status: 409 })
 
   const isFreshInbound   = row.failed_reason === null && row.processed === false && row.processing_started_at === null
+  const isDraftFailed    = row.failed_reason === 'DRAFT_FAILED'
   const isPendingNoDraft = row.failed_reason === 'PENDING_REVIEW'
-  if (!isFreshInbound && !isPendingNoDraft)
+  if (!isFreshInbound && !isDraftFailed && !isPendingNoDraft)
     return NextResponse.json({ ok: false, error: `Row is not in a pre-draft state (failed_reason=${row.failed_reason})` }, { status: 409 })
 
   const windowMs = 24 * 60 * 60 * 1000
@@ -102,7 +103,9 @@ export async function POST(req: NextRequest) {
     `&response_sent=eq.false` +
     (isFreshInbound
       ? `&failed_reason=is.null&processed=eq.false&processing_started_at=is.null`
-      : `&failed_reason=eq.PENDING_REVIEW`),
+      : isDraftFailed
+        ? `&failed_reason=eq.DRAFT_FAILED`
+        : `&failed_reason=eq.PENDING_REVIEW`),
     {
       method:  'PATCH',
       headers: { ...hdrs, Prefer: 'return=representation' },

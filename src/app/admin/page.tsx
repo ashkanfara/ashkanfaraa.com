@@ -57,7 +57,7 @@ interface FeedbackRow {
   created_at: string
 }
 type CardState =
-  | 'sending' | 'status_unknown' | 'needs_review' | 'needs_generation'
+  | 'sending' | 'status_unknown' | 'needs_review' | 'needs_generation' | 'draft_failed'
   | 'send_failed_open' | 'ai_suggested_ignore' | 'human_managed'
   | 'story_mention' | 'regenerating'
 type Section = 'overview' | 'dm' | 'consultations' | 'access' | 'feedback'
@@ -177,6 +177,7 @@ function fmtWindowRemaining(ms: number): string {
   return `${m}m`
 }
 function getCardState(item: DmItem): CardState {
+  if (item.failedReason === 'DRAFT_FAILED')        return 'draft_failed'
   if (item.failedReason === null) {
     return item.processingStartedAt ? 'regenerating' : 'needs_generation'
   }
@@ -595,8 +596,8 @@ function DmInboxItem({ item, onRefresh }: { item: DmItem; onRefresh: () => void 
   const igProfileHref = item.username ? `https://www.instagram.com/${encodeURIComponent(item.username)}/` : null
   const displayName   = primaryLabel
 
-  // GenerationFailedCard handles needs_generation (draft auto-generation failed)
-  if (cardState === 'needs_generation') {
+  // GenerationFailedCard handles draft_failed (canonical) and needs_generation (legacy)
+  if (cardState === 'draft_failed' || cardState === 'needs_generation') {
     return <GenerationFailedCard item={item} onRefresh={onRefresh} />
   }
 
@@ -1186,8 +1187,8 @@ function ConvWorkspace({ targetItem, pendingCount, onRefresh }: {
     )
   }
 
-  // ── needs_generation (draft auto-generation failed) ──────────
-  if (cardState === 'needs_generation') {
+  // ── draft_failed / needs_generation (generation failure) ─────
+  if (cardState === 'draft_failed' || cardState === 'needs_generation') {
     return (
       <div style={wrapStyle}>
         {windowBar}
@@ -1418,8 +1419,8 @@ interface ConversationGroup {
 }
 
 const STATE_PRIORITY: Record<CardState, number> = {
-  needs_generation: 0, needs_review: 1, send_failed_open: 2,
-  status_unknown: 3, sending: 4, regenerating: 5,
+  draft_failed: 0, needs_generation: 1, needs_review: 2, send_failed_open: 3,
+  status_unknown: 4, sending: 5, regenerating: 6,
   ai_suggested_ignore: 6, story_mention: 7, human_managed: 8,
 }
 
@@ -1474,12 +1475,12 @@ function groupBySender(items: DmItem[]): ConversationGroup[] {
 }
 
 const STATE_COLOR: Record<CardState, string> = {
-  needs_generation: C.blue, needs_review: C.green, send_failed_open: C.red,
+  draft_failed: C.red, needs_generation: C.red, needs_review: C.green, send_failed_open: C.red,
   status_unknown: C.red, sending: C.gold, regenerating: C.gold,
   ai_suggested_ignore: C.muted, story_mention: C.muted, human_managed: C.muted,
 }
 const STATE_LABEL: Record<CardState, string> = {
-  needs_generation: 'Draft failed', needs_review: 'Needs review', send_failed_open: 'Send failed',
+  draft_failed: 'Draft failed', needs_generation: 'Draft failed (legacy)', needs_review: 'Needs review', send_failed_open: 'Send failed',
   status_unknown: 'Status unknown', sending: 'Sending', regenerating: 'Regenerating',
   ai_suggested_ignore: 'AI ignore', story_mention: 'Story mention', human_managed: 'Human managed',
 }
@@ -1579,13 +1580,13 @@ function DmInbox({ initialSenderId }: { initialSenderId?: string } = {}) {
   const [showAudit, setShowAudit] = useState(false)
 
   const urgentCount    = activeGroups.filter(g => g.mostUrgentMs < 2 * 3_600_000).length
-  const needsDraftCount = activeGroups.filter(g => g.worstState === 'needs_generation').length
+  const needsDraftCount = activeGroups.filter(g => g.worstState === 'draft_failed' || g.worstState === 'needs_generation').length
   const needsReviewCount = activeGroups.filter(g => g.worstState === 'needs_review').length
   const attentionCount = activeGroups.filter(g => ['sending','status_unknown','send_failed_open'].includes(g.worstState)).length
 
   // Apply search + filter to activeGroups
   const filteredGroups = activeGroups.filter(g => {
-    if (dmFilter === 'needs_draft'  && g.worstState !== 'needs_generation') return false
+    if (dmFilter === 'needs_draft'  && g.worstState !== 'draft_failed' && g.worstState !== 'needs_generation') return false
     if (dmFilter === 'needs_review' && g.worstState !== 'needs_review')     return false
     if (dmFilter === 'urgent'       && g.mostUrgentMs >= 2 * 3_600_000)    return false
     if (dmFilter === 'attention'    && !['sending','status_unknown','send_failed_open'].includes(g.worstState)) return false
