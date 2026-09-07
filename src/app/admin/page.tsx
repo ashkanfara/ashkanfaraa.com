@@ -976,6 +976,555 @@ function DmInboxItem({ item, onRefresh }: { item: DmItem; onRefresh: () => void 
   )
 }
 
+// ── Phase B2: one-conversation surface ────────────────────────
+
+function selectActionTarget(items: DmItem[]): DmItem | null {
+  if (!items.length) return null
+  return [...items].sort((a, b) => {
+    const aPri = STATE_PRIORITY[getCardState(a)]
+    const bPri = STATE_PRIORITY[getCardState(b)]
+    if (aPri !== bPri) return aPri - bPri
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  })[0]
+}
+
+interface DetailTurn {
+  key: string; rowId: string
+  type: 'inbound' | 'outbound' | 'event'
+  text: string; time: string
+  isStoryReply?: boolean; label?: string
+  isPending: boolean; isTarget: boolean
+}
+
+function buildDetailTurns(
+  rows: ConvHistoryRow[],
+  targetId: string,
+  pendingIds: Set<string>
+): DetailTurn[] {
+  const turns: DetailTurn[] = []
+  let lastOutboundText: string | null = null
+  const seenIds = new Set<string>()
+
+  for (const row of rows) {
+    const isPending = pendingIds.has(row.id) && !row.responseSent
+    const isTarget  = row.id === targetId
+
+    const inboundLabel =
+      row.failedReason === 'AI_RECOMMENDED_IGNORE'      ? 'AI RECOMMENDED IGNORE'
+      : row.failedReason === 'HUMAN_TEMP_SKIP'          ? 'HUMAN-MANAGED'
+      : row.failedReason === 'STORY_MENTION_HUMAN_HOLD' ? 'STORY MENTION'
+      : undefined
+
+    const displayText = row.messageText
+      ? humanizeMessageText(row.messageText, row.messageType)
+      : null
+
+    if (displayText) {
+      turns.push({ key: `in-${row.id}`, rowId: row.id, type: 'inbound', text: displayText, time: row.createdAt, isStoryReply: row.isStoryReply, label: inboundLabel, isPending, isTarget })
+    } else if (row.isStoryReply) {
+      turns.push({ key: `ev-${row.id}`, rowId: row.id, type: 'event', text: 'Story reaction', time: row.createdAt, isPending, isTarget })
+    }
+
+    if (row.responseSent && row.sentText) {
+      if (row.id && seenIds.has(row.id)) continue
+      if (row.sentText === lastOutboundText) continue
+      turns.push({ key: `out-${row.id}`, rowId: row.id, type: 'outbound', text: row.sentText, time: row.responseSentAt ?? row.createdAt, isPending: false, isTarget: false })
+      lastOutboundText = row.sentText
+      if (row.id) seenIds.add(row.id)
+    }
+  }
+  return turns
+}
+
+function ConvDetailTimeline({ history, targetId, pendingIds }: {
+  history: ConvHistoryRow[]
+  targetId: string
+  pendingIds: Set<string>
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const turns   = buildDetailTurns(history, targetId, pendingIds)
+  const visible  = expanded ? turns : turns.slice(-14)
+  const hidden   = turns.length - visible.length
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '16px 16px 4px' }}>
+      {hidden > 0 && !expanded && (
+        <button onClick={() => setExpanded(true)} style={{ alignSelf: 'center', ...btn('ghost'), fontSize: '10px', padding: '2px 10px' }}>
+          Show {hidden} earlier messages
+        </button>
+      )}
+      {visible.map(turn => {
+        if (turn.type === 'outbound') {
+          return (
+            <div key={turn.key} style={{ alignSelf: 'flex-end', maxWidth: '76%', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '3px' }}>
+              <div style={{ background: '#071a0d', border: '1px solid #1e4228', borderRadius: '14px 14px 3px 14px', padding: '8px 12px' }}>
+                <p style={{ margin: 0, fontSize: '13px', color: '#8ec8a0', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right', lineHeight: 1.55 }}>{turn.text}</p>
+              </div>
+              <span style={{ fontSize: '9px', color: C.muted }}>SENT · {fmtTime(turn.time)}</span>
+            </div>
+          )
+        }
+        if (turn.type === 'event') {
+          return (
+            <div key={turn.key} style={{ alignSelf: 'center', fontSize: '10px', color: C.muted, background: C.bg, border: `1px solid ${C.border2}`, borderRadius: '20px', padding: '3px 10px' }}>
+              {turn.text}{turn.isPending ? ' · NEW' : ''} · {fmtTime(turn.time)}
+            </div>
+          )
+        }
+        // Inbound
+        const isCurrent = turn.isTarget
+        const isNew = turn.isPending && !isCurrent
+        const borderColor = isCurrent ? C.gold : isNew ? C.goldDim : C.border2
+        const bgColor     = isCurrent ? '#1a160a' : isNew ? '#161208' : '#141210'
+        return (
+          <div key={turn.key} style={{ alignSelf: 'flex-start', maxWidth: '80%', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+            {isCurrent && <span style={{ fontSize: '9px', color: C.gold, fontWeight: 700, letterSpacing: '0.08em' }}>CURRENT MESSAGE</span>}
+            {isNew     && <span style={{ fontSize: '9px', color: C.goldDim, fontWeight: 700, letterSpacing: '0.08em' }}>NEW MESSAGE</span>}
+            {turn.label && !isCurrent && !isNew && <span style={{ fontSize: '9px', color: C.muted, fontWeight: 700, letterSpacing: '0.08em' }}>{turn.label}</span>}
+            <div style={{ background: bgColor, border: `2px solid ${borderColor}`, borderRadius: '3px 14px 14px 14px', padding: '9px 13px' }}>
+              <p style={{ margin: 0, fontSize: '13px', color: '#f0dfa8', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right', lineHeight: 1.6 }}>{turn.text}</p>
+            </div>
+            <span style={{ fontSize: '9px', color: C.muted }}>
+              {turn.isStoryReply && '↩ Story · '}{fmtTime(turn.time)}
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ConvWorkspace — ONE response workspace per conversation.
+// key={targetItem.id} on usage site ensures React remounts it when target changes,
+// resetting all local state cleanly.
+function ConvWorkspace({ targetItem, pendingCount, onRefresh }: {
+  targetItem: DmItem
+  pendingCount: number
+  onRefresh: () => void
+}) {
+  const [promptPackage, setPromptPackage] = useState<string | null>(null)
+  const [pasteText,     setPasteText]     = useState('')
+  const [writeMode,     setWriteMode]     = useState<'write' | 'paste' | null>(null)
+  const [editText,      setEditText]      = useState(targetItem.responseText ?? '')
+  const [copied,        setCopied]        = useState(false)
+  const [showComposer,  setShowComposer]  = useState(false)
+  const [showDebug,     setShowDebug]     = useState(false)
+  const [busy,          setBusy]          = useState<string | null>(null)
+  const [err,           setErr]           = useState<string | null>(null)
+  const [success,       setSuccess]       = useState<string | null>(null)
+  const [fbCategory,    setFbCategory]    = useState<string | null>(null)
+  const [fbNote,        setFbNote]        = useState('')
+
+  const cardState   = getCardState(targetItem)
+  const msLeft      = windowMsRemaining(targetItem.createdAt)
+  const urgent      = msLeft < 2 * 3_600_000
+  const windowColor = urgent ? C.red : msLeft < 6 * 3_600_000 ? C.gold : C.green
+  const displayName = targetItem.username ? `@${targetItem.username}` : targetItem.displayName ?? 'Instagram User'
+  const isBusy      = busy !== null
+
+  async function callApi(path: string, body: Record<string, string | null | boolean>): Promise<{ ok: boolean; error?: string; promptPackage?: string }> {
+    const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    return res.json()
+  }
+
+  async function buildPrompt() {
+    setBusy('generate'); setErr(null)
+    try {
+      const data = await callApi('/api/admin/dm-inbox/generate', { id: targetItem.id, mode: 'claude' })
+      if (data.ok && data.promptPackage) {
+        setPromptPackage(data.promptPackage); setWriteMode('paste'); setPasteText('')
+      } else { setErr(data.error ?? 'Failed to build prompt') }
+    } catch { setErr('Network error') }
+    finally { setBusy(null) }
+  }
+
+  async function saveDraft(draftSource: 'CLAUDE_MANUAL' | 'HUMAN') {
+    const text = pasteText.trim()
+    if (!text) { setErr('Draft cannot be empty'); return }
+    setBusy('save'); setErr(null)
+    try {
+      const data = await callApi('/api/admin/dm-inbox/save-draft', { id: targetItem.id, text, draftSource })
+      if (data.ok) { setTimeout(onRefresh, 400) }
+      else          { setErr(data.error ?? 'Save failed') }
+    } catch { setErr('Network error') }
+    finally { setBusy(null) }
+  }
+
+  async function send() {
+    if (!editText.trim()) return
+    setBusy('send'); setErr(null); setSuccess(null)
+    try {
+      const data = await callApi('/api/admin/dm-inbox/send', { id: targetItem.id, finalText: editText, feedbackCategory: fbCategory, feedbackNote: fbNote.trim() || null })
+      if (data.ok) { setSuccess('✓ Sent'); setTimeout(onRefresh, 1200) }
+      else          { setErr(data.error ?? 'Send failed') }
+    } catch { setErr('Network error') }
+    finally { setBusy(null) }
+  }
+
+  async function mutate(action: string, extra: Record<string, string> = {}) {
+    setBusy(action); setErr(null); setSuccess(null)
+    try {
+      const data = await callApi('/api/admin/dm-inbox', { action, id: targetItem.id, senderId: targetItem.senderId, ...extra })
+      if (data.ok) {
+        const msgs: Record<string, string> = {
+          ignore: 'Ignored', requeue: 'Regeneration requested', retry_send_failed: 'Reset — re-approve to send',
+          takeover: 'Taken over — AI paused', release: 'Released to AI', block: 'Blocked',
+        }
+        setSuccess(msgs[action] ?? 'Done')
+        setTimeout(onRefresh, 1000)
+      } else { setErr(data.error ?? 'Action failed') }
+    } catch { setErr('Network error') }
+    finally { setBusy(null) }
+  }
+
+  async function copyPrompt() {
+    if (!promptPackage) return
+    try {
+      await navigator.clipboard.writeText(promptPackage)
+      setCopied(true); setTimeout(() => setCopied(false), 2000)
+    } catch { setErr('Clipboard not available — select text above and copy manually') }
+  }
+
+  const multiPendingNote = pendingCount > 1
+    ? <span style={{ fontSize: '10px', color: C.muted }}>· {pendingCount} pending messages in this conversation</span>
+    : null
+
+  const windowBar = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
+      <span style={{ fontSize: '11px', color: windowColor, fontWeight: urgent ? 700 : 400 }}>⏱ {fmtWindowRemaining(msLeft)} window</span>
+      {multiPendingNote}
+    </div>
+  )
+
+  const takeOverOrRelease = targetItem.conversationOwner !== 'human_temp'
+    ? <button disabled={isBusy} onClick={() => void mutate('takeover')} style={{ ...btn('ghost'), fontSize: '11px', color: C.muted }}>{busy === 'takeover' ? '…' : 'Take Over Conversation'}</button>
+    : <button disabled={isBusy} onClick={() => void mutate('release')} style={{ ...btn('ghost'), fontSize: '11px', color: C.green, borderColor: C.green }}>{busy === 'release' ? '…' : 'Release to AI'}</button>
+
+  const blockBtn = (
+    <button disabled={isBusy}
+      onClick={() => { if (!window.confirm(`Block ${displayName}? AI will never reply to them again.`)) return; void mutate('block', { displayName: targetItem.displayName || targetItem.senderId }) }}
+      style={{ ...btn('danger'), fontSize: '11px' }}>
+      {busy === 'block' ? '…' : 'Block Sender'}
+    </button>
+  )
+
+  const debugPanel = showDebug && (
+    <div style={{ marginTop: '10px', padding: '8px 10px', background: '#0a0806', border: `1px solid ${C.border2}`, borderRadius: '4px', fontSize: '10px', color: C.muted, fontFamily: 'monospace' }}>
+      <div>target id: {targetItem.id}</div>
+      <div>sender_id: {targetItem.senderId}</div>
+      <div>state: {cardState}</div>
+      <div>pending rows: {pendingCount}</div>
+    </div>
+  )
+
+  const wrapStyle: React.CSSProperties = { padding: '14px 16px', borderTop: `1px solid ${C.border2}` }
+
+  // ── regenerating ────────────────────────────────────────────
+  if (cardState === 'regenerating') {
+    const elapsed = Date.now() - new Date(targetItem.processingStartedAt ?? targetItem.createdAt).getTime()
+    const timedOut = elapsed > 10 * 60 * 1000
+
+    async function cancelRegen() {
+      setBusy('cancel'); setErr(null)
+      try {
+        const res = await fetch('/api/admin/dm-inbox', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'cancel_regen', id: targetItem.id }) })
+        const data = await res.json() as { ok: boolean; error?: string }
+        if (data.ok) { setTimeout(onRefresh, 400) } else { setErr(data.error ?? 'Cancel failed') }
+      } catch { setErr('Network error') }
+      finally { setBusy(null) }
+    }
+
+    return (
+      <div style={wrapStyle}>
+        {windowBar}
+        <div style={{ padding: '10px 12px', background: '#1a1508', border: `1px solid ${timedOut ? C.red : C.gold}`, borderRadius: '6px', marginBottom: '10px', fontSize: '12px', color: timedOut ? C.red : C.gold }}>
+          {timedOut ? `Regeneration delayed (${Math.floor(elapsed / 60000)}m) — cancel to keep previous draft.` : 'AI is generating a draft. Refresh in a moment.'}
+        </div>
+        <div style={{ display: 'flex', gap: '6px' }}>
+          <button onClick={onRefresh} style={{ ...btn('ghost'), fontSize: '11px' }}>Refresh</button>
+          <button disabled={isBusy} onClick={() => void cancelRegen()} style={{ ...btn('warn'), fontSize: '11px' }}>{busy === 'cancel' ? '…' : 'Cancel Regeneration'}</button>
+        </div>
+        {err && <p style={{ color: C.red, fontSize: '11px', marginTop: '8px' }}>{err}</p>}
+      </div>
+    )
+  }
+
+  // ── sending ──────────────────────────────────────────────────
+  if (cardState === 'sending') {
+    return <div style={wrapStyle}><span style={{ fontSize: '12px', color: C.gold }}>Send in progress…</span></div>
+  }
+
+  // ── status_unknown ───────────────────────────────────────────
+  if (cardState === 'status_unknown') {
+    return (
+      <div style={wrapStyle}>
+        <div style={{ background: '#1c100a', border: `1px solid ${C.red}`, borderRadius: '6px', padding: '10px 12px', fontSize: '12px', color: C.red, lineHeight: 1.6 }}>
+          <strong>⚠ Send outcome unknown.</strong> Instagram may or may not have delivered this message.
+          Check your <strong>Instagram outbox</strong> before taking any action. Do <strong>not</strong> retry via this UI — resolve manually in Supabase after confirming.
+        </div>
+      </div>
+    )
+  }
+
+  // ── human_managed / story_mention ────────────────────────────
+  if (cardState === 'human_managed' || cardState === 'story_mention') {
+    return (
+      <div style={wrapStyle}>
+        <p style={{ margin: '0 0 10px', fontSize: '11px', color: C.muted }}>
+          {cardState === 'human_managed' ? 'This conversation is under human management.' : 'Story mention — no auto-reply.'}
+        </p>
+        <div style={{ display: 'flex', gap: '6px' }}>{takeOverOrRelease}</div>
+        {err     && <p style={{ color: C.red,   fontSize: '11px', marginTop: '8px' }}>{err}</p>}
+        {success && <p style={{ color: C.green, fontSize: '11px', marginTop: '8px' }}>{success}</p>}
+      </div>
+    )
+  }
+
+  // ── needs_generation ─────────────────────────────────────────
+  if (cardState === 'needs_generation') {
+    return (
+      <div style={wrapStyle}>
+        {windowBar}
+
+        {writeMode === null && (
+          <>
+            <p style={{ margin: '0 0 10px', color: '#7a9bcc', fontSize: '11px' }}>No draft yet.</p>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '10px' }}>
+              <button disabled={isBusy} onClick={() => void buildPrompt()} style={{ ...btn('primary'), fontSize: '12px' }}>
+                {busy === 'generate' ? '…' : '✦ Generate with Claude'}
+              </button>
+              <button disabled={isBusy} onClick={() => { setWriteMode('write'); setPasteText(''); setErr(null) }} style={{ ...btn('ghost'), fontSize: '12px' }}>Write Reply</button>
+              <button disabled={isBusy} onClick={() => void mutate('ignore')} style={{ ...btn('ghost'), fontSize: '12px' }}>
+                {busy === 'ignore' ? '…' : pendingCount > 1 ? 'Ignore this message' : 'Ignore'}
+              </button>
+            </div>
+            <div style={{ display: 'flex', gap: '6px', paddingTop: '6px', borderTop: `1px solid ${C.border2}`, flexWrap: 'wrap' }}>
+              {takeOverOrRelease}{blockBtn}
+              <button onClick={() => setShowDebug(d => !d)} style={{ ...btn('ghost'), fontSize: '10px', color: C.muted, marginLeft: 'auto' }}>debug</button>
+            </div>
+            {err     && <p style={{ color: C.red,   fontSize: '11px', marginTop: '8px' }}>{err}</p>}
+            {success && <p style={{ color: C.green, fontSize: '11px', marginTop: '8px' }}>{success}</p>}
+            {debugPanel}
+          </>
+        )}
+
+        {writeMode === 'paste' && (
+          <div>
+            {promptPackage && (
+              <div style={{ marginBottom: '10px' }}>
+                <p style={{ fontSize: '10px', color: C.muted, margin: '0 0 4px', fontWeight: 700, letterSpacing: '0.06em' }}>
+                  CLAUDE PROMPT — copy and paste into Claude.ai
+                </p>
+                <textarea readOnly value={promptPackage} rows={6}
+                  style={{ ...S.textarea, fontSize: '10px', color: C.dim, fontFamily: 'monospace', resize: 'vertical', cursor: 'text', direction: 'ltr' }}
+                  onClick={e => (e.currentTarget as HTMLTextAreaElement).select()} />
+                <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
+                  <button onClick={() => void copyPrompt()} style={{ ...btn('primary'), fontSize: '11px' }}>{copied ? '✓ Copied!' : 'Copy Prompt'}</button>
+                  <a href="https://claude.ai" target="_blank" rel="noopener noreferrer"
+                    style={{ ...btn('ghost'), fontSize: '11px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Open Claude.ai ↗</a>
+                </div>
+              </div>
+            )}
+            <p style={{ fontSize: '10px', color: C.muted, margin: '10px 0 4px', fontWeight: 700, letterSpacing: '0.06em' }}>PASTE CLAUDE&apos;S REPLY</p>
+            <textarea value={pasteText} onChange={e => setPasteText(e.target.value)} rows={4}
+              placeholder="Paste Claude's reply here…" style={{ ...S.textarea, direction: 'rtl', lineHeight: 1.7 }} />
+            {pasteText.trim() && (
+              <div style={{ marginTop: '6px', padding: '8px 10px', background: '#071a0d', border: '1px solid #1e4228', borderRadius: '6px' }}>
+                <span style={{ fontSize: '10px', color: C.green, fontWeight: 700, letterSpacing: '0.06em', display: 'block', marginBottom: '4px' }}>WILL SAVE AS DRAFT:</span>
+                <p style={{ margin: 0, fontSize: '12px', color: '#9ee0b0', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right' }}>{pasteText.trim()}</p>
+              </div>
+            )}
+            {err && <p style={{ color: C.red, fontSize: '11px', margin: '6px 0 0' }}>{err}</p>}
+            <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
+              <button disabled={isBusy || !pasteText.trim()} onClick={() => void saveDraft('CLAUDE_MANUAL')}
+                style={{ ...btn('primary'), fontSize: '12px', opacity: !pasteText.trim() ? 0.5 : 1 }}>
+                {busy === 'save' ? '…' : 'Save Draft'}
+              </button>
+              <button disabled={isBusy} onClick={() => { setWriteMode(null); setPromptPackage(null); setPasteText(''); setErr(null) }} style={{ ...btn('ghost'), fontSize: '12px' }}>Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {writeMode === 'write' && (
+          <div>
+            <p style={{ fontSize: '10px', color: C.muted, margin: '0 0 4px', fontWeight: 700, letterSpacing: '0.06em' }}>WRITE YOUR REPLY</p>
+            <textarea value={pasteText} onChange={e => setPasteText(e.target.value)} rows={4}
+              placeholder="Type your reply…" style={{ ...S.textarea, direction: 'rtl', lineHeight: 1.7 }} autoFocus />
+            {pasteText.trim() && (
+              <div style={{ marginTop: '6px', padding: '8px 10px', background: '#071a0d', border: '1px solid #1e4228', borderRadius: '6px' }}>
+                <span style={{ fontSize: '10px', color: C.green, fontWeight: 700, letterSpacing: '0.06em', display: 'block', marginBottom: '4px' }}>WILL SAVE AS DRAFT:</span>
+                <p style={{ margin: 0, fontSize: '12px', color: '#9ee0b0', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right' }}>{pasteText.trim()}</p>
+              </div>
+            )}
+            {err && <p style={{ color: C.red, fontSize: '11px', margin: '6px 0 0' }}>{err}</p>}
+            <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
+              <button disabled={isBusy || !pasteText.trim()} onClick={() => void saveDraft('HUMAN')}
+                style={{ ...btn('primary'), fontSize: '12px', opacity: !pasteText.trim() ? 0.5 : 1 }}>
+                {busy === 'save' ? '…' : 'Save Draft'}
+              </button>
+              <button disabled={isBusy} onClick={() => { setWriteMode(null); setPasteText(''); setErr(null) }} style={{ ...btn('ghost'), fontSize: '12px' }}>Cancel</button>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // ── needs_review ─────────────────────────────────────────────
+  if (cardState === 'needs_review') {
+    return (
+      <div style={wrapStyle}>
+        {windowBar}
+        <span style={{ ...S.label, color: '#c8b070', fontWeight: 700, letterSpacing: '0.08em' }}>AI DRAFT — NOT SENT</span>
+        <textarea value={editText} onChange={e => setEditText(e.target.value)} rows={4}
+          style={{ ...S.textarea, direction: 'rtl', lineHeight: 1.7, marginTop: '6px' }} placeholder="AI draft will appear here…" />
+        {editText.trim() && (
+          <div style={{ marginTop: '8px', padding: '8px 10px', background: '#071a0d', border: '1px solid #1e4228', borderRadius: '6px' }}>
+            <span style={{ fontSize: '10px', color: C.green, fontWeight: 700, letterSpacing: '0.06em', display: 'block', marginBottom: '4px' }}>WILL SEND:</span>
+            <p style={{ margin: 0, fontSize: '13px', color: '#9ee0b0', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right', lineHeight: 1.6 }}>{editText.trim()}</p>
+          </div>
+        )}
+        {err     && <p style={{ color: C.red,   fontSize: '11px', margin: '8px 0 0' }}>{err}</p>}
+        {success && <p style={{ color: C.green, fontSize: '11px', margin: '8px 0 0' }}>{success}</p>}
+        <FeedbackControls category={fbCategory} note={fbNote} onCategory={setFbCategory} onNote={setFbNote} />
+        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '10px' }}>
+          <button disabled={isBusy || !editText.trim()} onClick={() => void send()}
+            style={{ ...btn('primary'), opacity: (isBusy || !editText.trim()) ? 0.5 : 1, fontSize: '12px' }}>
+            {busy === 'send' ? '…' : 'Approve & Send'}
+          </button>
+          <button disabled={isBusy} onClick={() => void mutate('ignore')} style={{ ...btn('ghost'), fontSize: '12px' }}>
+            {busy === 'ignore' ? '…' : pendingCount > 1 ? 'Ignore this message' : 'Ignore'}
+          </button>
+        </div>
+        <div style={{ display: 'flex', gap: '6px', paddingTop: '8px', marginTop: '4px', borderTop: `1px solid ${C.border2}`, flexWrap: 'wrap' }}>
+          {takeOverOrRelease}{blockBtn}
+        </div>
+      </div>
+    )
+  }
+
+  // ── ai_suggested_ignore ──────────────────────────────────────
+  if (cardState === 'ai_suggested_ignore') {
+    return (
+      <div style={wrapStyle}>
+        {windowBar}
+        <div style={{ padding: '10px 12px', background: '#1a1508', border: `1px solid #3a3020`, borderRadius: '6px', fontSize: '12px', color: '#c8b88a', lineHeight: 1.6, marginBottom: '10px' }}>
+          AI recommends no reply. Nothing has been sent.
+        </div>
+        {!showComposer ? (
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+            <button onClick={() => setShowComposer(true)} style={{ ...btn('warn'), fontSize: '12px' }}>Write Reply</button>
+            <button disabled={isBusy} onClick={() => void mutate('ignore')} style={{ ...btn('ghost'), fontSize: '12px' }}>
+              {busy === 'ignore' ? '…' : pendingCount > 1 ? 'Ignore this message' : 'Ignore'}
+            </button>
+            {takeOverOrRelease}{blockBtn}
+          </div>
+        ) : (
+          <>
+            <span style={{ ...S.label, color: '#c8b070', fontWeight: 700, letterSpacing: '0.08em' }}>YOUR REPLY — NOT SENT</span>
+            <textarea value={editText} onChange={e => setEditText(e.target.value)} rows={4}
+              style={{ ...S.textarea, direction: 'rtl', lineHeight: 1.7, marginTop: '6px' }} placeholder="Type your reply…" />
+            {editText.trim() && (
+              <div style={{ marginTop: '8px', padding: '8px 10px', background: '#071a0d', border: '1px solid #1e4228', borderRadius: '6px' }}>
+                <span style={{ fontSize: '10px', color: C.green, fontWeight: 700, letterSpacing: '0.06em', display: 'block', marginBottom: '4px' }}>WILL SEND:</span>
+                <p style={{ margin: 0, fontSize: '13px', color: '#9ee0b0', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right', lineHeight: 1.6 }}>{editText.trim()}</p>
+              </div>
+            )}
+            {err     && <p style={{ color: C.red,   fontSize: '11px', margin: '8px 0 0' }}>{err}</p>}
+            {success && <p style={{ color: C.green, fontSize: '11px', margin: '8px 0 0' }}>{success}</p>}
+            <FeedbackControls category={fbCategory} note={fbNote} onCategory={setFbCategory} onNote={setFbNote} />
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '10px' }}>
+              <button disabled={isBusy || !editText.trim()} onClick={() => void send()} style={{ ...btn('primary'), opacity: (isBusy || !editText.trim()) ? 0.5 : 1, fontSize: '12px' }}>
+                {busy === 'send' ? '…' : 'Approve & Send'}
+              </button>
+              <button disabled={isBusy} onClick={() => void mutate('ignore')} style={{ ...btn('ghost'), fontSize: '12px' }}>{busy === 'ignore' ? '…' : 'Ignore'}</button>
+              <button onClick={() => setShowComposer(false)} style={{ ...btn('ghost'), fontSize: '12px' }}>Cancel</button>
+            </div>
+          </>
+        )}
+        {!showComposer && err     && <p style={{ color: C.red,   fontSize: '11px', marginTop: '8px' }}>{err}</p>}
+        {!showComposer && success && <p style={{ color: C.green, fontSize: '11px', marginTop: '8px' }}>{success}</p>}
+      </div>
+    )
+  }
+
+  // ── send_failed_open ─────────────────────────────────────────
+  if (cardState === 'send_failed_open') {
+    return (
+      <div style={wrapStyle}>
+        {windowBar}
+        <div style={{ padding: '10px 12px', background: '#1c0a0a', border: `1px solid ${C.red}`, borderRadius: '6px', marginBottom: '10px' }}>
+          <span style={{ fontSize: '11px', color: C.red, fontWeight: 700, display: 'block', marginBottom: '4px' }}>SEND FAILED</span>
+          {targetItem.responseText && <p style={{ margin: 0, fontSize: '12px', color: '#bfb5a6', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right' }}>Attempted: {targetItem.responseText}</p>}
+        </div>
+        {err     && <p style={{ color: C.red,   fontSize: '11px', margin: '0 0 8px' }}>{err}</p>}
+        {success && <p style={{ color: C.green, fontSize: '11px', margin: '0 0 8px' }}>{success}</p>}
+        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+          <button disabled={isBusy} onClick={() => { if (!window.confirm('Reset this failed send? You will need to re-approve.')) return; void mutate('retry_send_failed') }} style={{ ...btn('warn'), fontSize: '12px' }}>
+            {busy === 'retry_send_failed' ? '…' : 'Retry Send'}
+          </button>
+          <button disabled={isBusy} onClick={() => void mutate('ignore')} style={{ ...btn('ghost'), fontSize: '12px' }}>{busy === 'ignore' ? '…' : 'Ignore'}</button>
+        </div>
+        <div style={{ display: 'flex', gap: '6px', paddingTop: '6px', borderTop: `1px solid ${C.border2}`, flexWrap: 'wrap' }}>
+          {takeOverOrRelease}{blockBtn}
+        </div>
+      </div>
+    )
+  }
+
+  return null
+}
+
+function SenderConvDetail({ group, onRefresh }: { group: ConversationGroup; onRefresh: () => void }) {
+  const pendingItems = group.items.filter(i => {
+    const s = getCardState(i)
+    return s !== 'human_managed' && s !== 'story_mention'
+  })
+  const targetItem = selectActionTarget(pendingItems.length > 0 ? pendingItems : group.items)
+  if (!targetItem) return null
+
+  const pendingIds = new Set(pendingItems.map(i => i.id))
+
+  const senderName = group.username ? `@${group.username}` : group.displayName ?? 'Instagram User'
+  const igHref     = group.username ? `https://www.instagram.com/${encodeURIComponent(group.username)}/` : null
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
+      {/* Conversation timeline — all rows chronological, pending highlighted */}
+      <ConvDetailTimeline history={group.history} targetId={targetItem.id} pendingIds={pendingIds} />
+
+      {/* Story context for target item */}
+      {targetItem.isStoryReply && (
+        <div style={{ margin: '0 16px 8px', borderRadius: '8px', border: `1px solid #3a3020`, background: '#1a1508', overflow: 'hidden' }}>
+          {targetItem.storyContext?.mediaUrl ? (
+            <StoryThumbnail mediaUrl={targetItem.storyContext.mediaUrl} mediaType={targetItem.storyContext.mediaType}
+              fallbackText={targetItem.storyContext.aiDescription || targetItem.storyContext.caption || targetItem.storyContext.ocrText} />
+          ) : (targetItem.storyContext?.aiDescription || targetItem.storyContext?.caption || targetItem.storyContext?.ocrText) ? (
+            <StoryTextFallback text={targetItem.storyContext.aiDescription || targetItem.storyContext.caption || targetItem.storyContext.ocrText} />
+          ) : null}
+          {(targetItem.storyContext?.caption || targetItem.storyContext?.ocrText) && (
+            <div style={{ padding: '8px 10px' }}>
+              <span style={{ fontSize: '10px', color: C.gold, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', display: 'block', marginBottom: '3px' }}>Story Caption</span>
+              <p style={{ margin: 0, fontSize: '12px', color: '#c8b88a', direction: 'rtl', textAlign: 'right', whiteSpace: 'pre-wrap' }}>{targetItem.storyContext.caption || targetItem.storyContext.ocrText}</p>
+            </div>
+          )}
+          {!targetItem.storyContext && <div style={{ padding: '8px 10px' }}><span style={{ fontSize: '11px', color: C.muted }}>Story context not available</span></div>}
+        </div>
+      )}
+
+      {/* Response workspace — key resets all state on target change */}
+      <ConvWorkspace key={targetItem.id} targetItem={targetItem} pendingCount={pendingItems.length} onRefresh={onRefresh} />
+
+      {/* Footer: IG link + debug info */}
+      <div style={{ padding: '6px 16px', fontSize: '9px', color: '#2a2420', borderTop: `1px solid ${C.border2}`, display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+        <span>{senderName}</span>
+        {igHref && <a href={igHref} target="_blank" rel="noopener noreferrer" style={{ color: '#2a2420', textDecoration: 'none' }}>IG profile ↗</a>}
+        <span style={{ marginLeft: 'auto' }}>target: …{targetItem.id.slice(-8)} · {pendingItems.length} pending · {group.items.length} total</span>
+      </div>
+    </div>
+  )
+}
+
 // ── DmInbox section ───────────────────────────────────────────
 
 interface ConversationGroup {
@@ -1228,15 +1777,15 @@ function DmInbox() {
             </div>
           )}
 
-          {/* Right pane — conversation detail */}
+          {/* Right pane — single conversation surface (Phase B2) */}
           {(!showList || !isMobileNarrow) && (
-            <div style={{ flex: 1, minWidth: 0, overflowY: 'auto', background: C.bg }}>
+            <div style={{ flex: 1, minWidth: 0, overflowY: 'auto', background: C.bg, display: 'flex', flexDirection: 'column' }}>
               {!selectedGroup ? (
                 <div style={{ padding: '32px 24px', color: C.muted, fontSize: '12px' }}>Select a conversation</div>
               ) : (
-                <div style={{ padding: '0' }}>
-                  {/* Detail header */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 16px', borderBottom: `1px solid ${C.border}`, background: C.sidebar, position: 'sticky', top: 0, zIndex: 10 }}>
+                <>
+                  {/* Sticky sender header */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', borderBottom: `1px solid ${C.border}`, background: C.sidebar, position: 'sticky', top: 0, zIndex: 10, flexShrink: 0 }}>
                     {isMobileNarrow && (
                       <button onClick={() => setShowList(true)} style={{ background: 'none', border: 'none', color: C.dim, cursor: 'pointer', fontSize: '16px', padding: '2px 6px 2px 0', fontFamily: 'system-ui, sans-serif' }}>‹</button>
                     )}
@@ -1246,21 +1795,17 @@ function DmInbox() {
                         {selectedGroup.username ? `@${selectedGroup.username}` : selectedGroup.displayName ?? 'Instagram User'}
                       </div>
                       <div style={{ fontSize: '10px', color: C.muted }}>
-                        {selectedGroup.pendingCount} pending · {selectedGroup.items.length} total messages
+                        {selectedGroup.pendingCount} pending · {selectedGroup.items.length} total
                       </div>
                     </div>
-                    <div style={{ fontSize: '10px', color: STATE_COLOR[selectedGroup.worstState], fontWeight: 600 }}>
+                    <div style={{ fontSize: '10px', color: STATE_COLOR[selectedGroup.worstState], fontWeight: 600, flexShrink: 0 }}>
                       {STATE_LABEL[selectedGroup.worstState]}
                     </div>
                   </div>
 
-                  {/* Items — each DmInboxItem handles its own state */}
-                  <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {selectedGroup.items.map(item => (
-                      <DmInboxItem key={item.id} item={item} onRefresh={() => void load()} />
-                    ))}
-                  </div>
-                </div>
+                  {/* Conversation + workspace */}
+                  <SenderConvDetail key={selectedGroup.senderId} group={selectedGroup} onRefresh={() => void load()} />
+                </>
               )}
             </div>
           )}
