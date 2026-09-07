@@ -447,46 +447,44 @@ function FeedbackControls({ category, note, onCategory, onNote }: {
   )
 }
 
-// ── NeedsGenerationCard (proper component — fixes hooks-in-conditionals) ──
-// "Generate with API" button is intentionally absent from this component.
-// The backend route for mode='api' is preserved but not exposed in the UI.
-function NeedsGenerationCard({ item, onRefresh }: { item: DmItem; onRefresh: () => void }) {
-  const [promptPackage, setPromptPackage] = useState<string | null>(null)
-  const [pasteText,     setPasteText]     = useState('')
-  const [writeMode,     setWriteMode]     = useState<'write' | 'paste' | null>(null)
-  const [copied,        setCopied]        = useState(false)
-  const [busy,          setBusy]          = useState<string | null>(null)
-  const [err,           setErr]           = useState<string | null>(null)
+// ── GenerationFailedCard — shown only when n8n draft generation failed ──
+// Normal flow: n8n generates draft automatically → PENDING_REVIEW. This card
+// is only shown when that generation genuinely failed (failedReason=null, processed=false).
+// Provides: Retry Draft (one AI call, no send) + Write Reply (human, no AI).
+function GenerationFailedCard({ item, onRefresh }: { item: DmItem; onRefresh: () => void }) {
+  const [writeMode, setWriteMode] = useState<'write' | null>(null)
+  const [draftText, setDraftText] = useState('')
+  const [busy,      setBusy]      = useState<string | null>(null)
+  const [err,       setErr]       = useState<string | null>(null)
 
-  const msLeft = windowMsRemaining(item.createdAt)
+  const msLeft       = windowMsRemaining(item.createdAt)
   const primaryLabel = item.username ? `@${item.username}` : item.displayName ?? 'Instagram User'
   const avatarLabel  = item.displayName || item.username || 'I'
+  const windowColor  = msLeft < 2 * 3_600_000 ? C.red : msLeft < 6 * 3_600_000 ? C.gold : C.green
+  const isBusy       = busy !== null
 
-  const windowColor = msLeft < 2 * 3_600_000 ? C.red : msLeft < 6 * 3_600_000 ? C.gold : C.green
-
-  async function buildPrompt() {
-    setBusy('generate_claude'); setErr(null)
+  async function retryDraft() {
+    setBusy('retry'); setErr(null)
     try {
       const res  = await fetch('/api/admin/dm-inbox/generate', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: item.id, mode: 'claude' }),
+        body: JSON.stringify({ id: item.id, mode: 'api' }),
       })
-      const data = await res.json() as { ok: boolean; promptPackage?: string; error?: string }
-      if (data.ok && data.promptPackage) {
-        setPromptPackage(data.promptPackage); setWriteMode('paste'); setPasteText('')
-      } else { setErr(data.error ?? 'Failed to build prompt') }
+      const data = await res.json() as { ok: boolean; error?: string }
+      if (data.ok) { setTimeout(onRefresh, 600) }
+      else          { setErr(data.error ?? 'Draft generation failed') }
     } catch { setErr('Network error') }
     finally { setBusy(null) }
   }
 
-  async function saveDraft(draftSource: 'CLAUDE_MANUAL' | 'HUMAN') {
-    const text = pasteText.trim()
-    if (!text) { setErr('Draft cannot be empty'); return }
-    setBusy('save_draft'); setErr(null)
+  async function saveHumanDraft() {
+    const text = draftText.trim()
+    if (!text) { setErr('Reply cannot be empty'); return }
+    setBusy('save'); setErr(null)
     try {
       const res  = await fetch('/api/admin/dm-inbox/save-draft', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: item.id, text, draftSource }),
+        body: JSON.stringify({ id: item.id, text, draftSource: 'HUMAN' }),
       })
       const data = await res.json() as { ok: boolean; error?: string }
       if (data.ok) { setTimeout(onRefresh, 400) }
@@ -509,61 +507,39 @@ function NeedsGenerationCard({ item, onRefresh }: { item: DmItem; onRefresh: () 
     finally { setBusy(null) }
   }
 
-  async function copyPrompt() {
-    if (!promptPackage) return
-    try {
-      await navigator.clipboard.writeText(promptPackage)
-      setCopied(true); setTimeout(() => setCopied(false), 2000)
-    } catch { setErr('Clipboard not available — select all text above and copy manually') }
-  }
-
-  const isBusy = busy !== null
-
   return (
-    <div style={{ ...S.card, borderLeft: `3px solid ${C.blue}` }}>
-      {/* Header */}
+    <div style={{ ...S.card, borderLeft: `3px solid ${C.red}` }}>
       <div style={{ ...S.cardHeader, alignItems: 'center', cursor: 'default' }}>
         <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
           <SenderAvatar profilePictureUrl={item.profilePictureUrl} label={avatarLabel} />
           <div style={{ minWidth: 0 }}>
             <span style={{ fontWeight: 700, fontSize: '13px', color: C.text }}>{primaryLabel}</span>
-            <span style={{ marginLeft: '8px', fontSize: '10px', color: C.blue, border: `1px solid ${C.blue}`, borderRadius: '4px', padding: '1px 5px', fontWeight: 700 }}>
-              Needs Draft
+            <span style={{ marginLeft: '8px', fontSize: '10px', color: C.red, border: `1px solid ${C.red}`, borderRadius: '4px', padding: '1px 5px', fontWeight: 700 }}>
+              Draft failed
             </span>
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-          <span style={{ fontSize: '11px', color: windowColor, fontWeight: msLeft < 2 * 3_600_000 ? 700 : 400 }}>
-            ⏱ {fmtWindowRemaining(msLeft)}
-          </span>
-          <span style={{ fontSize: '11px', color: C.muted }}>
-            {new Date(item.createdAt).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-          </span>
+          <span style={{ fontSize: '11px', color: windowColor, fontWeight: msLeft < 2 * 3_600_000 ? 700 : 400 }}>⏱ {fmtWindowRemaining(msLeft)}</span>
+          <span style={{ fontSize: '11px', color: C.muted }}>{new Date(item.createdAt).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
         </div>
       </div>
-
-      {/* Body */}
       <div style={{ padding: '0 14px 14px' }}>
         {item.messageText && (
           <div style={{ background: '#141210', border: `1px solid ${C.border}`, borderRadius: '3px 14px 14px 14px', padding: '9px 13px', marginBottom: '12px', display: 'inline-block', maxWidth: '80%' }}>
             <p style={{ margin: 0, fontSize: '13px', color: '#f0dfa8', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right', lineHeight: 1.6 }}>{item.messageText}</p>
           </div>
         )}
-
-        {/* Action: no mode selected */}
-        {writeMode === null && (
+        {writeMode === null ? (
           <>
-            <p style={{ margin: '0 0 10px', color: '#7a9bcc', fontSize: '11px' }}>
-              No draft yet. Generate with Claude, or write a reply directly.
+            <p style={{ margin: '0 0 10px', color: C.red, fontSize: '11px' }}>
+              Automatic draft generation failed. Retry or write a reply manually.
             </p>
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-              <button disabled={isBusy} onClick={() => void buildPrompt()}
-                style={{ ...btn('primary'), fontSize: '12px' }}
-                title="Build a Claude prompt you can copy into Claude.ai — zero API cost">
-                {busy === 'generate_claude' ? '…' : '✦ Generate with Claude'}
+              <button disabled={isBusy} onClick={() => void retryDraft()} style={{ ...btn('warn'), fontSize: '12px' }}>
+                {busy === 'retry' ? '…' : 'Retry Draft'}
               </button>
-              <button disabled={isBusy} onClick={() => { setWriteMode('write'); setPasteText(''); setErr(null) }}
-                style={{ ...btn('ghost'), fontSize: '12px' }} title="Type a reply manually — no AI call">
+              <button disabled={isBusy} onClick={() => { setWriteMode('write'); setDraftText(''); setErr(null) }} style={{ ...btn('ghost'), fontSize: '12px' }}>
                 Write Reply
               </button>
               <button disabled={isBusy} onClick={() => void doIgnore()} style={{ ...btn('ghost'), fontSize: '12px' }}>
@@ -571,77 +547,28 @@ function NeedsGenerationCard({ item, onRefresh }: { item: DmItem; onRefresh: () 
               </button>
             </div>
           </>
-        )}
-
-        {/* Generate with Claude: prompt + paste flow */}
-        {writeMode === 'paste' && (
-          <div>
-            {promptPackage && (
-              <div style={{ marginBottom: '10px' }}>
-                <p style={{ fontSize: '10px', color: C.muted, margin: '0 0 4px', fontWeight: 700, letterSpacing: '0.06em' }}>
-                  CLAUDE PROMPT READY — copy and paste into Claude.ai
-                </p>
-                <textarea readOnly value={promptPackage} rows={6}
-                  style={{ ...S.textarea, fontSize: '10px', color: C.dim, fontFamily: 'monospace', direction: 'ltr', resize: 'vertical', cursor: 'text' }}
-                  onClick={e => (e.currentTarget as HTMLTextAreaElement).select()} />
-                <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
-                  <button onClick={() => void copyPrompt()} style={{ ...btn('primary'), fontSize: '11px' }}>
-                    {copied ? '✓ Copied!' : 'Copy Prompt'}
-                  </button>
-                  <a href="https://claude.ai" target="_blank" rel="noopener noreferrer"
-                    style={{ ...btn('ghost'), fontSize: '11px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>
-                    Open Claude.ai ↗
-                  </a>
-                </div>
-              </div>
-            )}
-            <p style={{ fontSize: '10px', color: C.muted, margin: '10px 0 4px', fontWeight: 700, letterSpacing: '0.06em' }}>
-              PASTE CLAUDE&apos;S REPLY HERE
-            </p>
-            <textarea value={pasteText} onChange={e => setPasteText(e.target.value)} rows={4}
-              placeholder="Paste Claude's reply here…"
-              style={{ ...S.textarea, direction: 'rtl', lineHeight: 1.7 }} />
-            {pasteText.trim() && (
-              <div style={{ marginTop: '6px', padding: '8px 10px', background: '#071a0d', border: '1px solid #1e4228', borderRadius: '6px' }}>
-                <span style={{ fontSize: '10px', color: C.green, fontWeight: 700, letterSpacing: '0.06em', display: 'block', marginBottom: '4px' }}>WILL SAVE AS DRAFT:</span>
-                <p style={{ margin: 0, fontSize: '12px', color: '#9ee0b0', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right' }}>{pasteText.trim()}</p>
-              </div>
-            )}
-            {err && <p style={{ color: C.red, fontSize: '11px', margin: '6px 0 0' }}>{err}</p>}
-            <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
-              <button disabled={isBusy || !pasteText.trim()} onClick={() => void saveDraft('CLAUDE_MANUAL')}
-                style={{ ...btn('primary'), fontSize: '12px', opacity: !pasteText.trim() ? 0.5 : 1 }}>
-                {busy === 'save_draft' ? '…' : 'Save Draft'}
-              </button>
-              <button disabled={isBusy} onClick={() => { setWriteMode(null); setPromptPackage(null); setPasteText(''); setErr(null) }}
-                style={{ ...btn('ghost'), fontSize: '12px' }}>Cancel</button>
-            </div>
-          </div>
-        )}
-
-        {/* Write Reply: inline human composer — no takeover, no DB action until Save */}
-        {writeMode === 'write' && (
+        ) : (
           <div>
             <p style={{ fontSize: '10px', color: C.muted, margin: '0 0 4px', fontWeight: 700, letterSpacing: '0.06em' }}>WRITE YOUR REPLY</p>
-            <textarea value={pasteText} onChange={e => setPasteText(e.target.value)} rows={4}
+            <textarea value={draftText} onChange={e => setDraftText(e.target.value)} rows={4}
               placeholder="Type your reply…" style={{ ...S.textarea, direction: 'rtl', lineHeight: 1.7 }} autoFocus />
-            {pasteText.trim() && (
+            {draftText.trim() && (
               <div style={{ marginTop: '6px', padding: '8px 10px', background: '#071a0d', border: '1px solid #1e4228', borderRadius: '6px' }}>
                 <span style={{ fontSize: '10px', color: C.green, fontWeight: 700, letterSpacing: '0.06em', display: 'block', marginBottom: '4px' }}>WILL SAVE AS DRAFT:</span>
-                <p style={{ margin: 0, fontSize: '12px', color: '#9ee0b0', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right' }}>{pasteText.trim()}</p>
+                <p style={{ margin: 0, fontSize: '12px', color: '#9ee0b0', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right' }}>{draftText.trim()}</p>
               </div>
             )}
             {err && <p style={{ color: C.red, fontSize: '11px', margin: '6px 0 0' }}>{err}</p>}
             <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
-              <button disabled={isBusy || !pasteText.trim()} onClick={() => void saveDraft('HUMAN')}
-                style={{ ...btn('primary'), fontSize: '12px', opacity: !pasteText.trim() ? 0.5 : 1 }}>
-                {busy === 'save_draft' ? '…' : 'Save Draft'}
+              <button disabled={isBusy || !draftText.trim()} onClick={() => void saveHumanDraft()}
+                style={{ ...btn('primary'), fontSize: '12px', opacity: !draftText.trim() ? 0.5 : 1 }}>
+                {busy === 'save' ? '…' : 'Save Draft'}
               </button>
-              <button disabled={isBusy} onClick={() => { setWriteMode(null); setPasteText(''); setErr(null) }}
-                style={{ ...btn('ghost'), fontSize: '12px' }}>Cancel</button>
+              <button disabled={isBusy} onClick={() => { setWriteMode(null); setDraftText(''); setErr(null) }} style={{ ...btn('ghost'), fontSize: '12px' }}>Cancel</button>
             </div>
           </div>
         )}
+        {writeMode === null && err && <p style={{ color: C.red, fontSize: '11px', margin: '6px 0 0' }}>{err}</p>}
       </div>
     </div>
   )
@@ -668,9 +595,9 @@ function DmInboxItem({ item, onRefresh }: { item: DmItem; onRefresh: () => void 
   const igProfileHref = item.username ? `https://www.instagram.com/${encodeURIComponent(item.username)}/` : null
   const displayName   = primaryLabel
 
-  // NeedsGenerationCard handles needs_generation (hooks extracted to proper component)
+  // GenerationFailedCard handles needs_generation (draft auto-generation failed)
   if (cardState === 'needs_generation') {
-    return <NeedsGenerationCard item={item} onRefresh={onRefresh} />
+    return <GenerationFailedCard item={item} onRefresh={onRefresh} />
   }
 
   async function call(path: string, body: Record<string, string | null | boolean>): Promise<{ ok: boolean; error?: string }> {
@@ -859,7 +786,7 @@ function DmInboxItem({ item, onRefresh }: { item: DmItem; onRefresh: () => void 
               <>
                 <span style={{ ...S.label, color: '#c8b070', fontWeight: 700, letterSpacing: '0.08em' }}>AI SUGGESTED REPLY — NOT SENT</span>
                 <textarea value={editText} onChange={e => setEditText(e.target.value)} rows={4}
-                  style={{ ...S.textarea, direction: 'rtl', lineHeight: 1.7, marginTop: '6px' }} placeholder="AI draft will appear here…" />
+                  style={{ ...S.textarea, direction: 'rtl', lineHeight: 1.7, marginTop: '6px' }} placeholder="AI suggested reply…" />
                 {editText.trim() && (
                   <div style={{ marginTop: '8px', padding: '8px 10px', background: '#071a0d', border: '1px solid #1e4228', borderRadius: '6px' }}>
                     <span style={{ fontSize: '10px', color: C.green, fontWeight: 700, letterSpacing: '0.06em', display: 'block', marginBottom: '4px' }}>WILL SEND:</span>
@@ -1102,11 +1029,9 @@ function ConvWorkspace({ targetItem, pendingCount, onRefresh }: {
   pendingCount: number
   onRefresh: () => void
 }) {
-  const [promptPackage, setPromptPackage] = useState<string | null>(null)
   const [pasteText,     setPasteText]     = useState('')
-  const [writeMode,     setWriteMode]     = useState<'write' | 'paste' | null>(null)
+  const [writeMode,     setWriteMode]     = useState<'write' | null>(null)
   const [editText,      setEditText]      = useState(targetItem.responseText ?? '')
-  const [copied,        setCopied]        = useState(false)
   const [showComposer,  setShowComposer]  = useState(false)
   const [showDebug,     setShowDebug]     = useState(false)
   const [busy,          setBusy]          = useState<string | null>(null)
@@ -1127,18 +1052,7 @@ function ConvWorkspace({ targetItem, pendingCount, onRefresh }: {
     return res.json()
   }
 
-  async function buildPrompt() {
-    setBusy('generate'); setErr(null)
-    try {
-      const data = await callApi('/api/admin/dm-inbox/generate', { id: targetItem.id, mode: 'claude' })
-      if (data.ok && data.promptPackage) {
-        setPromptPackage(data.promptPackage); setWriteMode('paste'); setPasteText('')
-      } else { setErr(data.error ?? 'Failed to build prompt') }
-    } catch { setErr('Network error') }
-    finally { setBusy(null) }
-  }
-
-  async function saveDraft(draftSource: 'CLAUDE_MANUAL' | 'HUMAN') {
+  async function saveDraft(draftSource: 'HUMAN') {
     const text = pasteText.trim()
     if (!text) { setErr('Draft cannot be empty'); return }
     setBusy('save'); setErr(null)
@@ -1175,14 +1089,6 @@ function ConvWorkspace({ targetItem, pendingCount, onRefresh }: {
       } else { setErr(data.error ?? 'Action failed') }
     } catch { setErr('Network error') }
     finally { setBusy(null) }
-  }
-
-  async function copyPrompt() {
-    if (!promptPackage) return
-    try {
-      await navigator.clipboard.writeText(promptPackage)
-      setCopied(true); setTimeout(() => setCopied(false), 2000)
-    } catch { setErr('Clipboard not available — select text above and copy manually') }
   }
 
   const multiPendingNote = pendingCount > 1
@@ -1280,18 +1186,28 @@ function ConvWorkspace({ targetItem, pendingCount, onRefresh }: {
     )
   }
 
-  // ── needs_generation ─────────────────────────────────────────
+  // ── needs_generation (draft auto-generation failed) ──────────
   if (cardState === 'needs_generation') {
     return (
       <div style={wrapStyle}>
         {windowBar}
+        <div style={{ padding: '10px 12px', background: '#1c0a0a', border: `1px solid ${C.red}`, borderRadius: '6px', marginBottom: '10px', fontSize: '12px', color: C.red, lineHeight: 1.6 }}>
+          Automatic draft generation failed. Retry to trigger one new AI draft, or write a reply manually.
+        </div>
 
-        {writeMode === null && (
+        {writeMode === null ? (
           <>
-            <p style={{ margin: '0 0 10px', color: '#7a9bcc', fontSize: '11px' }}>No draft yet.</p>
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '10px' }}>
-              <button disabled={isBusy} onClick={() => void buildPrompt()} style={{ ...btn('primary'), fontSize: '12px' }}>
-                {busy === 'generate' ? '…' : '✦ Generate with Claude'}
+              <button disabled={isBusy} onClick={async () => {
+                setBusy('retry'); setErr(null)
+                try {
+                  const data = await callApi('/api/admin/dm-inbox/generate', { id: targetItem.id, mode: 'api' })
+                  if (data.ok) { setTimeout(onRefresh, 600) }
+                  else          { setErr(data.error ?? 'Draft generation failed') }
+                } catch { setErr('Network error') }
+                finally { setBusy(null) }
+              }} style={{ ...btn('warn'), fontSize: '12px' }}>
+                {busy === 'retry' ? '…' : 'Retry Draft'}
               </button>
               <button disabled={isBusy} onClick={() => { setWriteMode('write'); setPasteText(''); setErr(null) }} style={{ ...btn('ghost'), fontSize: '12px' }}>Write Reply</button>
               <button disabled={isBusy} onClick={() => void mutate('ignore')} style={{ ...btn('ghost'), fontSize: '12px' }}>
@@ -1306,46 +1222,7 @@ function ConvWorkspace({ targetItem, pendingCount, onRefresh }: {
             {success && <p style={{ color: C.green, fontSize: '11px', marginTop: '8px' }}>{success}</p>}
             {debugPanel}
           </>
-        )}
-
-        {writeMode === 'paste' && (
-          <div>
-            {promptPackage && (
-              <div style={{ marginBottom: '10px' }}>
-                <p style={{ fontSize: '10px', color: C.muted, margin: '0 0 4px', fontWeight: 700, letterSpacing: '0.06em' }}>
-                  CLAUDE PROMPT — copy and paste into Claude.ai
-                </p>
-                <textarea readOnly value={promptPackage} rows={6}
-                  style={{ ...S.textarea, fontSize: '10px', color: C.dim, fontFamily: 'monospace', resize: 'vertical', cursor: 'text', direction: 'ltr' }}
-                  onClick={e => (e.currentTarget as HTMLTextAreaElement).select()} />
-                <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
-                  <button onClick={() => void copyPrompt()} style={{ ...btn('primary'), fontSize: '11px' }}>{copied ? '✓ Copied!' : 'Copy Prompt'}</button>
-                  <a href="https://claude.ai" target="_blank" rel="noopener noreferrer"
-                    style={{ ...btn('ghost'), fontSize: '11px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>Open Claude.ai ↗</a>
-                </div>
-              </div>
-            )}
-            <p style={{ fontSize: '10px', color: C.muted, margin: '10px 0 4px', fontWeight: 700, letterSpacing: '0.06em' }}>PASTE CLAUDE&apos;S REPLY</p>
-            <textarea value={pasteText} onChange={e => setPasteText(e.target.value)} rows={4}
-              placeholder="Paste Claude's reply here…" style={{ ...S.textarea, direction: 'rtl', lineHeight: 1.7 }} />
-            {pasteText.trim() && (
-              <div style={{ marginTop: '6px', padding: '8px 10px', background: '#071a0d', border: '1px solid #1e4228', borderRadius: '6px' }}>
-                <span style={{ fontSize: '10px', color: C.green, fontWeight: 700, letterSpacing: '0.06em', display: 'block', marginBottom: '4px' }}>WILL SAVE AS DRAFT:</span>
-                <p style={{ margin: 0, fontSize: '12px', color: '#9ee0b0', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right' }}>{pasteText.trim()}</p>
-              </div>
-            )}
-            {err && <p style={{ color: C.red, fontSize: '11px', margin: '6px 0 0' }}>{err}</p>}
-            <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
-              <button disabled={isBusy || !pasteText.trim()} onClick={() => void saveDraft('CLAUDE_MANUAL')}
-                style={{ ...btn('primary'), fontSize: '12px', opacity: !pasteText.trim() ? 0.5 : 1 }}>
-                {busy === 'save' ? '…' : 'Save Draft'}
-              </button>
-              <button disabled={isBusy} onClick={() => { setWriteMode(null); setPromptPackage(null); setPasteText(''); setErr(null) }} style={{ ...btn('ghost'), fontSize: '12px' }}>Cancel</button>
-            </div>
-          </div>
-        )}
-
-        {writeMode === 'write' && (
+        ) : (
           <div>
             <p style={{ fontSize: '10px', color: C.muted, margin: '0 0 4px', fontWeight: 700, letterSpacing: '0.06em' }}>WRITE YOUR REPLY</p>
             <textarea value={pasteText} onChange={e => setPasteText(e.target.value)} rows={4}
@@ -1375,7 +1252,7 @@ function ConvWorkspace({ targetItem, pendingCount, onRefresh }: {
     return (
       <div style={wrapStyle}>
         {windowBar}
-        <span style={{ ...S.label, color: '#c8b070', fontWeight: 700, letterSpacing: '0.08em' }}>AI DRAFT — NOT SENT</span>
+        <span style={{ ...S.label, color: '#c8b070', fontWeight: 700, letterSpacing: '0.08em' }}>AI SUGGESTED REPLY — NOT SENT</span>
         <textarea value={editText} onChange={e => setEditText(e.target.value)} rows={4}
           style={{ ...S.textarea, direction: 'rtl', lineHeight: 1.7, marginTop: '6px' }} placeholder="AI draft will appear here…" />
         {editText.trim() && (
@@ -1602,7 +1479,7 @@ const STATE_COLOR: Record<CardState, string> = {
   ai_suggested_ignore: C.muted, story_mention: C.muted, human_managed: C.muted,
 }
 const STATE_LABEL: Record<CardState, string> = {
-  needs_generation: 'Draft needed', needs_review: 'Needs review', send_failed_open: 'Send failed',
+  needs_generation: 'Draft failed', needs_review: 'Needs review', send_failed_open: 'Send failed',
   status_unknown: 'Status unknown', sending: 'Sending', regenerating: 'Regenerating',
   ai_suggested_ignore: 'AI ignore', story_mention: 'Story mention', human_managed: 'Human managed',
 }
@@ -1757,7 +1634,7 @@ function DmInbox({ initialSenderId }: { initialSenderId?: string } = {}) {
           <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', alignItems: 'center' }}>
             {(['all','needs_draft','needs_review','urgent','attention'] as const).map(f => {
               const counts: Record<string,number> = { all: activeGroups.length, needs_draft: needsDraftCount, needs_review: needsReviewCount, urgent: urgentCount, attention: attentionCount }
-              const labels: Record<string,string> = { all: 'All', needs_draft: 'Needs Draft', needs_review: 'Needs Review', urgent: 'Urgent', attention: 'Attention' }
+              const labels: Record<string,string> = { all: 'All', needs_draft: 'Draft Failed', needs_review: 'Needs Review', urgent: 'Urgent', attention: 'Attention' }
               const active = dmFilter === f
               const count = counts[f]
               return (
