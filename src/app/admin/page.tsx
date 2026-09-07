@@ -1666,6 +1666,9 @@ function DmInbox({ initialSenderId }: { initialSenderId?: string } = {}) {
   const [err,       setErr]       = useState<string | null>(null)
   const [selected,  setSelected]  = useState<string | null>(initialSenderId ?? null)
   const [showList,  setShowList]  = useState(true) // mobile: false = detail view
+  const [dmSearch,  setDmSearch]  = useState('')
+  type DmFilter = 'all' | 'needs_draft' | 'needs_review' | 'urgent' | 'attention'
+  const [dmFilter,  setDmFilter]  = useState<DmFilter>('all')
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
@@ -1701,6 +1704,29 @@ function DmInbox({ initialSenderId }: { initialSenderId?: string } = {}) {
   const urgentCount    = activeGroups.filter(g => g.mostUrgentMs < 2 * 3_600_000).length
   const needsDraftCount = activeGroups.filter(g => g.worstState === 'needs_generation').length
   const needsReviewCount = activeGroups.filter(g => g.worstState === 'needs_review').length
+  const attentionCount = activeGroups.filter(g => ['sending','status_unknown','send_failed_open'].includes(g.worstState)).length
+
+  // Apply search + filter to activeGroups
+  const filteredGroups = activeGroups.filter(g => {
+    if (dmFilter === 'needs_draft'  && g.worstState !== 'needs_generation') return false
+    if (dmFilter === 'needs_review' && g.worstState !== 'needs_review')     return false
+    if (dmFilter === 'urgent'       && g.mostUrgentMs >= 2 * 3_600_000)    return false
+    if (dmFilter === 'attention'    && !['sending','status_unknown','send_failed_open'].includes(g.worstState)) return false
+    if (dmSearch.trim()) {
+      const q = dmSearch.trim().toLowerCase()
+      const nameMatch = (g.username ?? '').toLowerCase().includes(q) || (g.displayName ?? '').toLowerCase().includes(q)
+      const previewMatch = (g.latestItem?.messageText ?? '').toLowerCase().includes(q)
+      if (!nameMatch && !previewMatch) return false
+    }
+    return true
+  })
+
+  // Auto-select first filtered group when selected disappears from filtered view
+  useEffect(() => {
+    if (selected && filteredGroups.length > 0 && !filteredGroups.find(g => g.senderId === selected)) {
+      setSelected(filteredGroups[0].senderId)
+    }
+  }, [dmSearch, dmFilter]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectedGroup = groups.find(g => g.senderId === selected) ?? null
 
@@ -1714,26 +1740,35 @@ function DmInbox({ initialSenderId }: { initialSenderId?: string } = {}) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginTop: '-8px' }}>
       {/* Toolbar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0 0 10px', flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', flex: 1 }}>
-          {items !== null && (
-            <>
-              {urgentCount > 0 && (
-                <span style={{ fontSize: '10px', color: C.red, fontWeight: 700, background: C.red + '18', border: `1px solid ${C.red}`, borderRadius: '10px', padding: '2px 8px' }}>
-                  ⚠ {urgentCount} urgent
-                </span>
-              )}
-              <span style={{ fontSize: '10px', color: C.muted }}>
-                {activeGroups.length} senders
-                {needsDraftCount > 0 && ` · ${needsDraftCount} need draft`}
-                {needsReviewCount > 0 && ` · ${needsReviewCount} need review`}
-              </span>
-            </>
-          )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '0 0 10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <input
+            type="search"
+            placeholder="Search by name or message…"
+            value={dmSearch}
+            onChange={e => setDmSearch(e.target.value)}
+            style={{ flex: 1, background: C.bg, border: `1px solid ${C.border}`, borderRadius: '6px', color: C.text, fontSize: '11px', padding: '4px 10px', outline: 'none', fontFamily: 'system-ui, sans-serif' }}
+          />
+          <button onClick={() => void load()} disabled={loading} style={{ ...btn('ghost'), fontSize: '10px', padding: '3px 10px' }}>
+            {loading ? '…' : 'Refresh'}
+          </button>
         </div>
-        <button onClick={() => void load()} disabled={loading} style={{ ...btn('ghost'), fontSize: '10px', padding: '3px 10px' }}>
-          {loading ? '…' : 'Refresh'}
-        </button>
+        {items !== null && (
+          <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', alignItems: 'center' }}>
+            {(['all','needs_draft','needs_review','urgent','attention'] as const).map(f => {
+              const counts: Record<string,number> = { all: activeGroups.length, needs_draft: needsDraftCount, needs_review: needsReviewCount, urgent: urgentCount, attention: attentionCount }
+              const labels: Record<string,string> = { all: 'All', needs_draft: 'Needs Draft', needs_review: 'Needs Review', urgent: 'Urgent', attention: 'Attention' }
+              const active = dmFilter === f
+              const count = counts[f]
+              return (
+                <button key={f} onClick={() => setDmFilter(f)}
+                  style={{ fontSize: '10px', padding: '2px 9px', border: `1px solid ${active ? C.gold : C.border}`, borderRadius: '10px', background: active ? C.gold + '22' : 'none', color: active ? C.gold : C.muted, cursor: 'pointer', fontFamily: 'system-ui, sans-serif' }}>
+                  {labels[f]} {count > 0 ? `(${count})` : ''}
+                </button>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       {err && <p style={{ color: C.red, fontSize: '12px' }}>{err}</p>}
@@ -1755,7 +1790,10 @@ function DmInbox({ initialSenderId }: { initialSenderId?: string } = {}) {
               display: 'flex', flexDirection: 'column',
             }}>
               <div style={{ padding: '8px 6px', display: 'flex', flexDirection: 'column', gap: '1px', flex: 1 }}>
-                {activeGroups.map(g => (
+                {filteredGroups.length === 0 && activeGroups.length > 0 && (
+                  <p style={{ color: C.muted, fontSize: '11px', padding: '12px 8px', textAlign: 'center' }}>No results</p>
+                )}
+                {filteredGroups.map(g => (
                   <ConvSenderRow key={g.senderId} group={g} selected={selected === g.senderId}
                     onClick={() => selectGroup(g.senderId)} />
                 ))}
@@ -1987,9 +2025,10 @@ function DmAccessControl() {
 
 // ── Feedback ──────────────────────────────────────────────────
 function DmFeedback() {
-  const [rows,    setRows]    = useState<FeedbackRow[] | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [err,     setErr]     = useState<string | null>(null)
+  const [rows,      setRows]      = useState<FeedbackRow[] | null>(null)
+  const [loading,   setLoading]   = useState(false)
+  const [err,       setErr]       = useState<string | null>(null)
+  const [expanded,  setExpanded]  = useState<Set<string>>(new Set())
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
@@ -2012,6 +2051,25 @@ function DmFeedback() {
   const edited   = rows.filter(r => r.was_edited)
   const goodRate = rated.length > 0 ? rated.filter(r => r.feedback_rating === 'good').length / rated.length : null
 
+  // Category distribution
+  const ALL_CATS = ['good','too_long','too_short','too_soft','too_salesy','wrong_tone','wrong_context','missed_context','other']
+  const catCounts: Record<string, number> = {}
+  for (const cat of ALL_CATS) catCounts[cat] = 0
+  for (const r of rows) {
+    if (r.feedback_category && catCounts[r.feedback_category] !== undefined) catCounts[r.feedback_category]++
+    else if (r.feedback_category) catCounts['other'] = (catCounts['other'] ?? 0) + 1
+  }
+  const catTotal = Object.values(catCounts).reduce((a, b) => a + b, 0)
+  const catWithData = ALL_CATS.filter(c => catCounts[c] > 0)
+
+  function toggleExpand(id: string) {
+    setExpanded(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
   return (
     <div>
       {/* Summary */}
@@ -2022,33 +2080,93 @@ function DmFeedback() {
         {goodRate !== null && <span><span style={{ color: C.muted }}>Good rating: </span><span style={{ fontWeight: 600, color: C.green }}>{Math.round(goodRate * 100)}%</span></span>}
       </div>
 
+      {/* Category distribution */}
+      {catWithData.length > 0 && (
+        <div style={{ marginBottom: '16px', padding: '12px 16px', background: C.surface, border: `1px solid ${C.border}`, borderRadius: '8px' }}>
+          <div style={{ fontSize: '10px', fontWeight: 700, color: C.muted, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '10px' }}>Category Distribution</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {catWithData.map(cat => {
+              const count = catCounts[cat]
+              const pct   = catTotal > 0 ? Math.round(count / catTotal * 100) : 0
+              const barColor = cat === 'good' ? C.green : cat.startsWith('too') ? C.gold : C.blue
+              return (
+                <div key={cat} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px' }}>
+                  <span style={{ width: '120px', color: C.dim, flexShrink: 0 }}>{cat.replace(/_/g, ' ')}</span>
+                  <div style={{ flex: 1, background: C.border, borderRadius: '3px', height: '6px', overflow: 'hidden' }}>
+                    <div style={{ width: `${pct}%`, height: '100%', background: barColor, borderRadius: '3px' }} />
+                  </div>
+                  <span style={{ width: '48px', textAlign: 'right', color: C.muted, flexShrink: 0 }}>{count} ({pct}%)</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Table */}
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
           <thead>
             <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-              {['Date', 'Draft source', 'Edited', 'Rating', 'Category', 'Sent response'].map(h => (
+              {['', 'Date', 'Draft source', 'Edited', 'Rating', 'Category', 'Sent response'].map(h => (
                 <th key={h} style={{ padding: '6px 10px', textAlign: 'left', fontSize: '10px', fontWeight: 700, color: C.muted, letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {rows.map(row => (
-              <tr key={row.id} style={{ borderBottom: `1px solid ${C.border2}` }}>
-                <td style={{ padding: '8px 10px', color: C.muted, whiteSpace: 'nowrap', fontSize: '11px' }}>{fmtDate(row.created_at)}</td>
-                <td style={{ padding: '8px 10px', color: C.dim,  fontSize: '11px', whiteSpace: 'nowrap' }}>{row.draft_source ?? '—'}</td>
-                <td style={{ padding: '8px 10px', color: row.was_edited ? C.gold : C.muted }}>{row.was_edited ? 'Yes' : 'No'}</td>
-                <td style={{ padding: '8px 10px', fontWeight: 600, color: row.feedback_rating === 'good' ? C.green : row.feedback_rating === 'bad' ? C.red : C.dim }}>
-                  {row.feedback_rating ?? '—'}
-                </td>
-                <td style={{ padding: '8px 10px', color: C.dim, fontSize: '11px' }}>{row.feedback_category ?? '—'}</td>
-                <td style={{ padding: '8px 10px', maxWidth: '320px' }}>
-                  <p style={{ margin: 0, whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right', color: '#9ee0b0', fontSize: '12px', lineHeight: 1.5 }}>
-                    {row.final_sent_response.slice(0, 120)}{row.final_sent_response.length > 120 ? '…' : ''}
-                  </p>
-                </td>
-              </tr>
-            ))}
+            {rows.map(row => {
+              const isOpen = expanded.has(row.id)
+              return (
+                <>
+                  <tr key={row.id} onClick={() => toggleExpand(row.id)}
+                    style={{ borderBottom: isOpen ? 'none' : `1px solid ${C.border2}`, cursor: 'pointer', background: isOpen ? C.surface : 'none' }}>
+                    <td style={{ padding: '8px 6px 8px 10px', color: C.muted, fontSize: '10px', width: '16px' }}>{isOpen ? '▲' : '▼'}</td>
+                    <td style={{ padding: '8px 10px', color: C.muted, whiteSpace: 'nowrap', fontSize: '11px' }}>{fmtDate(row.created_at)}</td>
+                    <td style={{ padding: '8px 10px', color: C.dim,  fontSize: '11px', whiteSpace: 'nowrap' }}>{row.draft_source ?? '—'}</td>
+                    <td style={{ padding: '8px 10px', color: row.was_edited ? C.gold : C.muted }}>{row.was_edited ? 'Yes' : 'No'}</td>
+                    <td style={{ padding: '8px 10px', fontWeight: 600, color: row.feedback_rating === 'good' ? C.green : row.feedback_rating === 'bad' ? C.red : C.dim }}>
+                      {row.feedback_rating ?? '—'}
+                    </td>
+                    <td style={{ padding: '8px 10px', color: C.dim, fontSize: '11px' }}>{row.feedback_category ?? '—'}</td>
+                    <td style={{ padding: '8px 10px', maxWidth: '320px' }}>
+                      <p style={{ margin: 0, whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right', color: '#9ee0b0', fontSize: '12px', lineHeight: 1.5 }}>
+                        {row.final_sent_response.slice(0, 120)}{row.final_sent_response.length > 120 ? '…' : ''}
+                      </p>
+                    </td>
+                  </tr>
+                  {isOpen && (
+                    <tr key={row.id + '_detail'} style={{ borderBottom: `1px solid ${C.border2}`, background: C.surface }}>
+                      <td colSpan={7} style={{ padding: '0 16px 14px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', paddingTop: '10px' }}>
+                          {row.inbound_context && (
+                            <div>
+                              <div style={{ fontSize: '9px', fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '4px' }}>Inbound context</div>
+                              <p style={{ margin: 0, fontSize: '11px', color: C.dim, whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{row.inbound_context}</p>
+                            </div>
+                          )}
+                          {row.original_draft && (
+                            <div>
+                              <div style={{ fontSize: '9px', fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '4px' }}>Original draft</div>
+                              <p style={{ margin: 0, fontSize: '11px', color: C.dim, whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right', lineHeight: 1.5 }}>{row.original_draft}</p>
+                            </div>
+                          )}
+                          <div style={{ gridColumn: '1 / -1' }}>
+                            <div style={{ fontSize: '9px', fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '4px' }}>Final sent response</div>
+                            <p style={{ margin: 0, fontSize: '11px', color: '#9ee0b0', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right', lineHeight: 1.5 }}>{row.final_sent_response}</p>
+                          </div>
+                          {row.feedback_note && (
+                            <div style={{ gridColumn: '1 / -1' }}>
+                              <div style={{ fontSize: '9px', fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '4px' }}>Feedback note</div>
+                              <p style={{ margin: 0, fontSize: '11px', color: C.dim, lineHeight: 1.5 }}>{row.feedback_note}</p>
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </>
+              )
+            })}
           </tbody>
         </table>
       </div>
@@ -2423,15 +2541,15 @@ function AppListRow({ app, selected, onClick }: { app: App; selected: boolean; o
   )
 }
 
-function Consultations({ initialTab }: { initialTab?: ConsTab } = {}) {
+function Consultations({ initialTab, initialAppId }: { initialTab?: ConsTab; initialAppId?: string } = {}) {
   const [data,       setData]       = useState<DashboardData | null>(null)
   const [loading,    setLoading]    = useState(false)
   const [err,        setErr]        = useState('')
   const [activeTab,  setActiveTab]  = useState<ConsTab>(initialTab ?? 'all')
   const [search,     setSearch]     = useState('')
   const [sort,       setSort]       = useState<'newest' | 'oldest'>('newest')
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [showDetail, setShowDetail] = useState(false)
+  const [selectedId, setSelectedId] = useState<string | null>(initialAppId ?? null)
+  const [showDetail, setShowDetail] = useState(!!initialAppId)
 
   const load = useCallback(async () => {
     setLoading(true); setErr('')
@@ -2440,13 +2558,16 @@ function Consultations({ initialTab }: { initialTab?: ConsTab } = {}) {
       if (!res.ok) { setErr('Failed to load'); return }
       const d: DashboardData = await res.json()
       setData(d)
-      if (!selectedId) {
-        const all = [...d.new, ...d.underReview, ...d.approved, ...d.claimed, ...d.paid]
-        if (all.length > 0) setSelectedId(all[0].pageId)
+      const all = [...d.new, ...d.underReview, ...d.approved, ...d.claimed, ...d.paid]
+      if (initialAppId) {
+        const found = all.find(a => a.pageId === initialAppId)
+        setSelectedId(found ? found.pageId : (all[0]?.pageId ?? null))
+      } else if (!selectedId && all.length > 0) {
+        setSelectedId(all[0].pageId)
       }
     } catch { setErr('Network error') }
     finally { setLoading(false) }
-  }, [selectedId])
+  }, [selectedId, initialAppId])
 
   useEffect(() => { void load() }, [load])
 
@@ -2591,7 +2712,7 @@ function Consultations({ initialTab }: { initialTab?: ConsTab } = {}) {
 }
 
 // ── Overview ──────────────────────────────────────────────────
-function Overview({ onNavigate }: { onNavigate: (section: Section, senderId?: string, consTab?: ConsTab) => void }) {
+function Overview({ onNavigate }: { onNavigate: (section: Section, senderId?: string, consTab?: ConsTab, appId?: string) => void }) {
   const [dmData,   setDmData]   = useState<{ items: DmItem[]; history: Record<string, ConvHistoryRow[]> } | null>(null)
   const [consData, setConsData] = useState<DashboardData | null>(null)
   const [loading,  setLoading]  = useState(true)
@@ -2734,7 +2855,7 @@ function Overview({ onNavigate }: { onNavigate: (section: Section, senderId?: st
                   const statusColor = isNew ? C.blue : C.gold
                   const goal = (app.subject || app.message || '').slice(0, 65)
                   return (
-                    <button key={app.pageId} onClick={() => onNavigate('consultations', undefined, 'open')} style={{
+                    <button key={app.pageId} onClick={() => onNavigate('consultations', undefined, 'open', app.pageId)} style={{
                       display: 'flex', flexDirection: 'column', gap: '2px', padding: '9px 12px',
                       background: 'none', border: 'none', borderTop: i > 0 ? `1px solid ${C.border2}` : 'none',
                       cursor: 'pointer', textAlign: 'left', fontFamily: 'system-ui, sans-serif', width: '100%',
@@ -2778,6 +2899,7 @@ function AdminShell({ onLogout }: { onLogout: () => void }) {
   const [isMobile,         setIsMobile]         = useState(false)
   const [dmInitialSender,  setDmInitialSender]  = useState<string | undefined>(undefined)
   const [consInitialTab,   setConsInitialTab]   = useState<ConsTab | undefined>(undefined)
+  const [consInitialAppId, setConsInitialAppId] = useState<string | undefined>(undefined)
 
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 768px)')
@@ -2789,9 +2911,10 @@ function AdminShell({ onLogout }: { onLogout: () => void }) {
 
   function navigate(id: Section) { setActive(id); setDrawerOpen(false) }
 
-  function navigateFromOverview(section: Section, senderId?: string, consTab?: ConsTab) {
+  function navigateFromOverview(section: Section, senderId?: string, consTab?: ConsTab, appId?: string) {
     setDmInitialSender(section === 'dm' ? senderId : undefined)
     setConsInitialTab(section === 'consultations' ? consTab : undefined)
+    setConsInitialAppId(section === 'consultations' ? appId : undefined)
     setActive(section)
     setDrawerOpen(false)
   }
@@ -2855,9 +2978,9 @@ function AdminShell({ onLogout }: { onLogout: () => void }) {
 
         {/* Main content */}
         <main style={{ flex: 1, minWidth: 0, padding: isMobile ? '16px 12px' : '24px 28px', overflowY: 'auto' }}>
-          {active === 'overview'      && <><h1 style={{ ...S.sectionHead, marginTop: 0 }}>Overview</h1><Overview onNavigate={(s, sid, ct) => navigateFromOverview(s, sid, ct)} /></>}
+          {active === 'overview'      && <><h1 style={{ ...S.sectionHead, marginTop: 0 }}>Overview</h1><Overview onNavigate={(s, sid, ct, aid) => navigateFromOverview(s, sid, ct, aid)} /></>}
           {active === 'dm'            && <><h1 style={{ ...S.sectionHead, marginTop: 0 }}>DM Inbox</h1><DmInbox key={dmInitialSender ?? 'default'} initialSenderId={dmInitialSender} /></>}
-          {active === 'consultations' && <><h1 style={{ ...S.sectionHead, marginTop: 0 }}>Consultations</h1><Consultations key={consInitialTab ?? 'default'} initialTab={consInitialTab} /></>}
+          {active === 'consultations' && <><h1 style={{ ...S.sectionHead, marginTop: 0 }}>Consultations</h1><Consultations key={(consInitialTab ?? 'default') + (consInitialAppId ?? '')} initialTab={consInitialTab} initialAppId={consInitialAppId} /></>}
           {active === 'access'        && <><h1 style={{ ...S.sectionHead, marginTop: 0 }}>Access Control ({' '})</h1><DmAccessControl /></>}
           {active === 'feedback'      && <><h1 style={{ ...S.sectionHead, marginTop: 0 }}>DM Feedback</h1><DmFeedback /></>}
         </main>
