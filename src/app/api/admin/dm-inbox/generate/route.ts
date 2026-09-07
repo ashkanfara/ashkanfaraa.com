@@ -83,6 +83,18 @@ interface StoryCtx {
   ocr_text:      string | null
 }
 
+// Pending inbound row — another unsent message from the same sender
+interface PendingInboundRow {
+  id: string
+  message_text: string | null
+  message_type: string
+  created_at: string
+  is_story_reply: boolean
+  story_id: string | null
+  failed_reason: string | null
+  processed: boolean
+}
+
 async function fetchRow(id: string): Promise<DmRow | null> {
   const base = SUPABASE_BASE()
   const hdrs = SUPABASE_HEADERS()
@@ -112,6 +124,45 @@ async function fetchHistory(senderId: string): Promise<{ message_text: string | 
   return res.ok ? res.json() : []
 }
 
+/**
+ * Fetch other unsent inbound rows from the same sender that belong to the open
+ * conversation window (last 24 h). Excludes the target row itself.
+ *
+ * Includes only genuinely unanswered inbound states:
+ *   - failed_reason IS NULL + processed = false   → needs_generation (fresh inbound)
+ *   - failed_reason = 'PENDING_REVIEW'            → needs_review (AI draft exists, not sent)
+ *
+ * Excludes:
+ *   - failed_reason IS NULL + processed = true    → n8n "no reply needed" completion
+ *   - AI_RECOMMENDED_IGNORE, HUMAN_TEMP_SKIP, STORY_MENTION_HUMAN_HOLD, SEND_FAILED, etc.
+ *
+ * Capped at 5 rows, chronological order.
+ */
+async function fetchPendingInbound(senderId: string, excludeId: string): Promise<PendingInboundRow[]> {
+  const base = SUPABASE_BASE()
+  const hdrs = SUPABASE_HEADERS()
+  const windowCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+
+  // PostgREST `or` filter covers both states in one round-trip
+  const res = await fetch(
+    `${base}/rest/v1/instagram_dm_buffer` +
+    `?sender_id=eq.${encodeURIComponent(senderId)}` +
+    `&id=neq.${encodeURIComponent(excludeId)}` +
+    `&response_sent=eq.false` +
+    `&or=(failed_reason.is.null,failed_reason.eq.PENDING_REVIEW)` +
+    `&created_at=gt.${encodeURIComponent(windowCutoff)}` +
+    `&select=id,message_text,message_type,created_at,is_story_reply,story_id,failed_reason,processed` +
+    `&order=created_at.asc&limit=10`,
+    { headers: hdrs }
+  )
+  if (!res.ok) return []
+  const rows = await res.json() as PendingInboundRow[]
+
+  return rows
+    .filter(r => !(r.failed_reason === null && r.processed === true)) // exclude n8n completions
+    .slice(0, 5)
+}
+
 async function fetchStoryCtx(storyId: string): Promise<StoryCtx | null> {
   const base = SUPABASE_BASE()
   const hdrs = SUPABASE_HEADERS()
@@ -125,6 +176,23 @@ async function fetchStoryCtx(storyId: string): Promise<StoryCtx | null> {
   if (!res.ok) return null
   const rows = await res.json() as StoryCtx[]
   return rows[0] ?? null
+}
+
+/** Batch-fetch story contexts for a list of story IDs. */
+async function fetchStoryCtxBatch(storyIds: string[]): Promise<Record<string, StoryCtx>> {
+  if (storyIds.length === 0) return {}
+  const base = SUPABASE_BASE()
+  const hdrs = SUPABASE_HEADERS()
+  const idList = `(${storyIds.map(id => encodeURIComponent(id)).join(',')})`
+  const res = await fetch(
+    `${base}/rest/v1/story_context` +
+    `?story_id=in.${idList}` +
+    `&select=story_id,media_type,media_url,caption,ai_description,ocr_text`,
+    { headers: hdrs }
+  )
+  if (!res.ok) return {}
+  const rows = await res.json() as StoryCtx[]
+  return Object.fromEntries(rows.map(r => [r.story_id, r]))
 }
 
 /** Validate that a row is in a legal pre-generation state. */
@@ -147,16 +215,36 @@ function classifyRow(row: DmRow): { valid: true; isFreshInbound: boolean } | { v
 /** Build the Anthropic Messages API messages array. */
 type AnthropicMessage = { role: 'user' | 'assistant'; content: string }
 
+function formatPendingText(p: PendingInboundRow, storyCtx: StoryCtx | null): string {
+  const parts: string[] = []
+  if (p.is_story_reply) parts.push('[پاسخ به استوری]')
+  if (p.message_text)   parts.push(p.message_text)
+  else if (p.message_type !== 'TEXT') parts.push(`[پیام ${p.message_type}]`)
+  else parts.push('[پیام بدون متن]')
+  if (storyCtx?.caption)        parts.push(`\n[کپشن استوری: ${storyCtx.caption}]`)
+  if (storyCtx?.ai_description) parts.push(`[توضیح هوش مصنوعی: ${storyCtx.ai_description}]`)
+  if (storyCtx?.ocr_text)       parts.push(`[متن تصویر: ${storyCtx.ocr_text}]`)
+  return parts.join(' ')
+}
+
 function buildMessages(
   row: DmRow,
   histRows: { message_text: string | null; final_response_text: string | null }[],
-  storyCtx: StoryCtx | null
+  storyCtx: StoryCtx | null,
+  pendingRows: PendingInboundRow[] = [],
+  pendingStoryCtxMap: Record<string, StoryCtx> = {}
 ): AnthropicMessage[] {
   const messages: AnthropicMessage[] = []
 
   for (const h of [...histRows].reverse()) {
     if (h.message_text)         messages.push({ role: 'user',      content: h.message_text })
     if (h.final_response_text)  messages.push({ role: 'assistant', content: h.final_response_text })
+  }
+
+  // Inject earlier pending inbound messages before the target — each as a standalone user turn
+  for (const p of pendingRows) {
+    const pCtx = p.story_id ? (pendingStoryCtxMap[p.story_id] ?? null) : null
+    messages.push({ role: 'user', content: formatPendingText(p, pCtx) })
   }
 
   const parts: string[] = []
@@ -179,7 +267,9 @@ function buildMessages(
 function buildPromptPackage(
   row: DmRow,
   histRows: { message_text: string | null; final_response_text: string | null; created_at: string }[],
-  storyCtx: StoryCtx | null
+  storyCtx: StoryCtx | null,
+  pendingRows: PendingInboundRow[] = [],
+  pendingStoryCtxMap: Record<string, StoryCtx> = {}
 ): string {
   const lines: string[] = []
 
@@ -201,8 +291,27 @@ function buildPromptPackage(
     }
   }
 
+  // Earlier pending inbound messages — only shown when >0 (target itself is NOT duplicated here)
+  if (pendingRows.length > 0) {
+    lines.push('')
+    lines.push('━━━ UNANSWERED / PENDING INBOUND MESSAGES (chronological, not yet replied to) ━━━')
+    lines.push('')
+    for (const p of pendingRows) {
+      const date = new Date(p.created_at).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+      const pCtx = p.story_id ? (pendingStoryCtxMap[p.story_id] ?? null) : null
+      const typeTag = p.is_story_reply ? 'STORY REPLY' : p.message_type !== 'TEXT' ? p.message_type : null
+      const msgText = p.message_text ?? `[${p.message_type} — no text]`
+      lines.push(`[${date}]${typeTag ? ` [${typeTag}]` : ''} ${msgText}`)
+      if (pCtx) {
+        if (pCtx.caption)         lines.push(`  Story caption: ${pCtx.caption}`)
+        if (pCtx.ai_description)  lines.push(`  Story description: ${pCtx.ai_description}`)
+        if (pCtx.ocr_text)        lines.push(`  Story text: ${pCtx.ocr_text}`)
+      }
+    }
+  }
+
   lines.push('')
-  lines.push('━━━ CURRENT INBOUND MESSAGE ━━━')
+  lines.push('━━━ CURRENT INBOUND MESSAGE (respond to this one) ━━━')
   lines.push('')
 
   if (row.is_story_reply) lines.push('Type: STORY REPLY')
@@ -268,18 +377,23 @@ export async function POST(req: NextRequest) {
 
   const { isFreshInbound } = classification
 
-  // ── Shared: fetch history + story context ────────────────────
-  const [histRows, storyCtx] = await Promise.all([
+  // ── Shared: fetch history + story context + earlier pending inbound ─────
+  const [histRows, storyCtx, pendingRows] = await Promise.all([
     fetchHistory(row.sender_id),
     row.is_story_reply && row.story_id ? fetchStoryCtx(row.story_id) : Promise.resolve(null),
+    fetchPendingInbound(row.sender_id, id),
   ])
+
+  // Batch-fetch story contexts for any pending rows that are story replies
+  const pendingStoryIds = pendingRows.filter(p => p.is_story_reply && p.story_id).map(p => p.story_id as string)
+  const pendingStoryCtxMap = await fetchStoryCtxBatch(pendingStoryIds)
 
   // ════════════════════════════════════════════════════════════
   // MODE: 'claude' — build prompt package, return it. ZERO API call.
   // ════════════════════════════════════════════════════════════
   if (mode === 'claude') {
-    const promptPackage = buildPromptPackage(row, histRows, storyCtx)
-    console.log(`[dm-generate] ✓ Prompt package built | mode=claude id=${id}`)
+    const promptPackage = buildPromptPackage(row, histRows, storyCtx, pendingRows, pendingStoryCtxMap)
+    console.log(`[dm-generate] ✓ Prompt package built | mode=claude id=${id} pending=${pendingRows.length}`)
     return NextResponse.json({ ok: true, promptPackage })
   }
 
@@ -287,7 +401,7 @@ export async function POST(req: NextRequest) {
   // MODE: 'api' — call Anthropic API (haiku), save draft to DB.
   // Exactly one API call per click.
   // ════════════════════════════════════════════════════════════
-  const messages = buildMessages(row, histRows, storyCtx)
+  const messages = buildMessages(row, histRows, storyCtx, pendingRows, pendingStoryCtxMap)
 
   let generatedDraft = ''
   try {
