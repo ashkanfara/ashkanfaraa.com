@@ -977,11 +977,146 @@ function DmInboxItem({ item, onRefresh }: { item: DmItem; onRefresh: () => void 
 }
 
 // ── DmInbox section ───────────────────────────────────────────
+
+interface ConversationGroup {
+  senderId: string
+  items: DmItem[]
+  history: ConvHistoryRow[]
+  username: string | null
+  displayName: string | null
+  profilePictureUrl: string | null
+  latestItem: DmItem
+  pendingCount: number
+  worstState: CardState
+  mostUrgentMs: number
+}
+
+const STATE_PRIORITY: Record<CardState, number> = {
+  needs_generation: 0, needs_review: 1, send_failed_open: 2,
+  status_unknown: 3, sending: 4, regenerating: 5,
+  ai_suggested_ignore: 6, story_mention: 7, human_managed: 8,
+}
+
+function groupBySender(items: DmItem[]): ConversationGroup[] {
+  const map = new Map<string, DmItem[]>()
+  for (const item of items) {
+    const list = map.get(item.senderId) ?? []
+    list.push(item)
+    map.set(item.senderId, list)
+  }
+  const groups: ConversationGroup[] = []
+  for (const [senderId, senderItems] of map) {
+    const sorted = [...senderItems].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+    const latestItem = sorted[sorted.length - 1]
+    const pendingItems = senderItems.filter(i => {
+      const s = getCardState(i)
+      return s !== 'human_managed' && s !== 'story_mention'
+    })
+    let worstState: CardState = getCardState(latestItem)
+    for (const item of senderItems) {
+      const s = getCardState(item)
+      if (STATE_PRIORITY[s] < STATE_PRIORITY[worstState]) worstState = s
+    }
+    const urgentItems = pendingItems.filter(i => windowMsRemaining(i.createdAt) < 2 * 3_600_000)
+    const mostUrgentMs = urgentItems.length > 0
+      ? Math.min(...urgentItems.map(i => windowMsRemaining(i.createdAt)))
+      : Math.min(...pendingItems.map(i => windowMsRemaining(i.createdAt)), Infinity)
+    groups.push({
+      senderId,
+      items: sorted,
+      history: latestItem.history,
+      username: latestItem.username,
+      displayName: latestItem.displayName,
+      profilePictureUrl: latestItem.profilePictureUrl,
+      latestItem,
+      pendingCount: pendingItems.length,
+      worstState,
+      mostUrgentMs,
+    })
+  }
+  // Sort: urgent first, then by state priority, then by recency
+  groups.sort((a, b) => {
+    const aUrgent = a.mostUrgentMs < 2 * 3_600_000 ? 0 : 1
+    const bUrgent = b.mostUrgentMs < 2 * 3_600_000 ? 0 : 1
+    if (aUrgent !== bUrgent) return aUrgent - bUrgent
+    const aPri = STATE_PRIORITY[a.worstState]
+    const bPri = STATE_PRIORITY[b.worstState]
+    if (aPri !== bPri) return aPri - bPri
+    return new Date(b.latestItem.createdAt).getTime() - new Date(a.latestItem.createdAt).getTime()
+  })
+  return groups
+}
+
+const STATE_COLOR: Record<CardState, string> = {
+  needs_generation: C.blue, needs_review: C.green, send_failed_open: C.red,
+  status_unknown: C.red, sending: C.gold, regenerating: C.gold,
+  ai_suggested_ignore: C.muted, story_mention: C.muted, human_managed: C.muted,
+}
+const STATE_LABEL: Record<CardState, string> = {
+  needs_generation: 'Draft needed', needs_review: 'Needs review', send_failed_open: 'Send failed',
+  status_unknown: 'Status unknown', sending: 'Sending', regenerating: 'Regenerating',
+  ai_suggested_ignore: 'AI ignore', story_mention: 'Story mention', human_managed: 'Human managed',
+}
+
+function humanizeMessageText(text: string | null, messageType: string): string {
+  if (!text) return ''
+  if (text.startsWith('[Media DM:')) {
+    if (text.includes('ig_reel'))   return 'Shared a reel'
+    if (text.includes('ig_image'))  return 'Shared an image'
+    if (text.includes('ig_video'))  return 'Shared a video'
+    return 'Shared media'
+  }
+  return text
+}
+
+function ConvSenderRow({ group, selected, onClick }: {
+  group: ConversationGroup; selected: boolean; onClick: () => void
+}) {
+  const displayName = group.username ? `@${group.username}` : group.displayName ?? 'Instagram User'
+  const avatarLabel = group.displayName || group.username || 'I'
+  const urgent = group.mostUrgentMs < 2 * 3_600_000
+  const stateColor = STATE_COLOR[group.worstState]
+  const preview = humanizeMessageText(group.latestItem.messageText, group.latestItem.messageType)
+
+  return (
+    <div onClick={onClick} style={{
+      padding: '10px 12px', cursor: 'pointer', borderRadius: '6px',
+      background: selected ? C.gold + '14' : 'transparent',
+      borderLeft: `3px solid ${selected ? C.gold : 'transparent'}`,
+      display: 'flex', gap: '10px', alignItems: 'center',
+      transition: 'background 0.1s',
+    }}>
+      <SenderAvatar profilePictureUrl={group.profilePictureUrl} label={avatarLabel} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ fontWeight: 700, fontSize: '12px', color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '130px' }}>{displayName}</span>
+          {group.pendingCount > 1 && (
+            <span style={{ background: stateColor + '30', color: stateColor, fontSize: '9px', fontWeight: 700, borderRadius: '8px', padding: '1px 5px', flexShrink: 0 }}>{group.pendingCount}</span>
+          )}
+          {urgent && <span style={{ color: C.red, fontSize: '10px', flexShrink: 0 }}>⚠</span>}
+        </div>
+        <div style={{ fontSize: '10px', color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: '2px' }}>
+          {preview || <span style={{ color: C.border }}>No message text</span>}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '3px' }}>
+          <span style={{ fontSize: '9px', color: stateColor, fontWeight: 600 }}>{STATE_LABEL[group.worstState]}</span>
+          {group.mostUrgentMs < Infinity && (
+            <span style={{ fontSize: '9px', color: urgent ? C.red : C.muted }}>
+              {fmtWindowRemaining(group.mostUrgentMs)}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function DmInbox() {
-  const [items,       setItems]       = useState<DmItem[] | null>(null)
-  const [loading,     setLoading]     = useState(false)
-  const [err,         setErr]         = useState<string | null>(null)
-  const [showAudit,   setShowAudit]   = useState(false)
+  const [items,     setItems]     = useState<DmItem[] | null>(null)
+  const [loading,   setLoading]   = useState(false)
+  const [err,       setErr]       = useState<string | null>(null)
+  const [selected,  setSelected]  = useState<string | null>(null)
+  const [showList,  setShowList]  = useState(true) // mobile: false = detail view
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
@@ -990,98 +1125,143 @@ function DmInbox() {
       const data = await res.json()
       if (!res.ok) { setErr(data.error || 'Failed to load'); return }
       const history: Record<string, ConvHistoryRow[]> = data.history ?? {}
-      setItems(
-        (data.items as DmItem[]).map(item => ({
-          ...item,
-          history: history[item.senderId] ?? [],
-        }))
-      )
+      const mapped = (data.items as DmItem[]).map(item => ({
+        ...item,
+        history: history[item.senderId] ?? [],
+      }))
+      setItems(mapped)
+      // Auto-select first group if none selected
+      if (!selected && mapped.length > 0) {
+        const groups = groupBySender(mapped)
+        if (groups.length > 0) setSelected(groups[0].senderId)
+      }
     } catch { setErr('Network error') }
     finally { setLoading(false) }
-  }, [])
+  }, [selected])
 
   useEffect(() => { void load() }, [load])
 
-  const allItems     = items ?? []
-  const needsReview  = allItems.filter(i => { const s = getCardState(i); return s === 'needs_review' || s === 'needs_generation' })
-  const aiIgnore     = allItems.filter(i => getCardState(i) === 'ai_suggested_ignore')
-  const needsAttn    = allItems.filter(i => { const s = getCardState(i); return s === 'sending' || s === 'status_unknown' || s === 'send_failed_open' || s === 'regenerating' })
-  const auditItems   = allItems.filter(i => { const s = getCardState(i); return s === 'human_managed' || s === 'story_mention' })
-  const urgentItems  = needsReview.filter(i => windowMsRemaining(i.createdAt) < 2 * 3_600_000)
+  const allItems = items ?? []
+  const groups   = groupBySender(allItems)
+
+  // Separate audit items (human_managed, story_mention) — show in a collapsed section
+  const activeGroups = groups.filter(g => g.worstState !== 'human_managed' && g.worstState !== 'story_mention')
+  const auditGroups  = groups.filter(g => g.worstState === 'human_managed' || g.worstState === 'story_mention')
+  const [showAudit, setShowAudit] = useState(false)
+
+  const urgentCount    = activeGroups.filter(g => g.mostUrgentMs < 2 * 3_600_000).length
+  const needsDraftCount = activeGroups.filter(g => g.worstState === 'needs_generation').length
+  const needsReviewCount = activeGroups.filter(g => g.worstState === 'needs_review').length
+
+  const selectedGroup = groups.find(g => g.senderId === selected) ?? null
+
+  function selectGroup(senderId: string) {
+    setSelected(senderId)
+    setShowList(false) // on mobile, switch to detail view
+  }
+
+  const isMobileNarrow = typeof window !== 'undefined' && window.innerWidth < 640
 
   return (
-    <div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginTop: '-8px' }}>
       {/* Toolbar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', flex: 1 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0 0 10px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', flex: 1 }}>
           {items !== null && (
             <>
-              {urgentItems.length > 0 && (
-                <span style={{ fontSize: '11px', color: C.red, fontWeight: 700, background: C.red + '18', border: `1px solid ${C.red}`, borderRadius: '10px', padding: '2px 10px' }}>
-                  ⚠ {urgentItems.length} urgent (&lt;2h)
+              {urgentCount > 0 && (
+                <span style={{ fontSize: '10px', color: C.red, fontWeight: 700, background: C.red + '18', border: `1px solid ${C.red}`, borderRadius: '10px', padding: '2px 8px' }}>
+                  ⚠ {urgentCount} urgent
                 </span>
               )}
-              <span style={{ fontSize: '11px', color: C.muted }}>
-                {needsReview.length} needs review
-                {aiIgnore.length > 0 && ` · ${aiIgnore.length} AI ignore`}
-                {needsAttn.length > 0 && ` · ${needsAttn.length} attention`}
+              <span style={{ fontSize: '10px', color: C.muted }}>
+                {activeGroups.length} senders
+                {needsDraftCount > 0 && ` · ${needsDraftCount} need draft`}
+                {needsReviewCount > 0 && ` · ${needsReviewCount} need review`}
               </span>
             </>
           )}
         </div>
-        <button onClick={() => void load()} disabled={loading} style={{ ...btn('ghost'), fontSize: '11px' }}>
+        <button onClick={() => void load()} disabled={loading} style={{ ...btn('ghost'), fontSize: '10px', padding: '3px 10px' }}>
           {loading ? '…' : 'Refresh'}
         </button>
       </div>
 
-      {err     && <p style={{ color: C.red, fontSize: '12px' }}>{err}</p>}
+      {err && <p style={{ color: C.red, fontSize: '12px' }}>{err}</p>}
       {loading && !items && <p style={{ color: C.muted, fontSize: '12px' }}>Loading…</p>}
-      {items && needsReview.length === 0 && needsAttn.length === 0 && aiIgnore.length === 0 && auditItems.length === 0 && (
-        <p style={{ color: C.muted, fontSize: '12px' }}>No drafts waiting for review.</p>
+
+      {items !== null && activeGroups.length === 0 && auditGroups.length === 0 && (
+        <p style={{ color: C.muted, fontSize: '12px' }}>Inbox clear.</p>
       )}
 
-      {/* Needs Review */}
-      {needsReview.length > 0 && (
-        <div style={{ marginBottom: '8px' }}>
-          <div style={{ fontSize: '10px', color: C.green, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', margin: '0 0 8px' }}>
-            Needs Review ({needsReview.length})
-          </div>
-          {needsReview.map(item => <DmInboxItem key={item.id} item={item} onRefresh={load} />)}
-        </div>
-      )}
+      {/* Master-detail layout */}
+      {items !== null && (activeGroups.length > 0 || auditGroups.length > 0) && (
+        <div style={{ display: 'flex', gap: 0, minHeight: 'calc(100vh - 180px)', border: `1px solid ${C.border}`, borderRadius: '8px', overflow: 'hidden' }}>
 
-      {/* AI Suggested Ignore */}
-      {aiIgnore.length > 0 && (
-        <div style={{ marginBottom: '8px' }}>
-          <div style={{ fontSize: '10px', color: C.gold, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', margin: '12px 0 8px' }}>
-            Story Replies — AI Suggested Ignore ({aiIgnore.length})
-          </div>
-          {aiIgnore.map(item => <DmInboxItem key={item.id} item={item} onRefresh={load} />)}
-        </div>
-      )}
+          {/* Left pane — sender list */}
+          {(showList || !isMobileNarrow) && (
+            <div style={{
+              width: '260px', minWidth: '260px', borderRight: `1px solid ${C.border}`,
+              background: C.sidebar, overflowY: 'auto', flexShrink: 0,
+              display: 'flex', flexDirection: 'column',
+            }}>
+              <div style={{ padding: '8px 6px', display: 'flex', flexDirection: 'column', gap: '1px', flex: 1 }}>
+                {activeGroups.map(g => (
+                  <ConvSenderRow key={g.senderId} group={g} selected={selected === g.senderId}
+                    onClick={() => selectGroup(g.senderId)} />
+                ))}
 
-      {/* Needs Attention */}
-      {needsAttn.length > 0 && (
-        <div style={{ marginBottom: '8px' }}>
-          <div style={{ fontSize: '10px', color: C.gold, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', margin: '12px 0 8px' }}>
-            Needs Attention ({needsAttn.length})
-          </div>
-          {needsAttn.map(item => <DmInboxItem key={item.id} item={item} onRefresh={load} />)}
-        </div>
-      )}
+                {/* Audit section in left pane */}
+                {auditGroups.length > 0 && (
+                  <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: `1px solid ${C.border2}` }}>
+                    <button onClick={() => setShowAudit(s => !s)}
+                      style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px', fontSize: '9px', color: C.muted, fontWeight: 700, letterSpacing: '0.08em', fontFamily: 'system-ui, sans-serif' }}>
+                      AUDIT ({auditGroups.length}) {showAudit ? '▲' : '▼'}
+                    </button>
+                    {showAudit && auditGroups.map(g => (
+                      <ConvSenderRow key={g.senderId} group={g} selected={selected === g.senderId}
+                        onClick={() => selectGroup(g.senderId)} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
-      {/* Audit Log */}
-      {auditItems.length > 0 && (
-        <div style={{ marginTop: '16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 10px', background: C.surface, border: `1px solid ${C.border}`, borderRadius: '6px' }}>
-            <span style={{ fontSize: '11px', color: C.muted }}>Audit Log: {auditItems.length} — human-managed or story mention</span>
-            <button onClick={() => setShowAudit(s => !s)} style={{ ...btn('ghost'), fontSize: '10px', padding: '2px 8px', marginLeft: 'auto' }}>
-              {showAudit ? 'Hide' : 'Show'}
-            </button>
-          </div>
-          {showAudit && (
-            <div style={{ marginTop: '6px' }}>
-              {auditItems.map(item => <DmInboxItem key={item.id} item={item} onRefresh={load} />)}
+          {/* Right pane — conversation detail */}
+          {(!showList || !isMobileNarrow) && (
+            <div style={{ flex: 1, minWidth: 0, overflowY: 'auto', background: C.bg }}>
+              {!selectedGroup ? (
+                <div style={{ padding: '32px 24px', color: C.muted, fontSize: '12px' }}>Select a conversation</div>
+              ) : (
+                <div style={{ padding: '0' }}>
+                  {/* Detail header */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 16px', borderBottom: `1px solid ${C.border}`, background: C.sidebar, position: 'sticky', top: 0, zIndex: 10 }}>
+                    {isMobileNarrow && (
+                      <button onClick={() => setShowList(true)} style={{ background: 'none', border: 'none', color: C.dim, cursor: 'pointer', fontSize: '16px', padding: '2px 6px 2px 0', fontFamily: 'system-ui, sans-serif' }}>‹</button>
+                    )}
+                    <SenderAvatar profilePictureUrl={selectedGroup.profilePictureUrl} label={selectedGroup.displayName || selectedGroup.username || 'I'} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: '13px', color: C.text }}>
+                        {selectedGroup.username ? `@${selectedGroup.username}` : selectedGroup.displayName ?? 'Instagram User'}
+                      </div>
+                      <div style={{ fontSize: '10px', color: C.muted }}>
+                        {selectedGroup.pendingCount} pending · {selectedGroup.items.length} total messages
+                      </div>
+                    </div>
+                    <div style={{ fontSize: '10px', color: STATE_COLOR[selectedGroup.worstState], fontWeight: 600 }}>
+                      {STATE_LABEL[selectedGroup.worstState]}
+                    </div>
+                  </div>
+
+                  {/* Items — each DmInboxItem handles its own state */}
+                  <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {selectedGroup.items.map(item => (
+                      <DmInboxItem key={item.id} item={item} onRefresh={() => void load()} />
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
