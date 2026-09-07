@@ -1660,11 +1660,11 @@ function ConvSenderRow({ group, selected, onClick }: {
   )
 }
 
-function DmInbox() {
+function DmInbox({ initialSenderId }: { initialSenderId?: string } = {}) {
   const [items,     setItems]     = useState<DmItem[] | null>(null)
   const [loading,   setLoading]   = useState(false)
   const [err,       setErr]       = useState<string | null>(null)
-  const [selected,  setSelected]  = useState<string | null>(null)
+  const [selected,  setSelected]  = useState<string | null>(initialSenderId ?? null)
   const [showList,  setShowList]  = useState(true) // mobile: false = detail view
 
   const load = useCallback(async () => {
@@ -1679,7 +1679,7 @@ function DmInbox() {
         history: history[item.senderId] ?? [],
       }))
       setItems(mapped)
-      // Auto-select first group if none selected
+      // Auto-select first group if none selected (and no initialSenderId was requested)
       if (!selected && mapped.length > 0) {
         const groups = groupBySender(mapped)
         if (groups.length > 0) setSelected(groups[0].senderId)
@@ -2418,7 +2418,7 @@ function Consultations() {
 }
 
 // ── Overview ──────────────────────────────────────────────────
-function Overview() {
+function Overview({ onNavigate }: { onNavigate: (section: Section, senderId?: string) => void }) {
   const [dmData,   setDmData]   = useState<{ items: DmItem[]; history: Record<string, ConvHistoryRow[]> } | null>(null)
   const [consData, setConsData] = useState<DashboardData | null>(null)
   const [loading,  setLoading]  = useState(true)
@@ -2435,40 +2435,156 @@ function Overview() {
 
   if (loading) return <p style={{ color: C.muted, fontSize: '12px' }}>Loading…</p>
 
-  const dmItems     = dmData?.items ?? []
+  const dmItems    = dmData?.items ?? []
+  const allGroups  = groupBySender(dmItems)
+  const activeGroups = allGroups.filter(g => g.worstState !== 'human_managed' && g.worstState !== 'story_mention')
+
+  // Actionable = needs_generation or needs_review
+  const actionableGroups = activeGroups.filter(g => g.worstState === 'needs_generation' || g.worstState === 'needs_review')
+  const urgentGroups     = actionableGroups.filter(g => g.mostUrgentMs < 2 * 3_600_000)
+  const attentionGroups  = activeGroups.filter(g => g.worstState === 'sending' || g.worstState === 'status_unknown' || g.worstState === 'send_failed_open')
+
+  // Flat item counts preserved for KPI
   const needsReview = dmItems.filter(i => { const s = getCardState(i); return s === 'needs_review' || s === 'needs_generation' })
   const urgent      = needsReview.filter(i => windowMsRemaining(i.createdAt) < 2 * 3_600_000)
   const attention   = dmItems.filter(i => { const s = getCardState(i); return s === 'sending' || s === 'status_unknown' || s === 'send_failed_open' })
   const totalNew    = (consData?.new.length ?? 0) + (consData?.underReview.length ?? 0)
+  const paidCount   = consData?.paid.length ?? 0
 
-  const stat = (label: string, value: string | number, color?: string) => (
-    <div style={{ padding: '16px 20px', background: C.surface, border: `1px solid ${C.border}`, borderRadius: '8px' }}>
-      <div style={{ fontSize: '24px', fontWeight: 700, color: color ?? C.text, lineHeight: 1 }}>{value}</div>
-      <div style={{ fontSize: '11px', color: C.muted, marginTop: '6px', letterSpacing: '0.04em' }}>{label}</div>
-    </div>
-  )
+  // Top 5 groups for "Needs your attention" DM panel
+  // Sort: urgent first (ascending urgency), then oldest actionable
+  const topDmGroups = [...urgentGroups]
+    .sort((a, b) => a.mostUrgentMs - b.mostUrgentMs)
+    .concat(
+      actionableGroups
+        .filter(g => g.mostUrgentMs >= 2 * 3_600_000)
+        .sort((a, b) => a.mostUrgentMs - b.mostUrgentMs)
+    )
+    .slice(0, 5)
+
+  // Top 5 consultations needing attention
+  const attentionCons = [...(consData?.new ?? []), ...(consData?.underReview ?? [])].slice(0, 5)
+
+  function KpiCard({ label, value, color, onClick }: { label: string; value: number; color?: string; onClick: () => void }) {
+    const active = value > 0
+    return (
+      <button onClick={onClick} style={{
+        padding: '14px 18px', background: C.surface, border: `1px solid ${active && color ? color + '44' : C.border}`,
+        borderRadius: '8px', cursor: 'pointer', textAlign: 'left', fontFamily: 'system-ui, sans-serif',
+        transition: 'border-color 0.15s',
+      }}>
+        <div style={{ fontSize: '22px', fontWeight: 700, color: active && color ? color : C.dim, lineHeight: 1 }}>{value}</div>
+        <div style={{ fontSize: '10px', color: C.muted, marginTop: '5px', letterSpacing: '0.04em' }}>{label}</div>
+        <div style={{ fontSize: '9px', color: active ? (color ?? C.muted) : C.muted, marginTop: '4px', opacity: 0.7 }}>→ view</div>
+      </button>
+    )
+  }
+
+  function humanizeMsg(text: string | null, type: string): string {
+    if (text) return text.length > 72 ? text.slice(0, 70) + '…' : text
+    if (type === 'REEL') return 'Shared a reel'
+    if (type === 'IMAGE') return 'Sent an image'
+    if (type === 'STORY_MENTION') return 'Mentioned in story'
+    return `[${type}]`
+  }
 
   return (
-    <div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '10px', marginBottom: '24px' }}>
-        {stat('DMs needs review',   needsReview.length, needsReview.length > 0 ? C.blue   : C.muted)}
-        {stat('Urgent (<2h)',        urgent.length,      urgent.length > 0      ? C.red    : C.muted)}
-        {stat('DMs need attention',  attention.length,   attention.length > 0   ? C.gold   : C.muted)}
-        {stat('Consultations open',  totalNew,           totalNew > 0           ? C.gold   : C.muted)}
-        {stat('Paid / Completed',    consData?.paid.length ?? 0)}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+
+      {/* KPI row */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '8px' }}>
+        <KpiCard label="DMs needs review"  value={needsReview.length} color={C.blue}  onClick={() => onNavigate('dm')} />
+        <KpiCard label="Urgent (<2h)"       value={urgent.length}      color={C.red}   onClick={() => onNavigate('dm', urgentGroups[0]?.senderId)} />
+        <KpiCard label="DMs need attention" value={attention.length}   color={C.gold}  onClick={() => onNavigate('dm', attentionGroups[0]?.senderId)} />
+        <KpiCard label="Consultations open" value={totalNew}           color={C.gold}  onClick={() => onNavigate('consultations')} />
+        <KpiCard label="Paid / Completed"   value={paidCount}                          onClick={() => onNavigate('consultations')} />
       </div>
-      {urgent.length > 0 && (
-        <div style={{ padding: '12px 16px', background: C.red + '10', border: `1px solid ${C.red}`, borderRadius: '8px', fontSize: '12px', color: C.red }}>
-          ⚠ {urgent.length} DM{urgent.length === 1 ? '' : 's'} expiring in less than 2 hours — go to DM Inbox to action.
+
+      {/* Needs your attention */}
+      <div>
+        <div style={{ fontSize: '10px', color: C.muted, letterSpacing: '0.08em', fontWeight: 600, marginBottom: '8px', paddingBottom: '5px', borderBottom: `1px solid ${C.border}` }}>
+          NEEDS YOUR ATTENTION
         </div>
-      )}
-      {attention.length > 0 && (
-        <div style={{ padding: '12px 16px', background: C.gold + '10', border: `1px solid ${C.gold}`, borderRadius: '8px', fontSize: '12px', color: C.gold, marginTop: '8px' }}>
-          {attention.length} DM{attention.length === 1 ? '' : 's'} in a broken state (send failed / status unknown) — check DM Inbox.
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: '10px' }}>
+
+          {/* DM panel */}
+          <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: '8px', overflow: 'hidden' }}>
+            <div style={{ padding: '8px 12px', borderBottom: `1px solid ${C.border2}`, fontSize: '10px', color: C.muted, fontWeight: 600, letterSpacing: '0.06em' }}>
+              DM INBOX
+            </div>
+            {topDmGroups.length === 0 ? (
+              <p style={{ margin: 0, padding: '14px 12px', fontSize: '12px', color: C.muted }}>You're caught up.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                {topDmGroups.map((g, i) => {
+                  const ms = g.mostUrgentMs
+                  const urgent = ms < 2 * 3_600_000
+                  const label  = g.username ? `@${g.username}` : g.displayName ?? 'Instagram User'
+                  const preview = humanizeMsg(g.latestItem.messageText, g.latestItem.messageType)
+                  return (
+                    <button key={g.senderId} onClick={() => onNavigate('dm', g.senderId)} style={{
+                      display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px',
+                      background: 'none', border: 'none', borderTop: i > 0 ? `1px solid ${C.border2}` : 'none',
+                      cursor: 'pointer', textAlign: 'left', fontFamily: 'system-ui, sans-serif', width: '100%',
+                    }}>
+                      <SenderAvatar profilePictureUrl={g.profilePictureUrl} label={label} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
+                          <span style={{ fontSize: '12px', fontWeight: 600, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+                          <span style={{ fontSize: '9px', color: STATE_COLOR[g.worstState], fontWeight: 700, flexShrink: 0 }}>{STATE_LABEL[g.worstState]}</span>
+                        </div>
+                        <div style={{ fontSize: '11px', color: C.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', direction: 'rtl', textAlign: 'left' }}>{preview}</div>
+                      </div>
+                      <div style={{ fontSize: '10px', color: urgent ? C.red : C.muted, fontWeight: urgent ? 700 : 400, flexShrink: 0 }}>
+                        {fmtWindowRemaining(ms)}
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Consultations panel */}
+          <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: '8px', overflow: 'hidden' }}>
+            <div style={{ padding: '8px 12px', borderBottom: `1px solid ${C.border2}`, fontSize: '10px', color: C.muted, fontWeight: 600, letterSpacing: '0.06em' }}>
+              CONSULTATIONS
+            </div>
+            {attentionCons.length === 0 ? (
+              <p style={{ margin: 0, padding: '14px 12px', fontSize: '12px', color: C.muted }}>No consultations need attention.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                {attentionCons.map((app, i) => {
+                  const isNew = (consData?.new ?? []).some(a => a.pageId === app.pageId)
+                  const statusLabel = isNew ? 'New' : 'Under Review'
+                  const statusColor = isNew ? C.blue : C.gold
+                  const goal = (app.subject || app.message || '').slice(0, 65)
+                  return (
+                    <button key={app.pageId} onClick={() => onNavigate('consultations')} style={{
+                      display: 'flex', flexDirection: 'column', gap: '2px', padding: '9px 12px',
+                      background: 'none', border: 'none', borderTop: i > 0 ? `1px solid ${C.border2}` : 'none',
+                      cursor: 'pointer', textAlign: 'left', fontFamily: 'system-ui, sans-serif', width: '100%',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ fontSize: '12px', fontWeight: 600, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{app.name || '(unnamed)'}</span>
+                        <span style={{ fontSize: '9px', color: statusColor, fontWeight: 700, flexShrink: 0 }}>{statusLabel}</span>
+                      </div>
+                      {app.location && <div style={{ fontSize: '10px', color: C.muted }}>{app.location}</div>}
+                      {goal && <div style={{ fontSize: '10px', color: C.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{goal}{goal.length >= 65 ? '…' : ''}</div>}
+                      <div style={{ fontSize: '9px', color: C.muted, marginTop: '1px' }}>{fmtDate(app.submittedAt)}</div>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
         </div>
-      )}
+      </div>
+
       {needsReview.length === 0 && urgent.length === 0 && attention.length === 0 && totalNew === 0 && (
-        <p style={{ color: C.muted, fontSize: '13px', marginTop: '8px' }}>All clear.</p>
+        <p style={{ color: C.muted, fontSize: '13px', marginTop: '4px' }}>All clear.</p>
       )}
     </div>
   )
@@ -2484,9 +2600,10 @@ const NAV_ITEMS: { id: Section; label: string }[] = [
 ]
 
 function AdminShell({ onLogout }: { onLogout: () => void }) {
-  const [active,      setActive]      = useState<Section>('overview')
-  const [drawerOpen,  setDrawerOpen]  = useState(false)
-  const [isMobile,    setIsMobile]    = useState(false)
+  const [active,           setActive]          = useState<Section>('overview')
+  const [drawerOpen,       setDrawerOpen]       = useState(false)
+  const [isMobile,         setIsMobile]         = useState(false)
+  const [dmInitialSender,  setDmInitialSender]  = useState<string | undefined>(undefined)
 
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 768px)')
@@ -2497,6 +2614,12 @@ function AdminShell({ onLogout }: { onLogout: () => void }) {
   }, [])
 
   function navigate(id: Section) { setActive(id); setDrawerOpen(false) }
+
+  function navigateFromOverview(section: Section, senderId?: string) {
+    setDmInitialSender(section === 'dm' ? senderId : undefined)
+    setActive(section)
+    setDrawerOpen(false)
+  }
 
   const sidebarContent = (
     <nav style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
@@ -2557,8 +2680,8 @@ function AdminShell({ onLogout }: { onLogout: () => void }) {
 
         {/* Main content */}
         <main style={{ flex: 1, minWidth: 0, padding: isMobile ? '16px 12px' : '24px 28px', overflowY: 'auto' }}>
-          {active === 'overview'      && <><h1 style={{ ...S.sectionHead, marginTop: 0 }}>Overview</h1><Overview /></>}
-          {active === 'dm'            && <><h1 style={{ ...S.sectionHead, marginTop: 0 }}>DM Inbox</h1><DmInbox /></>}
+          {active === 'overview'      && <><h1 style={{ ...S.sectionHead, marginTop: 0 }}>Overview</h1><Overview onNavigate={navigateFromOverview} /></>}
+          {active === 'dm'            && <><h1 style={{ ...S.sectionHead, marginTop: 0 }}>DM Inbox</h1><DmInbox key={dmInitialSender ?? 'default'} initialSenderId={dmInitialSender} /></>}
           {active === 'consultations' && <><h1 style={{ ...S.sectionHead, marginTop: 0 }}>Consultations</h1><Consultations /></>}
           {active === 'access'        && <><h1 style={{ ...S.sectionHead, marginTop: 0 }}>Access Control ({' '})</h1><DmAccessControl /></>}
           {active === 'feedback'      && <><h1 style={{ ...S.sectionHead, marginTop: 0 }}>DM Feedback</h1><DmFeedback /></>}
