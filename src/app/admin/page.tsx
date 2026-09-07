@@ -2296,8 +2296,8 @@ function InstagramDmSafety({ app }: { app: App }) {
   )
 }
 
-function AppCard({ app, section, onRefresh }: { app: App; section: 'new' | 'underReview' | 'approved' | 'claimed' | 'paid'; onRefresh: () => void }) {
-  const [isOpen,        setIsOpen]        = useState(false)
+function AppCard({ app, section, onRefresh, forceOpen }: { app: App; section: 'new' | 'underReview' | 'approved' | 'claimed' | 'paid'; onRefresh: () => void; forceOpen?: boolean }) {
+  const [isOpen,        setIsOpen]        = useState(forceOpen ?? false)
   const [approveResult, setApproveResult] = useState<ApproveResult | null>(null)
   const [consCode,      setConsCode]      = useState(app.consCode)
   const [busy,          setBusy]          = useState(false)
@@ -2371,54 +2371,227 @@ function AppCard({ app, section, onRefresh }: { app: App; section: 'new' | 'unde
   )
 }
 
-function ConsultationSection({ title, apps, section, onRefresh }: { title: string; apps: App[]; section: 'new' | 'underReview' | 'approved' | 'claimed' | 'paid'; onRefresh: () => void }) {
+type ConsTab = 'all' | 'open' | 'new' | 'underReview' | 'approved' | 'claimed' | 'paid'
+
+const CONS_TABS: { id: ConsTab; label: string }[] = [
+  { id: 'all',         label: 'All' },
+  { id: 'open',        label: 'Open / Review' },
+  { id: 'new',         label: 'New' },
+  { id: 'underReview', label: 'Under Review' },
+  { id: 'approved',    label: 'Approved / Payment Sent' },
+  { id: 'claimed',     label: 'Awaiting Confirmation' },
+  { id: 'paid',        label: 'Paid / Completed' },
+]
+
+function sectionForApp(app: App, data: DashboardData): 'new' | 'underReview' | 'approved' | 'claimed' | 'paid' {
+  if (data.new.some(a => a.pageId === app.pageId))         return 'new'
+  if (data.underReview.some(a => a.pageId === app.pageId)) return 'underReview'
+  if (data.approved.some(a => a.pageId === app.pageId))    return 'approved'
+  if (data.claimed.some(a => a.pageId === app.pageId))     return 'claimed'
+  return 'paid'
+}
+
+function AppListRow({ app, selected, onClick }: { app: App; selected: boolean; onClick: () => void }) {
+  const goal = (app.subject || app.message || '').slice(0, 60)
   return (
-    <div>
-      <h2 style={S.sectionHead}>{title} ({apps.length})</h2>
-      {apps.length === 0 ? <p style={{ color: C.muted, fontSize: '12px' }}>None.</p> : apps.map(app => <AppCard key={app.pageId} app={app} section={section} onRefresh={onRefresh} />)}
-    </div>
+    <button onClick={onClick} style={{
+      display: 'flex', flexDirection: 'column', gap: '2px', padding: '9px 12px', width: '100%',
+      background: selected ? C.gold + '12' : 'none', border: 'none',
+      borderLeft: `3px solid ${selected ? C.gold : 'transparent'}`,
+      cursor: 'pointer', textAlign: 'left', fontFamily: 'system-ui, sans-serif',
+      borderBottom: `1px solid ${C.border2}`,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+        <span style={{ fontSize: '12px', fontWeight: 600, color: selected ? C.gold : C.text, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {app.name || '(unnamed)'}
+        </span>
+        {app.status && app.status !== 'New' && (
+          <span style={{ fontSize: '9px', color: C.goldDim, fontWeight: 700, flexShrink: 0 }}>{app.status}</span>
+        )}
+      </div>
+      <div style={{ display: 'flex', gap: '5px', fontSize: '10px', color: C.muted }}>
+        {app.location && <span>{app.location}</span>}
+        {app.location && <span>·</span>}
+        <span>{new Date(app.submittedAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}</span>
+      </div>
+      {goal && (
+        <div style={{ fontSize: '10px', color: C.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {goal}{goal.length >= 60 ? '…' : ''}
+        </div>
+      )}
+    </button>
   )
 }
 
-function Consultations() {
-  const [data,    setData]    = useState<DashboardData | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [err,     setErr]     = useState('')
+function Consultations({ initialTab }: { initialTab?: ConsTab } = {}) {
+  const [data,       setData]       = useState<DashboardData | null>(null)
+  const [loading,    setLoading]    = useState(false)
+  const [err,        setErr]        = useState('')
+  const [activeTab,  setActiveTab]  = useState<ConsTab>(initialTab ?? 'all')
+  const [search,     setSearch]     = useState('')
+  const [sort,       setSort]       = useState<'newest' | 'oldest'>('newest')
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [showDetail, setShowDetail] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true); setErr('')
     try {
       const res = await fetch('/api/admin/consultation/list')
       if (!res.ok) { setErr('Failed to load'); return }
-      setData(await res.json())
+      const d: DashboardData = await res.json()
+      setData(d)
+      if (!selectedId) {
+        const all = [...d.new, ...d.underReview, ...d.approved, ...d.claimed, ...d.paid]
+        if (all.length > 0) setSelectedId(all[0].pageId)
+      }
     } catch { setErr('Network error') }
     finally { setLoading(false) }
-  }, [])
+  }, [selectedId])
 
   useEffect(() => { void load() }, [load])
 
+  if (loading && !data) return <p style={{ color: C.muted, fontSize: '12px' }}>Loading…</p>
+  if (err)              return <p style={{ color: C.red,   fontSize: '12px' }}>{err}</p>
+  if (!data)            return null
+
+  const allApps = [...data.new, ...data.underReview, ...data.approved, ...data.claimed, ...data.paid]
+
+  function appsForTab(tab: ConsTab): App[] {
+    if (tab === 'all')         return allApps
+    if (tab === 'open')        return [...data!.new, ...data!.underReview]
+    if (tab === 'new')         return data!.new
+    if (tab === 'underReview') return data!.underReview
+    if (tab === 'approved')    return data!.approved
+    if (tab === 'claimed')     return data!.claimed
+    return data!.paid
+  }
+
+  const q = search.trim().toLowerCase()
+  let displayApps = appsForTab(activeTab).filter(app => {
+    if (!q) return true
+    return (
+      (app.name     || '').toLowerCase().includes(q) ||
+      (app.location || '').toLowerCase().includes(q) ||
+      (app.subject  || '').toLowerCase().includes(q) ||
+      (app.message  || '').toLowerCase().includes(q) ||
+      (app.email    || '').toLowerCase().includes(q) ||
+      (app.phone    || '').toLowerCase().includes(q)
+    )
+  })
+  displayApps = [...displayApps].sort((a, b) => {
+    const diff = new Date(a.submittedAt).getTime() - new Date(b.submittedAt).getTime()
+    return sort === 'newest' ? -diff : diff
+  })
+
+  const selectedApp    = selectedId ? allApps.find(a => a.pageId === selectedId) ?? null : null
+  const selectedSection = selectedApp ? sectionForApp(selectedApp, data) : 'new'
+
+  const isMobileNarrow = typeof window !== 'undefined' && window.innerWidth < 640
+
+  function selectApp(pageId: string) { setSelectedId(pageId); setShowDetail(true) }
+
+  const emptyMsg: Record<ConsTab, string> = {
+    all: 'No applications yet.', open: 'No open applications.',
+    new: 'No new applications.', underReview: 'No applications under review.',
+    approved: 'No applications approved yet.', claimed: 'No applications awaiting confirmation.',
+    paid: 'No completed applications.',
+  }
+
+  const tabBar = (
+    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: '8px' }}>
+      {CONS_TABS.map(t => {
+        const count = appsForTab(t.id).length
+        const active = activeTab === t.id
+        return (
+          <button key={t.id} onClick={() => setActiveTab(t.id)} style={{
+            padding: '4px 10px', fontSize: '10px', fontWeight: active ? 700 : 400, cursor: 'pointer',
+            background: active ? C.gold + '18' : 'transparent',
+            color: active ? C.gold : C.muted,
+            border: `1px solid ${active ? C.goldDim : C.border2}`,
+            borderRadius: '10px', fontFamily: 'system-ui, sans-serif', whiteSpace: 'nowrap',
+          }}>
+            {t.label}{count > 0 ? ` (${count})` : ''}
+          </button>
+        )
+      })}
+    </div>
+  )
+
+  const toolbar = (
+    <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap' }}>
+      <input value={search} onChange={e => setSearch(e.target.value)}
+        placeholder="Search name, location, goal…"
+        style={{ ...S.input, flex: 1, minWidth: '140px', fontSize: '11px', padding: '5px 9px' }} />
+      <select value={sort} onChange={e => setSort(e.target.value as 'newest' | 'oldest')}
+        style={{ ...S.select, width: 'auto', fontSize: '10px', padding: '5px 8px' }}>
+        <option value="newest">Newest</option>
+        <option value="oldest">Oldest</option>
+      </select>
+      <button onClick={() => void load()} disabled={loading} style={{ ...btn('ghost'), fontSize: '10px', padding: '4px 10px' }}>
+        {loading ? '…' : 'Refresh'}
+      </button>
+    </div>
+  )
+
+  if (!isMobileNarrow) {
+    return (
+      <div style={{ marginTop: '-8px' }}>
+        {tabBar}
+        {toolbar}
+        <div style={{ display: 'flex', gap: 0, minHeight: 'calc(100vh - 220px)', border: `1px solid ${C.border}`, borderRadius: '8px', overflow: 'hidden' }}>
+          <div style={{ width: '300px', minWidth: '240px', borderRight: `1px solid ${C.border}`, background: C.sidebar, overflowY: 'auto', flexShrink: 0 }}>
+            {displayApps.length === 0 ? (
+              <p style={{ padding: '16px 12px', color: C.muted, fontSize: '12px', margin: 0 }}>
+                {q ? 'No results match your search.' : emptyMsg[activeTab]}
+              </p>
+            ) : displayApps.map(app => (
+              <AppListRow key={app.pageId} app={app} selected={selectedId === app.pageId} onClick={() => selectApp(app.pageId)} />
+            ))}
+          </div>
+          <div style={{ flex: 1, minWidth: 0, overflowY: 'auto', background: C.bg }}>
+            {selectedApp ? (
+              <div style={{ padding: '16px' }}>
+                <AppCard key={selectedApp.pageId} app={selectedApp} section={selectedSection} onRefresh={() => void load()} forceOpen />
+              </div>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '200px' }}>
+                <p style={{ color: C.muted, fontSize: '12px' }}>Select an application.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Mobile: list → detail
+  if (showDetail && selectedApp) {
+    return (
+      <div>
+        <button onClick={() => setShowDetail(false)} style={{ ...btn('ghost'), fontSize: '11px', marginBottom: '10px' }}>← Back</button>
+        <AppCard key={selectedApp.pageId} app={selectedApp} section={selectedSection} onRefresh={() => { void load(); setShowDetail(false) }} forceOpen />
+      </div>
+    )
+  }
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '8px' }}>
-        <button onClick={() => void load()} style={{ ...btn('ghost'), fontSize: '11px' }}>{loading ? '…' : 'Refresh'}</button>
-      </div>
-      {err     && <p style={{ color: C.red,  fontSize: '12px' }}>{err}</p>}
-      {loading && !data && <p style={{ color: C.muted, fontSize: '12px' }}>Loading…</p>}
-      {data && (
-        <>
-          <ConsultationSection title="New Applications"             apps={data.new}         section="new"         onRefresh={load} />
-          <ConsultationSection title="Under Review"                 apps={data.underReview} section="underReview" onRefresh={load} />
-          <ConsultationSection title="Approved / Payment Sent"      apps={data.approved}    section="approved"    onRefresh={load} />
-          <ConsultationSection title="Awaiting Manual Confirmation" apps={data.claimed}     section="claimed"     onRefresh={load} />
-          <ConsultationSection title="Paid / Completed"             apps={data.paid}        section="paid"        onRefresh={load} />
-        </>
+      {tabBar}
+      {toolbar}
+      {displayApps.length === 0 ? (
+        <p style={{ color: C.muted, fontSize: '12px' }}>{q ? 'No results match your search.' : emptyMsg[activeTab]}</p>
+      ) : (
+        <div style={{ border: `1px solid ${C.border}`, borderRadius: '8px', overflow: 'hidden' }}>
+          {displayApps.map(app => (
+            <AppListRow key={app.pageId} app={app} selected={selectedId === app.pageId} onClick={() => selectApp(app.pageId)} />
+          ))}
+        </div>
       )}
     </div>
   )
 }
 
 // ── Overview ──────────────────────────────────────────────────
-function Overview({ onNavigate }: { onNavigate: (section: Section, senderId?: string) => void }) {
+function Overview({ onNavigate }: { onNavigate: (section: Section, senderId?: string, consTab?: ConsTab) => void }) {
   const [dmData,   setDmData]   = useState<{ items: DmItem[]; history: Record<string, ConvHistoryRow[]> } | null>(null)
   const [consData, setConsData] = useState<DashboardData | null>(null)
   const [loading,  setLoading]  = useState(true)
@@ -2496,8 +2669,8 @@ function Overview({ onNavigate }: { onNavigate: (section: Section, senderId?: st
         <KpiCard label="DMs needs review"  value={needsReview.length} color={C.blue}  onClick={() => onNavigate('dm')} />
         <KpiCard label="Urgent (<2h)"       value={urgent.length}      color={C.red}   onClick={() => onNavigate('dm', urgentGroups[0]?.senderId)} />
         <KpiCard label="DMs need attention" value={attention.length}   color={C.gold}  onClick={() => onNavigate('dm', attentionGroups[0]?.senderId)} />
-        <KpiCard label="Consultations open" value={totalNew}           color={C.gold}  onClick={() => onNavigate('consultations')} />
-        <KpiCard label="Paid / Completed"   value={paidCount}                          onClick={() => onNavigate('consultations')} />
+        <KpiCard label="Consultations open" value={totalNew}           color={C.gold}  onClick={() => onNavigate('consultations', undefined, 'open')} />
+        <KpiCard label="Paid / Completed"   value={paidCount}                          onClick={() => onNavigate('consultations', undefined, 'paid')} />
       </div>
 
       {/* Needs your attention */}
@@ -2561,7 +2734,7 @@ function Overview({ onNavigate }: { onNavigate: (section: Section, senderId?: st
                   const statusColor = isNew ? C.blue : C.gold
                   const goal = (app.subject || app.message || '').slice(0, 65)
                   return (
-                    <button key={app.pageId} onClick={() => onNavigate('consultations')} style={{
+                    <button key={app.pageId} onClick={() => onNavigate('consultations', undefined, 'open')} style={{
                       display: 'flex', flexDirection: 'column', gap: '2px', padding: '9px 12px',
                       background: 'none', border: 'none', borderTop: i > 0 ? `1px solid ${C.border2}` : 'none',
                       cursor: 'pointer', textAlign: 'left', fontFamily: 'system-ui, sans-serif', width: '100%',
@@ -2604,6 +2777,7 @@ function AdminShell({ onLogout }: { onLogout: () => void }) {
   const [drawerOpen,       setDrawerOpen]       = useState(false)
   const [isMobile,         setIsMobile]         = useState(false)
   const [dmInitialSender,  setDmInitialSender]  = useState<string | undefined>(undefined)
+  const [consInitialTab,   setConsInitialTab]   = useState<ConsTab | undefined>(undefined)
 
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 768px)')
@@ -2615,8 +2789,9 @@ function AdminShell({ onLogout }: { onLogout: () => void }) {
 
   function navigate(id: Section) { setActive(id); setDrawerOpen(false) }
 
-  function navigateFromOverview(section: Section, senderId?: string) {
+  function navigateFromOverview(section: Section, senderId?: string, consTab?: ConsTab) {
     setDmInitialSender(section === 'dm' ? senderId : undefined)
+    setConsInitialTab(section === 'consultations' ? consTab : undefined)
     setActive(section)
     setDrawerOpen(false)
   }
@@ -2680,9 +2855,9 @@ function AdminShell({ onLogout }: { onLogout: () => void }) {
 
         {/* Main content */}
         <main style={{ flex: 1, minWidth: 0, padding: isMobile ? '16px 12px' : '24px 28px', overflowY: 'auto' }}>
-          {active === 'overview'      && <><h1 style={{ ...S.sectionHead, marginTop: 0 }}>Overview</h1><Overview onNavigate={navigateFromOverview} /></>}
+          {active === 'overview'      && <><h1 style={{ ...S.sectionHead, marginTop: 0 }}>Overview</h1><Overview onNavigate={(s, sid, ct) => navigateFromOverview(s, sid, ct)} /></>}
           {active === 'dm'            && <><h1 style={{ ...S.sectionHead, marginTop: 0 }}>DM Inbox</h1><DmInbox key={dmInitialSender ?? 'default'} initialSenderId={dmInitialSender} /></>}
-          {active === 'consultations' && <><h1 style={{ ...S.sectionHead, marginTop: 0 }}>Consultations</h1><Consultations /></>}
+          {active === 'consultations' && <><h1 style={{ ...S.sectionHead, marginTop: 0 }}>Consultations</h1><Consultations key={consInitialTab ?? 'default'} initialTab={consInitialTab} /></>}
           {active === 'access'        && <><h1 style={{ ...S.sectionHead, marginTop: 0 }}>Access Control ({' '})</h1><DmAccessControl /></>}
           {active === 'feedback'      && <><h1 style={{ ...S.sectionHead, marginTop: 0 }}>DM Feedback</h1><DmFeedback /></>}
         </main>
