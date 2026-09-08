@@ -468,13 +468,13 @@ function GenerationFailedCard({ item, onRefresh }: { item: DmItem; onRefresh: ()
   async function retryDraft() {
     setBusy('retry'); setErr(null)
     try {
-      const res  = await fetch('/api/admin/dm-inbox/generate', {
+      const res  = await fetch('/api/admin/dm-inbox/retry-draft', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: item.id, mode: 'api' }),
+        body: JSON.stringify({ id: item.id }),
       })
       const data = await res.json() as { ok: boolean; error?: string }
       if (data.ok) { setTimeout(onRefresh, 600) }
-      else          { setErr(data.error ?? 'Draft generation failed') }
+      else          { setErr(data.error ?? 'Failed to queue draft generation') }
     } catch { setErr('Network error') }
     finally { setBusy(null) }
   }
@@ -679,6 +679,38 @@ function DmInboxItem({ item, onRefresh }: { item: DmItem; onRefresh: () => void 
             <button disabled={busy !== null} onClick={() => void cancelRegen()} style={{ ...btn('warn'), fontSize: '11px' }}>
               {busy === 'cancel_regen' ? '…' : 'Cancel Regeneration'}
             </button>
+          </div>
+          {err && <p style={{ color: C.red, fontSize: '11px', marginTop: '6px' }}>{err}</p>}
+        </div>
+      </div>
+    )
+  }
+
+  // Draft generating via Claude Routine (async — callback arrives later)
+  if (cardState === 'draft_generating') {
+    const elapsedMs  = Date.now() - new Date(item.processingStartedAt ?? item.createdAt).getTime()
+    const timedOut   = elapsedMs > 5 * 60 * 1000
+    const elapsedMin = Math.floor(elapsedMs / 60000)
+    return (
+      <div style={{ ...S.card, borderLeft: `3px solid ${timedOut ? C.red : C.gold}` }}>
+        <div style={{ ...S.cardHeader, alignItems: 'center', cursor: 'default' }}>
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <SenderAvatar profilePictureUrl={item.profilePictureUrl} label={avatarLabel} />
+            <div>
+              <span style={{ fontWeight: 700, fontSize: '13px', color: C.text }}>{primaryLabel}</span>
+              <span style={{ marginLeft: '8px', fontSize: '10px', color: timedOut ? C.red : C.gold, border: `1px solid ${timedOut ? C.red : C.gold}`, borderRadius: '4px', padding: '1px 5px', fontWeight: 700 }}>
+                {timedOut ? `Generating (${elapsedMin}m — delayed)` : 'Generating draft…'}
+              </span>
+            </div>
+          </div>
+        </div>
+        <div style={{ padding: '0 14px 12px', fontSize: '12px' }}>
+          {item.messageText && <p style={{ ...S.value, whiteSpace: 'pre-wrap', fontSize: '12px', color: C.dim, margin: '0 0 8px' }}>{item.messageText}</p>}
+          <p style={{ margin: '0 0 10px', color: timedOut ? C.red : C.gold, fontSize: '11px' }}>
+            {timedOut ? 'Claude Routine has not responded. Write a reply manually or retry.' : 'Claude Routine is generating a draft — refreshing automatically.'}
+          </p>
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <button onClick={onRefresh} style={{ ...btn('ghost'), fontSize: '11px' }}>Refresh</button>
           </div>
           {err && <p style={{ color: C.red, fontSize: '11px', marginTop: '6px' }}>{err}</p>}
         </div>
@@ -1127,6 +1159,58 @@ function ConvWorkspace({ targetItem, pendingCount, onRefresh }: {
 
   const wrapStyle: React.CSSProperties = { padding: '14px 16px', borderTop: `1px solid ${C.border2}` }
 
+  // ── draft_generating (Claude Routine in flight) ──────────────
+  if (cardState === 'draft_generating') {
+    const elapsedMs  = Date.now() - new Date(targetItem.processingStartedAt ?? targetItem.createdAt).getTime()
+    const timedOut   = elapsedMs > 5 * 60 * 1000
+    const elapsedMin = Math.floor(elapsedMs / 60000)
+
+    return (
+      <div style={wrapStyle}>
+        {windowBar}
+        <div style={{ padding: '10px 12px', background: '#1a1508', border: `1px solid ${timedOut ? C.red : C.gold}`, borderRadius: '6px', marginBottom: '10px', fontSize: '12px', color: timedOut ? C.red : C.gold, lineHeight: 1.5 }}>
+          {timedOut
+            ? `Claude Routine has not responded (${elapsedMin}m). Write a reply manually, or retry to fire a new generation.`
+            : 'Claude Routine is generating a draft. Refreshing automatically — this usually takes under a minute.'}
+        </div>
+        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '10px' }}>
+          <button onClick={onRefresh} style={{ ...btn('ghost'), fontSize: '11px' }}>Refresh</button>
+          {timedOut && (
+            <button disabled={isBusy} onClick={async () => {
+              setBusy('retry'); setErr(null)
+              try {
+                const data = await callApi('/api/admin/dm-inbox/retry-draft', { id: targetItem.id })
+                if (data.ok) { setTimeout(onRefresh, 600) }
+                else          { setErr(data.error ?? 'Failed to queue draft generation') }
+              } catch { setErr('Network error') }
+              finally { setBusy(null) }
+            }} style={{ ...btn('warn'), fontSize: '11px' }}>{busy === 'retry' ? '…' : 'Retry Draft'}</button>
+          )}
+          <button disabled={isBusy} onClick={() => { setWriteMode('write'); setPasteText(''); setErr(null) }} style={{ ...btn('ghost'), fontSize: '11px' }}>Write Reply</button>
+          <button disabled={isBusy} onClick={() => void mutate('ignore')} style={{ ...btn('ghost'), fontSize: '11px' }}>{busy === 'ignore' ? '…' : 'Ignore'}</button>
+        </div>
+        <div style={{ display: 'flex', gap: '6px', paddingTop: '6px', borderTop: `1px solid ${C.border2}`, flexWrap: 'wrap' }}>
+          {takeOverOrRelease}{blockBtn}
+        </div>
+        {err && <p style={{ color: C.red, fontSize: '11px', marginTop: '8px' }}>{err}</p>}
+        {writeMode === 'write' && (
+          <div style={{ marginTop: '10px' }}>
+            <p style={{ fontSize: '10px', color: C.muted, margin: '0 0 4px', fontWeight: 700, letterSpacing: '0.06em' }}>WRITE YOUR REPLY</p>
+            <textarea value={pasteText} onChange={e => setPasteText(e.target.value)} rows={4}
+              placeholder="Type your reply…" style={{ ...S.textarea, direction: 'rtl', lineHeight: 1.7 }} autoFocus />
+            <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
+              <button disabled={isBusy || !pasteText.trim()} onClick={() => void saveDraft('HUMAN')}
+                style={{ ...btn('primary'), fontSize: '12px', opacity: !pasteText.trim() ? 0.5 : 1 }}>
+                {busy === 'save' ? '…' : 'Save Draft'}
+              </button>
+              <button disabled={isBusy} onClick={() => { setWriteMode(null); setPasteText(''); setErr(null) }} style={{ ...btn('ghost'), fontSize: '12px' }}>Cancel</button>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
   // ── regenerating ────────────────────────────────────────────
   if (cardState === 'regenerating') {
     const elapsed = Date.now() - new Date(targetItem.processingStartedAt ?? targetItem.createdAt).getTime()
@@ -1203,9 +1287,9 @@ function ConvWorkspace({ targetItem, pendingCount, onRefresh }: {
               <button disabled={isBusy} onClick={async () => {
                 setBusy('retry'); setErr(null)
                 try {
-                  const data = await callApi('/api/admin/dm-inbox/generate', { id: targetItem.id, mode: 'api' })
+                  const data = await callApi('/api/admin/dm-inbox/retry-draft', { id: targetItem.id })
                   if (data.ok) { setTimeout(onRefresh, 600) }
-                  else          { setErr(data.error ?? 'Draft generation failed') }
+                  else          { setErr(data.error ?? 'Failed to queue draft generation') }
                 } catch { setErr('Network error') }
                 finally { setBusy(null) }
               }} style={{ ...btn('warn'), fontSize: '12px' }}>
@@ -1574,6 +1658,14 @@ function DmInbox({ initialSenderId }: { initialSenderId?: string } = {}) {
 
   const allItems = items ?? []
   const groups   = groupBySender(allItems)
+
+  // Auto-refresh every 12s while any group has a Routine generation in flight
+  const hasGenerating = groups.some(g => g.worstState === 'draft_generating')
+  useEffect(() => {
+    if (!hasGenerating) return
+    const t = setInterval(() => { void load() }, 12_000)
+    return () => clearInterval(t)
+  }, [hasGenerating, load])
 
   // Separate audit items (human_managed, story_mention) — show in a collapsed section
   const activeGroups = groups.filter(g => g.worstState !== 'human_managed' && g.worstState !== 'story_mention')
