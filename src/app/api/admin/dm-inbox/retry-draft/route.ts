@@ -178,9 +178,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const isFreshInbound     = row.failed_reason === null && row.processed === false && row.processing_started_at === null
   const isDraftFailed      = row.failed_reason === 'DRAFT_FAILED'
   const isDraftGenerating  = row.failed_reason === 'DRAFT_GENERATING'
-  const isDraftRateLimited = row.failed_reason === 'DRAFT_RATE_LIMITED'
 
-  if (!isFreshInbound && !isDraftFailed && !isDraftGenerating && !isDraftRateLimited)
+  if (!isFreshInbound && !isDraftFailed && !isDraftGenerating)
     return NextResponse.json({ ok: false, error: `Row is not in a retryable state (failed_reason=${row.failed_reason})` }, { status: 409 })
 
   if (Date.now() > new Date(row.created_at).getTime() + WINDOW_MS)
@@ -193,9 +192,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     ? `&failed_reason=is.null&processed=eq.false&processing_started_at=is.null`
     : isDraftFailed
       ? `&failed_reason=eq.DRAFT_FAILED`
-      : isDraftRateLimited
-        ? `&failed_reason=eq.DRAFT_RATE_LIMITED`
-        : `&failed_reason=eq.DRAFT_GENERATING` // re-retry: supersedes old generation_id
+      : `&failed_reason=eq.DRAFT_GENERATING` // re-retry: supersedes old generation_id
 
   const claimRes = await fetch(
     `${SUPABASE_BASE()}/rest/v1/instagram_dm_buffer` +
@@ -269,8 +266,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       method:  'POST',
       headers: {
         'Content-Type':   'application/json',
-        'x-api-key':      routineTriggerToken,
+        'Authorization': `Bearer ${routineTriggerToken}`,
         'anthropic-beta': 'experimental-cc-routine-2026-04-01',
+        'anthropic-version': '2023-06-01',
       },
       // Anthropic Routines API expects {"text": "<string payload>"}
       body:   JSON.stringify({ text: JSON.stringify(triggerPayload) }),
