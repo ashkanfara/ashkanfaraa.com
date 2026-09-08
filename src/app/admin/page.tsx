@@ -42,7 +42,7 @@ interface DmItem {
   id: string; senderId: string; messageText: string | null; messageType: string
   createdAt: string; processingStartedAt: string | null
   isStoryReply: boolean; isStoryMention: boolean; storyId: string | null
-  responseText: string | null; failedReason: string | null
+  responseText: string | null; failedReason: string | null; generationId: string | null
   username: string | null; displayName: string | null; profilePictureUrl: string | null
   messageCount: number | null; notes: string | null
   conversationOwner: string | null; humanTakeoverReason: string | null
@@ -58,7 +58,7 @@ interface FeedbackRow {
 }
 type CardState =
   | 'sending' | 'status_unknown' | 'needs_review' | 'needs_generation' | 'draft_failed'
-  | 'send_failed_open' | 'ai_suggested_ignore' | 'human_managed'
+  | 'draft_generating' | 'send_failed_open' | 'ai_suggested_ignore' | 'human_managed'
   | 'story_mention' | 'regenerating'
 type Section = 'overview' | 'dm' | 'consultations' | 'access' | 'feedback'
 
@@ -178,6 +178,7 @@ function fmtWindowRemaining(ms: number): string {
 }
 function getCardState(item: DmItem): CardState {
   if (item.failedReason === 'DRAFT_FAILED')        return 'draft_failed'
+  if (item.failedReason === 'DRAFT_GENERATING')    return 'draft_generating'
   if (item.failedReason === null) {
     return item.processingStartedAt ? 'regenerating' : 'needs_generation'
   }
@@ -1420,8 +1421,8 @@ interface ConversationGroup {
 
 const STATE_PRIORITY: Record<CardState, number> = {
   draft_failed: 0, needs_generation: 1, needs_review: 2, send_failed_open: 3,
-  status_unknown: 4, sending: 5, regenerating: 6,
-  ai_suggested_ignore: 6, story_mention: 7, human_managed: 8,
+  status_unknown: 4, sending: 5, draft_generating: 6, regenerating: 7,
+  ai_suggested_ignore: 8, story_mention: 9, human_managed: 10,
 }
 
 function groupBySender(items: DmItem[]): ConversationGroup[] {
@@ -1476,12 +1477,12 @@ function groupBySender(items: DmItem[]): ConversationGroup[] {
 
 const STATE_COLOR: Record<CardState, string> = {
   draft_failed: C.red, needs_generation: C.red, needs_review: C.green, send_failed_open: C.red,
-  status_unknown: C.red, sending: C.gold, regenerating: C.gold,
+  status_unknown: C.red, sending: C.gold, draft_generating: C.gold, regenerating: C.gold,
   ai_suggested_ignore: C.muted, story_mention: C.muted, human_managed: C.muted,
 }
 const STATE_LABEL: Record<CardState, string> = {
   draft_failed: 'Draft failed', needs_generation: 'Draft failed (legacy)', needs_review: 'Needs review', send_failed_open: 'Send failed',
-  status_unknown: 'Status unknown', sending: 'Sending', regenerating: 'Regenerating',
+  status_unknown: 'Status unknown', sending: 'Sending', draft_generating: 'Generating draft…', regenerating: 'Regenerating',
   ai_suggested_ignore: 'AI ignore', story_mention: 'Story mention', human_managed: 'Human managed',
 }
 

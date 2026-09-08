@@ -485,6 +485,7 @@ export interface DmBufferRow {
   storyUrl:        string | null
   responseText:    string | null   // original AI draft — immutable
   failedReason:    string | null
+  generationId:    string | null   // UUID stamped when Claude Routine is invoked; cleared on completion
   responseSent:    boolean
   responseSentAt:  string | null
   finalResponseText: string | null
@@ -643,11 +644,11 @@ export async function getDmInbox(): Promise<{
     const windowCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
     const SELECT =
       `id,sender_id,message_text,message_type,created_at,processing_started_at,is_story_reply,is_story_mention,` +
-      `story_id,story_url,response_text,failed_reason,response_sent,response_sent_at,final_response_text`
+      `story_id,story_url,response_text,failed_reason,response_sent,response_sent_at,final_response_text,generation_id`
     // Main query: rows with explicit actionable failed_reason values
     const mainRes = await fetch(
       `${base()}/rest/v1/instagram_dm_buffer` +
-      `?failed_reason=in.(PENDING_REVIEW,DRAFT_FAILED,SEND_FAILED,IG_SEND_ERROR,SEND_STATUS_UNKNOWN,SENDING,AI_RECOMMENDED_IGNORE,HUMAN_TEMP_SKIP,STORY_MENTION_HUMAN_HOLD)` +
+      `?failed_reason=in.(PENDING_REVIEW,DRAFT_FAILED,DRAFT_GENERATING,SEND_FAILED,IG_SEND_ERROR,SEND_STATUS_UNKNOWN,SENDING,AI_RECOMMENDED_IGNORE,HUMAN_TEMP_SKIP,STORY_MENTION_HUMAN_HOLD)` +
       `&created_at=gt.${encodeURIComponent(windowCutoff)}` +
       `&select=${SELECT}` +
       `&order=created_at.asc`,
@@ -819,6 +820,7 @@ export async function getDmInbox(): Promise<{
       storyUrl:        r.story_url        ?? null,
       responseText:    r.response_text    ?? null,
       failedReason:    r.failed_reason    ?? null,
+      generationId:    r.generation_id    ?? null,
       responseSent:    r.response_sent    ?? false,
       responseSentAt:  r.response_sent_at ?? null,
       finalResponseText: r.final_response_text ?? null,
