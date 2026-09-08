@@ -1504,7 +1504,9 @@ interface ConversationGroup {
 }
 
 const STATE_PRIORITY: Record<CardState, number> = {
-  draft_failed: 0, needs_generation: 1, needs_review: 2, send_failed_open: 3,
+  // needs_review=0: a ready AI draft is more actionable than a failed generation.
+  // When both exist for a sender, the ready draft shows first.
+  needs_review: 0, draft_failed: 1, needs_generation: 2, send_failed_open: 3,
   status_unknown: 4, sending: 5, draft_generating: 6, regenerating: 7,
   ai_suggested_ignore: 8, story_mention: 9, human_managed: 10,
 }
