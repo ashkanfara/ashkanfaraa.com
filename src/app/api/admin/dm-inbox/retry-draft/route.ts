@@ -48,7 +48,7 @@ const SUPABASE_HEADERS = () => ({
 const DM_PROMPT_VERSION = '2026-09-03-v1'
 const WINDOW_MS         = 24 * 60 * 60 * 1000
 
-// ── Row types ─────────────────────────────────────────────────────────────────
+// ── Row types ─────────────────────────────────────────────────────────────────────────────────
 
 interface DmRow {
   id:                    string
@@ -91,7 +91,7 @@ interface PendingRow {
   processed:      boolean
 }
 
-// ── DB helpers ────────────────────────────────────────────────────────────────
+// ── DB helpers ────────────────────────────────────────────────────────────────────────────
 
 async function fetchRow(id: string): Promise<DmRow | null> {
   const res = await fetch(
@@ -142,16 +142,16 @@ async function fetchPendingInbound(senderId: string, excludeId: string): Promise
   return rows.filter(r => !(r.failed_reason === null && r.processed === true)).slice(0, 5)
 }
 
-// ── Main handler ──────────────────────────────────────────────────────────────
+// ── Main handler ──────────────────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  // ── 1. Admin auth ─────────────────────────────────────────────
+  // ── 1. Admin auth ─────────────────────────────────────────────────────────────
   if (!requireAdminSession(req))
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   if (!validateSameOrigin(req))
     return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
 
-  // ── 2. Parse body ─────────────────────────────────────────────
+  // ── 2. Parse body ────────────────────────────────────────────────────────────
   let body: { id?: unknown }
   try { body = await req.json() }
   catch { return NextResponse.json({ ok: false, error: 'Invalid JSON' }, { status: 400 }) }
@@ -159,7 +159,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const id = typeof body.id === 'string' ? body.id.trim() : ''
   if (!id) return NextResponse.json({ ok: false, error: 'id is required' }, { status: 422 })
 
-  // ── 3. Env check ──────────────────────────────────────────────
+  // ── 3. Env check ─────────────────────────────────────────────────────────────
   if (!supabaseConfigured())
     return NextResponse.json({ ok: false, error: 'Supabase not configured' }, { status: 503 })
 
@@ -168,18 +168,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (!routineTriggerUrl || !routineTriggerToken)
     return NextResponse.json({ ok: false, error: 'CLAUDE_ROUTINE_TRIGGER_URL / _TOKEN not configured' }, { status: 503 })
 
-  // ── 4. Load row ───────────────────────────────────────────────
+  // ── 4. Load row ───────────────────────────────────────────────────────────────
   const row = await fetchRow(id)
   if (!row) return NextResponse.json({ ok: false, error: 'Row not found' }, { status: 404 })
 
   if (row.response_sent)
     return NextResponse.json({ ok: false, error: 'Message already sent' }, { status: 409 })
 
-  const isFreshInbound  = row.failed_reason === null && row.processed === false && row.processing_started_at === null
-  const isDraftFailed   = row.failed_reason === 'DRAFT_FAILED'
-  const isDraftGenerating = row.failed_reason === 'DRAFT_GENERATING'
+  const isFreshInbound     = row.failed_reason === null && row.processed === false && row.processing_started_at === null
+  const isDraftFailed      = row.failed_reason === 'DRAFT_FAILED'
+  const isDraftGenerating  = row.failed_reason === 'DRAFT_GENERATING'
+  const isDraftRateLimited = row.failed_reason === 'DRAFT_RATE_LIMITED'
 
-  if (!isFreshInbound && !isDraftFailed && !isDraftGenerating)
+  if (!isFreshInbound && !isDraftFailed && !isDraftGenerating && !isDraftRateLimited)
     return NextResponse.json({ ok: false, error: `Row is not in a retryable state (failed_reason=${row.failed_reason})` }, { status: 409 })
 
   if (Date.now() > new Date(row.created_at).getTime() + WINDOW_MS)
@@ -192,7 +193,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     ? `&failed_reason=is.null&processed=eq.false&processing_started_at=is.null`
     : isDraftFailed
       ? `&failed_reason=eq.DRAFT_FAILED`
-      : `&failed_reason=eq.DRAFT_GENERATING` // re-retry: supersedes old generation_id
+      : isDraftRateLimited
+        ? `&failed_reason=eq.DRAFT_RATE_LIMITED`
+        : `&failed_reason=eq.DRAFT_GENERATING` // re-retry: supersedes old generation_id
 
   const claimRes = await fetch(
     `${SUPABASE_BASE()}/rest/v1/instagram_dm_buffer` +
@@ -218,7 +221,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (claimed.length === 0)
     return NextResponse.json({ ok: false, error: 'Row state changed — refresh and try again' }, { status: 409 })
 
-  // ── 6. Build DM context from DB ───────────────────────────────
+  // ── 6. Build DM context from DB ───────────────────────────────────────────────
   const [historyRows, storyCtx, pendingRows] = await Promise.all([
     fetchHistory(row.sender_id),
     row.is_story_reply && row.story_id ? fetchStoryCtx(row.story_id) : Promise.resolve(null),
@@ -250,7 +253,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
   messages.push({ role: 'user', content: currentParts.join(' ') })
 
-  // ── 7. Fire Claude Routine trigger ────────────────────────────
+  // ── 7. Fire Claude Routine trigger ────────────────────────────────────────────
   const triggerPayload = {
     buffer_id:      id,
     sender_id:      row.sender_id,
@@ -265,10 +268,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const triggerRes = await fetch(routineTriggerUrl, {
       method:  'POST',
       headers: {
-        'Content-Type':  'application/json',
-        'Authorization': `Bearer ${routineTriggerToken}`,
+        'Content-Type':   'application/json',
+        'x-api-key':      routineTriggerToken,
+        'anthropic-beta': 'experimental-cc-routine-2026-04-01',
       },
-      body:   JSON.stringify(triggerPayload),
+      // Anthropic Routines API expects {"text": "<string payload>"}
+      body:   JSON.stringify({ text: JSON.stringify(triggerPayload) }),
       signal: AbortSignal.timeout(15_000),
     })
     triggerOk = triggerRes.ok
@@ -281,7 +286,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     console.error('[retry-draft] Routine trigger error:', isTimeout ? 'timeout(15s)' : err)
   }
 
-  // ── 8. Rollback on trigger failure ────────────────────────────
+  // ── 8. Rollback on trigger failure ────────────────────────────────────────────
   if (!triggerOk) {
     await fetch(
       `${SUPABASE_BASE()}/rest/v1/instagram_dm_buffer` +
@@ -303,4 +308,4 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   console.log(`[retry-draft] ✓ Routine triggered | id=${id} generation_id=${generationId}`)
   return NextResponse.json({ ok: true, status: 'generating', generationId })
-}
+  }
