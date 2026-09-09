@@ -2864,8 +2864,9 @@ function Overview({ onNavigate }: { onNavigate: (section: Section, senderId?: st
 interface BosTaskRow {
   id: string; title: string; status: string; priority: string
   owner: string; created_at: string; updated_at: string
-  approval_category: string; blocked_reason: string | null
+  approval_category: string; approval_note: string | null; blocked_reason: string | null
   depends_on: string[]; evidence: object[]; description: string | null
+  outcome: string | null; human_approved_at: string | null
 }
 interface BosObjectiveRow {
   id: string; title: string; status: string; priority: string
@@ -2920,8 +2921,27 @@ function BosTaskCard({ task, onSelect, selected }: {
   )
 }
 
-function BosTaskDetail({ task, runs }: { task: BosTaskRow; runs: BosRunRow[] }) {
+function BosTaskDetail({ task, runs, onApproved }: { task: BosTaskRow; runs: BosRunRow[]; onApproved?: () => void }) {
   const taskRuns = runs.filter(r => r.task_id === task.id)
+  const [approving, setApproving] = useState(false)
+  const [approveErr, setApproveErr] = useState<string | null>(null)
+  const [approved, setApproved] = useState(false)
+
+  async function handleApprove() {
+    setApproving(true); setApproveErr(null)
+    try {
+      const res = await fetch('/api/admin/bos/approve', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task_id: task.id }),
+      })
+      const data = await res.json() as { ok: boolean; error?: string; unblocked_tasks?: string[] }
+      if (!data.ok) { setApproveErr(data.error ?? 'Approval failed'); return }
+      setApproved(true)
+      setTimeout(() => onApproved?.(), 1200)
+    } catch { setApproveErr('Network error') }
+    finally { setApproving(false) }
+  }
+
   return (
     <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: '8px', padding: '16px' }}>
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' }}>
@@ -2931,6 +2951,26 @@ function BosTaskDetail({ task, runs }: { task: BosTaskRow; runs: BosRunRow[] }) 
       </div>
       <div style={{ fontSize: '14px', fontWeight: 600, color: C.text, marginBottom: '8px' }}>{task.title}</div>
       {task.description && <p style={{ fontSize: '12px', color: C.dim, margin: '0 0 10px' }}>{task.description}</p>}
+      {task.approval_note && (
+        <div style={{ background: '#e0773012', border: '1px solid #e0773040', borderRadius: '6px', padding: '10px 12px', marginBottom: '12px' }}>
+          <div style={{ fontSize: '10px', color: '#e07730', fontWeight: 700, marginBottom: '4px' }}>⚠ Requires Approval</div>
+          <div style={{ fontSize: '12px', color: C.text }}>{task.approval_note}</div>
+        </div>
+      )}
+      {task.status === 'awaiting_human' && (
+        <div style={{ marginBottom: '14px' }}>
+          {approved
+            ? <div style={{ color: C.green, fontSize: '12px', fontWeight: 600 }}>✓ Approved — task continued</div>
+            : <>
+                <button onClick={handleApprove} disabled={approving}
+                  style={{ ...btn('primary'), fontSize: '12px', padding: '7px 16px' }}>
+                  {approving ? 'Approving…' : '✓ Approve & Continue'}
+                </button>
+                {approveErr && <span style={{ marginLeft: '10px', color: C.red, fontSize: '12px' }}>{approveErr}</span>}
+              </>
+          }
+        </div>
+      )}
       {(task.evidence as Array<{ timestamp: string; description: string; type: string }>).length > 0 && (
         <div>
           <div style={{ fontSize: '10px', color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '6px' }}>Evidence</div>
@@ -3079,7 +3119,7 @@ function BusinessOS() {
           </div>
           {selected && (
             <div>
-              <BosTaskDetail task={selected} runs={runs} />
+              <BosTaskDetail task={selected} runs={runs} onApproved={() => { void load(); setSelected(null) }} />
             </div>
           )}
         </div>
