@@ -130,7 +130,7 @@ export async function POST(req: NextRequest) {
   const runId = await createBosRun({
     task_id:       taskId,
     manager:       task.owner,
-    trigger_type:  'dispatcher',
+    trigger_type:  'scheduled',
     input_summary: `Dispatching ${task.priority} task: ${task.title}`,
     model_runtime: 'anthropic-routine',
   })
