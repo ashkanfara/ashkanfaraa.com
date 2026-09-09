@@ -169,9 +169,11 @@ export async function POST(req: NextRequest) {
       signal: AbortSignal.timeout(20_000),
     })
     fireOk = fireRes.ok
+    const fireBody = await fireRes.text()
     if (!fireOk) {
-      const errBody = await fireRes.text()
-      console.error(`[bos/fire] Routine fire failed: ${fireRes.status}`, errBody)
+      console.error(`[bos/fire] Routine fire failed: ${fireRes.status}`, fireBody)
+    } else {
+      console.log(`[bos/fire] Anthropic fire response: ${fireBody.substring(0, 500)}`)
     }
   } catch (err) {
     const isTimeout = err instanceof Error && err.name === 'TimeoutError'
