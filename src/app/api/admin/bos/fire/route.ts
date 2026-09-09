@@ -7,12 +7,12 @@
  * Authentication: x-bos-dispatch-secret header = BOS_DISPATCH_SECRET env var.
  * Body: { task_id: string }
  *
- * Manager → Routine URL env vars:
- *   BOS_CEO_ROUTINE_URL      — CEO manager Routine trigger URL
- *   BOS_SALES_ROUTINE_URL    — Sales manager Routine trigger URL
- *   BOS_MARKETING_ROUTINE_URL — Marketing manager Routine trigger URL
- *   BOS_CONTENT_ROUTINE_URL  — Content manager Routine trigger URL
- * All share CLAUDE_ROUTINE_TRIGGER_TOKEN for Anthropic auth.
+ * Manager → Routine URL + per-Routine token env vars:
+ *   BOS_CEO_ROUTINE_URL      + BOS_CEO_ROUTINE_TOKEN
+ *   BOS_SALES_ROUTINE_URL    + BOS_SALES_ROUTINE_TOKEN
+ *   BOS_MARKETING_ROUTINE_URL + BOS_MARKETING_ROUTINE_TOKEN
+ *   BOS_CONTENT_ROUTINE_URL  + BOS_CONTENT_ROUTINE_TOKEN
+ * Each Routine has its own authorization token (per-Routine auth model).
  *
  * Flow:
  *   1. Auth check
@@ -41,7 +41,18 @@ function routineUrl(owner: TaskOwner): string | null {
     sales:     process.env.BOS_SALES_ROUTINE_URL,
     marketing: process.env.BOS_MARKETING_ROUTINE_URL,
     content:   process.env.BOS_CONTENT_ROUTINE_URL,
-    technical: undefined, // not dispatched via this route
+    technical: undefined,
+  }
+  return map[owner] ?? null
+}
+
+function routineToken(owner: TaskOwner): string | null {
+  const map: Record<TaskOwner, string | undefined> = {
+    ceo:       process.env.BOS_CEO_ROUTINE_TOKEN,
+    sales:     process.env.BOS_SALES_ROUTINE_TOKEN,
+    marketing: process.env.BOS_MARKETING_ROUTINE_TOKEN,
+    content:   process.env.BOS_CONTENT_ROUTINE_TOKEN,
+    technical: undefined,
   }
   return map[owner] ?? null
 }
@@ -54,11 +65,6 @@ export async function POST(req: NextRequest) {
   }
   if (req.headers.get('x-bos-dispatch-secret') !== secret) {
     return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
-  }
-
-  const token = process.env.CLAUDE_ROUTINE_TRIGGER_TOKEN
-  if (!token) {
-    return NextResponse.json({ ok: false, error: 'CLAUDE_ROUTINE_TRIGGER_TOKEN not configured' }, { status: 503 })
   }
 
   // ── 2. Parse body ─────────────────────────────────────────────────────────
@@ -83,6 +89,11 @@ export async function POST(req: NextRequest) {
   const url = routineUrl(task.owner)
   if (!url) {
     return NextResponse.json({ ok: false, error: `No Routine URL configured for owner=${task.owner}` }, { status: 503 })
+  }
+
+  const token = routineToken(task.owner)
+  if (!token) {
+    return NextResponse.json({ ok: false, error: `No Routine token configured for owner=${task.owner}` }, { status: 503 })
   }
 
   // ── 4. Check dependencies ─────────────────────────────────────────────────
@@ -125,7 +136,7 @@ export async function POST(req: NextRequest) {
   })
 
   // Build callback URL for the Routine to POST back to
-  const callbackUrl = `${process.env.NEXT_PUBLIC_SITE_URL ?? 'https://ashkanfaraa.com'}/api/admin/bos/callback`
+  const callbackUrl = `${process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.ashkanfaraa.com'}/api/admin/bos/callback`
 
   // ── 8. Build Routine payload ──────────────────────────────────────────────
   const payload = {
