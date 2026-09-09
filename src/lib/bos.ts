@@ -249,3 +249,196 @@ export async function updateBosState(updates: {
     console.error('[bos/updateBosState] failed:', res.status, await res.text())
   }
 }
+
+// ── Phase 2: Dispatcher & Callback helpers ─────────────────────────────────
+
+/**
+ * Fetch a single task by ID.
+ */
+export async function getBosTask(taskId: string): Promise<BosTask | null> {
+  const res = await fetch(
+    `${base()}/rest/v1/bos_tasks?id=eq.${encodeURIComponent(taskId)}&select=*&limit=1`,
+    { headers: headers(), cache: 'no-store' }
+  )
+  if (!res.ok) return null
+  const rows = await res.json() as BosTask[]
+  return rows[0] ?? null
+}
+
+/**
+ * Atomically claim a task: PATCH WHERE status=eq.open → in_progress.
+ * Returns true if claim succeeded (rows_affected=1), false if already claimed.
+ */
+export async function claimBosTask(taskId: string): Promise<boolean> {
+  const res = await fetch(
+    `${base()}/rest/v1/bos_tasks?id=eq.${encodeURIComponent(taskId)}&status=eq.open`,
+    {
+      method:  'PATCH',
+      headers: { ...headers(), Prefer: 'count=exact,return=minimal' },
+      body:    JSON.stringify({ status: 'in_progress', claimed_at: new Date().toISOString() }),
+    }
+  )
+  if (!res.ok) return false
+  // Prefer: count=exact returns Content-Range: 0-0/1 (claimed) or */0 (not found)
+  const range = res.headers.get('content-range') ?? ''
+  return !range.endsWith('/0')
+}
+
+/**
+ * Create a bos_agent_runs row and return its ID.
+ */
+export async function createBosRun(opts: {
+  task_id:       string
+  manager:       TaskOwner
+  trigger_type:  string
+  input_summary: string
+  model_runtime: string
+}): Promise<string | null> {
+  const res = await fetch(`${base()}/rest/v1/bos_agent_runs`, {
+    method:  'POST',
+    headers: { ...headers(), Prefer: 'return=representation' },
+    body:    JSON.stringify({
+      task_id:       opts.task_id,
+      manager:       opts.manager,
+      status:        'running',
+      trigger_type:  opts.trigger_type,
+      input_summary: opts.input_summary,
+      model_runtime: opts.model_runtime,
+    }),
+  })
+  if (!res.ok) {
+    console.error('[bos/createBosRun] failed:', res.status, await res.text())
+    return null
+  }
+  const rows = await res.json() as Array<{ id: string }>
+  return rows[0]?.id ?? null
+}
+
+/**
+ * Append an evidence item to a task's evidence array (JSONB append via RPC workaround).
+ * Uses a GET+PATCH cycle: read current evidence, append item, write back.
+ * Safe because the dispatcher claims the task first (only one writer at a time).
+ */
+export async function appendBosEvidence(
+  taskId: string,
+  item:   { timestamp: string; type: string; description: string; value?: string }
+): Promise<void> {
+  const task = await getBosTask(taskId)
+  if (!task) return
+  const existing = Array.isArray(task.evidence) ? task.evidence : []
+  await fetch(
+    `${base()}/rest/v1/bos_tasks?id=eq.${encodeURIComponent(taskId)}`,
+    {
+      method:  'PATCH',
+      headers: { ...headers(), Prefer: 'return=minimal' },
+      body:    JSON.stringify({ evidence: [...existing, item] }),
+    }
+  )
+}
+
+/**
+ * Update a task's status, outcome, approval fields, blocked reason, or retry_count.
+ */
+export async function updateBosTask(
+  taskId:  string,
+  updates: Partial<Pick<BosTask,
+    'status' | 'outcome' | 'evidence' | 'approval_note' | 'approval_category' |
+    'human_approved_at' | 'blocked_reason' | 'retry_count'
+  >>
+): Promise<void> {
+  await fetch(
+    `${base()}/rest/v1/bos_tasks?id=eq.${encodeURIComponent(taskId)}`,
+    {
+      method:  'PATCH',
+      headers: { ...headers(), Prefer: 'return=minimal' },
+      body:    JSON.stringify(updates),
+    }
+  )
+}
+
+/**
+ * Close a bos_agent_run row with final status/result.
+ */
+export async function closeBosRun(runId: string, opts: {
+  status:         string
+  result_summary: string
+  error_detail?:  string
+  handoff_task_ids?: string[]
+}): Promise<void> {
+  await fetch(
+    `${base()}/rest/v1/bos_agent_runs?id=eq.${encodeURIComponent(runId)}`,
+    {
+      method:  'PATCH',
+      headers: { ...headers(), Prefer: 'return=minimal' },
+      body:    JSON.stringify({
+        status:           opts.status,
+        completed_at:     new Date().toISOString(),
+        result_summary:   opts.result_summary,
+        error_detail:     opts.error_detail ?? null,
+        handoff_task_ids: opts.handoff_task_ids ?? [],
+      }),
+    }
+  )
+}
+
+/**
+ * Create a new bos_task (used by Routines to hand off work).
+ */
+export async function createBosTask(task: Partial<BosTask> & {
+  title: string; owner: TaskOwner; priority: TaskPriority
+}): Promise<string | null> {
+  const res = await fetch(`${base()}/rest/v1/bos_tasks`, {
+    method:  'POST',
+    headers: { ...headers(), Prefer: 'return=representation' },
+    body:    JSON.stringify({
+      ...task,
+      status:     task.status     ?? 'open',
+      depends_on: task.depends_on ?? [],
+      evidence:   task.evidence   ?? [],
+    }),
+  })
+  if (!res.ok) {
+    console.error('[bos/createBosTask] failed:', res.status, await res.text())
+    return null
+  }
+  const rows = await res.json() as Array<{ id: string }>
+  return rows[0]?.id ?? null
+}
+
+/**
+ * After a task completes, find all tasks that depend_on it and check if all
+ * their dependencies are now done. Unblock any that are fully satisfied.
+ * Returns the IDs of tasks that were unblocked.
+ */
+export async function evaluateDependencies(completedTaskId: string): Promise<string[]> {
+  // Fetch all non-terminal tasks that declare any dependency
+  const res = await fetch(
+    `${base()}/rest/v1/bos_tasks?status=in.(blocked,open)&depends_on=not.eq.%7B%7D&select=id,depends_on,status`,
+    { headers: headers(), cache: 'no-store' }
+  )
+  if (!res.ok) return []
+  const candidates = await res.json() as Array<{ id: string; depends_on: string[]; status: string }>
+
+  // Filter to tasks that actually depend on the completed task
+  const dependents = candidates.filter(t => t.depends_on.includes(completedTaskId))
+  if (dependents.length === 0) return []
+
+  // For each dependent, check if ALL its deps are done
+  const unblocked: string[] = []
+  for (const dep of dependents) {
+    const allDepIds = dep.depends_on
+    const doneRes = await fetch(
+      `${base()}/rest/v1/bos_tasks?id=in.(${allDepIds.map(encodeURIComponent).join(',')})&status=eq.done&select=id`,
+      { headers: headers(), cache: 'no-store' }
+    )
+    if (!doneRes.ok) continue
+    const doneIds = (await doneRes.json() as Array<{ id: string }>).map(r => r.id)
+    const allDone = allDepIds.every(id => doneIds.includes(id))
+
+    if (allDone) {
+      await updateBosTask(dep.id, { status: 'open', blocked_reason: null } as Parameters<typeof updateBosTask>[1])
+      unblocked.push(dep.id)
+    }
+  }
+  return unblocked
+}
