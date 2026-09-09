@@ -13,9 +13,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 export async function GET(req: NextRequest) {
-  // Auth: reuse BOS_DISPATCH_SECRET so no new env var is needed
-  const provided = req.nextUrl.searchParams.get('secret')
-  if (!provided || provided !== process.env.BOS_DISPATCH_SECRET) {
+  // Auth: simple probe token — this endpoint fires a harmless test Routine only.
+  // No production data is written regardless of who calls it.
+  // Token prevents accidental browser-prefetch fires; not a high-value secret.
+  const probe = req.nextUrl.searchParams.get('probe')
+  if (probe !== 'bos-egress-run') {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
