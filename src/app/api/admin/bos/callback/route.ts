@@ -52,7 +52,7 @@ interface NewTaskInput {
 interface CallbackBody {
   task_id:           string
   run_id?:           string | null
-  status:            'done' | 'awaiting_human' | 'failed' | 'blocked'
+  status:            'done' | 'completed' | 'awaiting_human' | 'failed' | 'blocked'
   outcome?:          string
   evidence?:         object[]
   approval_note?:    string
@@ -61,7 +61,7 @@ interface CallbackBody {
   new_tasks?:        NewTaskInput[]
 }
 
-const ALLOWED_STATUSES = new Set(['done', 'awaiting_human', 'failed', 'blocked'])
+const ALLOWED_STATUSES = new Set(['done', 'completed', 'awaiting_human', 'failed', 'blocked'])
 
 export async function POST(req: NextRequest) {
   // ── 1. Auth ───────────────────────────────────────────────────────────────
@@ -80,8 +80,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
-  const { task_id, run_id, status, outcome, evidence, approval_note,
+  // Normalize "completed" (sent by Routines) to the canonical "done"
+  const rawStatus = body.status === 'completed' ? 'done' : body.status
+  const { task_id, run_id, outcome, evidence, approval_note,
           blocked_reason, new_tasks } = body
+  const status = rawStatus
 
   if (!task_id) return NextResponse.json({ error: 'task_id required' }, { status: 422 })
   if (!ALLOWED_STATUSES.has(status)) {

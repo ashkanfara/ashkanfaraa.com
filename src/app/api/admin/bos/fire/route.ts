@@ -143,8 +143,7 @@ export async function POST(req: NextRequest) {
     bos_task_id:         taskId,
     bos_run_id:          runId,
     bos_callback_url:    callbackUrl,
-    // Callback token: derived from run_id so Routine can auth the callback.
-    // The callback route validates this same derivation.
+    bos_callback_secret: process.env.BOS_CALLBACK_SECRET ?? '',
     task_title:          task.title,
     task_description:    task.description ?? '',
     task_priority:       task.priority,
