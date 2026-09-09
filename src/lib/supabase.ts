@@ -523,14 +523,7 @@ export interface DmBufferRow {
  *
  * SENT / REJECTED / EXPIRED / BLOCKED_SENDER — terminal, no further sends
  *
- * Required schema migration (run once in Supabase SQL editor):
- *   ALTER TABLE instagram_dm_buffer
- *     ADD COLUMN IF NOT EXISTS ig_message_id      TEXT,
- *     ADD COLUMN IF NOT EXISTS sending_started_at TIMESTAMPTZ;
- *
- * Until that migration runs:
- *   - ig_message_id will not be stored (ig_message_id column absent → omitted from PATCH)
- *   - sending_started_at will not be stored (ditto)
+ * Schema: ig_message_id and sending_started_at columns exist (migration applied Sep 2026).
  */
 
 const IG_GRAPH = 'https://graph.instagram.com/v25.0'

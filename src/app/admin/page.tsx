@@ -60,7 +60,7 @@ type CardState =
   | 'sending' | 'status_unknown' | 'needs_review' | 'needs_generation' | 'draft_failed'
   | 'draft_generating' | 'send_failed_open' | 'ai_suggested_ignore' | 'human_managed'
   | 'story_mention' | 'regenerating'
-type Section = 'overview' | 'dm' | 'consultations' | 'access' | 'feedback'
+type Section = 'overview' | 'dm' | 'consultations' | 'access' | 'feedback' | 'bos'
 
 // ── Design tokens ─────────────────────────────────────────────
 const C = {
@@ -602,7 +602,7 @@ function DmInboxItem({ item, onRefresh }: { item: DmItem; onRefresh: () => void 
     return <GenerationFailedCard item={item} onRefresh={onRefresh} />
   }
 
-  async function call(path: string, body: Record<string, string | null | boolean>): Promise<{ ok: boolean; error?: string }> {
+  async function call(path: string, body: Record<string, string | null | boolean>): Promise<{ ok: boolean; error?: string; alreadySent?: boolean }> {
     const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     return res.json()
   }
@@ -612,8 +612,9 @@ function DmInboxItem({ item, onRefresh }: { item: DmItem; onRefresh: () => void 
     setBusy('send'); setErr(null); setSuccess(null)
     try {
       const data = await call('/api/admin/dm-inbox/send', { id: item.id, finalText: editText, feedbackCategory: fbCategory, feedbackNote: fbNote.trim() || null })
-      if (data.ok) { setSuccess('✓ Sent'); setTimeout(onRefresh, 1200) }
-      else          { setErr(data.error ?? 'Send failed') }
+      if (data.ok && data.alreadySent) { setErr('Already handled — refresh to see current state'); setTimeout(onRefresh, 1200) }
+      else if (data.ok) { setSuccess('✓ Sent'); setTimeout(onRefresh, 1200) }
+      else               { setErr(data.error ?? 'Send failed') }
     } catch { setErr('Network error') }
     finally { setBusy(null) }
   }
@@ -1081,7 +1082,7 @@ function ConvWorkspace({ targetItem, pendingCount, onRefresh }: {
   const displayName = targetItem.username ? `@${targetItem.username}` : targetItem.displayName ?? 'Instagram User'
   const isBusy      = busy !== null
 
-  async function callApi(path: string, body: Record<string, string | null | boolean>): Promise<{ ok: boolean; error?: string; promptPackage?: string }> {
+  async function callApi(path: string, body: Record<string, string | null | boolean>): Promise<{ ok: boolean; error?: string; promptPackage?: string; alreadySent?: boolean }> {
     const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     return res.json()
   }
@@ -1103,8 +1104,9 @@ function ConvWorkspace({ targetItem, pendingCount, onRefresh }: {
     setBusy('send'); setErr(null); setSuccess(null)
     try {
       const data = await callApi('/api/admin/dm-inbox/send', { id: targetItem.id, finalText: editText, feedbackCategory: fbCategory, feedbackNote: fbNote.trim() || null })
-      if (data.ok) { setSuccess('✓ Sent'); setTimeout(onRefresh, 1200) }
-      else          { setErr(data.error ?? 'Send failed') }
+      if (data.ok && data.alreadySent) { setErr('Already handled — refresh to see current state'); setTimeout(onRefresh, 1200) }
+      else if (data.ok) { setSuccess('✓ Sent'); setTimeout(onRefresh, 1200) }
+      else               { setErr(data.error ?? 'Send failed') }
     } catch { setErr('Network error') }
     finally { setBusy(null) }
   }
@@ -2857,6 +2859,258 @@ function Overview({ onNavigate }: { onNavigate: (section: Section, senderId?: st
   )
 }
 
+// ── Business OS ───────────────────────────────────────────────
+
+interface BosTaskRow {
+  id: string; title: string; status: string; priority: string
+  owner: string; created_at: string; updated_at: string
+  approval_category: string; blocked_reason: string | null
+  depends_on: string[]; evidence: object[]; description: string | null
+}
+interface BosObjectiveRow {
+  id: string; title: string; status: string; priority: string
+}
+interface BosRunRow {
+  id: string; task_id: string; manager: string; status: string
+  created_at: string; completed_at: string | null; result_summary: string | null
+  trigger_type: string; error_detail: string | null; model_runtime: string | null
+}
+interface BosStateData {
+  system_status: string; last_dispatch_at: string | null; last_ceo_run_at: string | null
+  technical_task_count: number; human_approval_count: number
+  open_task_count: number; in_progress_task_count: number
+}
+
+const BOS_PRIORITY_COLOR: Record<string, string> = { P0: C.red, P1: '#e07730', P2: C.gold, P3: C.muted }
+const BOS_STATUS_COLOR: Record<string, string> = {
+  open: C.blue, in_progress: C.gold, blocked: C.red,
+  awaiting_human: '#e07730', done: C.green, cancelled: C.muted,
+}
+const BOS_OWNER_LABEL: Record<string, string> = {
+  ceo: 'CEO', sales: 'Sales', marketing: 'Marketing', content: 'Content', technical: 'Technical',
+}
+
+function BosTaskCard({ task, onSelect, selected }: {
+  task: BosTaskRow
+  onSelect: (t: BosTaskRow) => void
+  selected: boolean
+}) {
+  const ts = new Date(task.updated_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return (
+    <div onClick={() => onSelect(task)} style={{
+      background: selected ? C.gold + '12' : C.card,
+      border: `1px solid ${selected ? C.gold + '40' : C.border}`,
+      borderRadius: '8px', padding: '12px 14px', marginBottom: '6px',
+      cursor: 'pointer',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: '10px', fontWeight: 700, color: BOS_PRIORITY_COLOR[task.priority] ?? C.muted, letterSpacing: '0.06em' }}>{task.priority}</span>
+        <span style={{ fontSize: '10px', color: BOS_STATUS_COLOR[task.status] ?? C.muted, background: (BOS_STATUS_COLOR[task.status] ?? C.muted) + '18', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>{task.status.replace('_', ' ')}</span>
+        <span style={{ fontSize: '10px', color: C.dim, background: C.surface, padding: '1px 6px', borderRadius: '4px' }}>{BOS_OWNER_LABEL[task.owner] ?? task.owner}</span>
+        {task.approval_category !== 'none' && (
+          <span style={{ fontSize: '10px', color: '#e07730', background: '#e0773018', padding: '1px 6px', borderRadius: '4px' }}>⚠ {task.approval_category}</span>
+        )}
+        <span style={{ fontSize: '10px', color: C.muted, marginLeft: 'auto' }}>{ts}</span>
+      </div>
+      <div style={{ marginTop: '6px', fontSize: '13px', color: C.text, fontWeight: 500 }}>{task.title}</div>
+      {task.blocked_reason && (
+        <div style={{ marginTop: '4px', fontSize: '11px', color: C.red }}>Blocked: {task.blocked_reason}</div>
+      )}
+    </div>
+  )
+}
+
+function BosTaskDetail({ task, runs }: { task: BosTaskRow; runs: BosRunRow[] }) {
+  const taskRuns = runs.filter(r => r.task_id === task.id)
+  return (
+    <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: '8px', padding: '16px' }}>
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' }}>
+        <span style={{ fontSize: '10px', fontWeight: 700, color: BOS_PRIORITY_COLOR[task.priority] ?? C.muted }}>{task.priority}</span>
+        <span style={{ fontSize: '10px', color: BOS_STATUS_COLOR[task.status] ?? C.muted }}>{task.status.replace('_', ' ')}</span>
+        <span style={{ fontSize: '10px', color: C.dim }}>{BOS_OWNER_LABEL[task.owner] ?? task.owner}</span>
+      </div>
+      <div style={{ fontSize: '14px', fontWeight: 600, color: C.text, marginBottom: '8px' }}>{task.title}</div>
+      {task.description && <p style={{ fontSize: '12px', color: C.dim, margin: '0 0 10px' }}>{task.description}</p>}
+      {(task.evidence as Array<{ timestamp: string; description: string; type: string }>).length > 0 && (
+        <div>
+          <div style={{ fontSize: '10px', color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '6px' }}>Evidence</div>
+          {(task.evidence as Array<{ timestamp: string; description: string; type: string }>).map((e, i) => (
+            <div key={i} style={{ fontSize: '11px', color: C.dim, padding: '4px 0', borderBottom: `1px solid ${C.border2}` }}>
+              <span style={{ color: C.muted, marginRight: '8px' }}>{new Date(e.timestamp).toLocaleDateString()}</span>
+              {e.description}
+            </div>
+          ))}
+        </div>
+      )}
+      {taskRuns.length > 0 && (
+        <div style={{ marginTop: '12px' }}>
+          <div style={{ fontSize: '10px', color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '6px' }}>Agent Runs</div>
+          {taskRuns.map(r => (
+            <div key={r.id} style={{ fontSize: '11px', padding: '4px 0', borderBottom: `1px solid ${C.border2}` }}>
+              <span style={{ color: BOS_STATUS_COLOR[r.status] ?? C.muted, marginRight: '8px' }}>{r.status}</span>
+              <span style={{ color: C.dim, marginRight: '8px' }}>{new Date(r.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+              {r.result_summary && <span style={{ color: C.text }}>{r.result_summary}</span>}
+              {r.error_detail && <span style={{ color: C.red }}>{r.error_detail}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function BusinessOS() {
+  const [tasks,     setTasks]     = useState<BosTaskRow[]>([])
+  const [objectives, setObjectives] = useState<BosObjectiveRow[]>([])
+  const [runs,      setRuns]      = useState<BosRunRow[]>([])
+  const [state,     setState]     = useState<BosStateData | null>(null)
+  const [selected,  setSelected]  = useState<BosTaskRow | null>(null)
+  const [loading,   setLoading]   = useState(true)
+  const [err,       setErr]       = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<'all' | 'open' | 'approval' | 'done' | 'runs'>('open')
+
+  const load = useCallback(async () => {
+    try {
+      const [tasksRes, stateRes, runsRes] = await Promise.all([
+        fetch('/api/admin/bos/tasks'),
+        fetch('/api/admin/bos/state'),
+        fetch('/api/admin/bos/runs'),
+      ])
+      if (tasksRes.status === 401 || stateRes.status === 401) {
+        setErr('Unauthorized'); return
+      }
+      if (tasksRes.ok) {
+        const d = await tasksRes.json() as { tasks: BosTaskRow[]; objectives: BosObjectiveRow[] }
+        setTasks(d.tasks); setObjectives(d.objectives)
+      }
+      if (stateRes.ok) setState(await stateRes.json() as BosStateData)
+      if (runsRes.ok) {
+        const d = await runsRes.json() as { runs: BosRunRow[] }
+        setRuns(d.runs)
+      }
+    } catch { setErr('Load failed') }
+    finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { void load() }, [load])
+
+  const filteredTasks = tasks.filter(t => {
+    if (activeTab === 'open')     return t.status === 'open' || t.status === 'in_progress'
+    if (activeTab === 'approval') return t.status === 'awaiting_human'
+    if (activeTab === 'done')     return t.status === 'done' || t.status === 'cancelled'
+    return true
+  })
+
+  const tabBtn = (id: typeof activeTab, label: string, count?: number) => (
+    <button key={id} onClick={() => setActiveTab(id)} style={{
+      padding: '6px 12px', fontSize: '11px', fontWeight: activeTab === id ? 700 : 400,
+      background: activeTab === id ? C.gold + '20' : 'transparent',
+      color: activeTab === id ? C.gold : C.dim,
+      border: 'none', borderBottom: `2px solid ${activeTab === id ? C.gold : 'transparent'}`,
+      cursor: 'pointer', fontFamily: 'system-ui, sans-serif',
+    }}>
+      {label}{count !== undefined && count > 0 ? ` (${count})` : ''}
+    </button>
+  )
+
+  if (loading) return <p style={{ color: C.muted }}>Loading Business OS…</p>
+
+  return (
+    <div>
+      <h1 style={{ ...S.sectionHead, marginTop: 0 }}>Business OS</h1>
+
+      {/* State badges */}
+      {state && (
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '16px' }}>
+          {state.human_approval_count > 0 && (
+            <div style={{ background: '#e0773018', border: '1px solid #e0773040', borderRadius: '6px', padding: '6px 12px', fontSize: '12px', color: '#e07730', fontWeight: 600 }}>
+              🔔 {state.human_approval_count} awaiting approval
+            </div>
+          )}
+          {state.technical_task_count > 0 && (
+            <div style={{ background: C.blue + '18', border: `1px solid ${C.blue}40`, borderRadius: '6px', padding: '6px 12px', fontSize: '12px', color: C.blue, fontWeight: 600 }}>
+              ⚡ {state.technical_task_count} technical tasks ready
+            </div>
+          )}
+          <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: '6px', padding: '6px 12px', fontSize: '11px', color: C.muted }}>
+            Open: {state.open_task_count} · In progress: {state.in_progress_task_count}
+          </div>
+          {state.last_ceo_run_at && (
+            <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: '6px', padding: '6px 12px', fontSize: '11px', color: C.muted }}>
+              CEO last run: {new Date(state.last_ceo_run_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+            </div>
+          )}
+          <button onClick={() => void load()} style={{ ...btn('ghost'), fontSize: '11px', marginLeft: 'auto' }}>↻ Refresh</button>
+        </div>
+      )}
+
+      {/* Objectives */}
+      {objectives.length > 0 && (
+        <div style={{ marginBottom: '16px', padding: '10px 14px', background: C.surface, border: `1px solid ${C.border}`, borderRadius: '8px' }}>
+          <div style={{ fontSize: '10px', color: C.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '6px' }}>Active Objectives</div>
+          {objectives.filter(o => o.status === 'active').map(o => (
+            <div key={o.id} style={{ display: 'flex', gap: '8px', alignItems: 'center', padding: '4px 0' }}>
+              <span style={{ fontSize: '10px', fontWeight: 700, color: BOS_PRIORITY_COLOR[o.priority] ?? C.muted }}>{o.priority}</span>
+              <span style={{ fontSize: '13px', color: C.text }}>{o.title}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {err && <p style={{ color: C.red }}>{err}</p>}
+
+      {/* Tabs */}
+      <div style={{ display: 'flex', borderBottom: `1px solid ${C.border}`, marginBottom: '14px', gap: '0' }}>
+        {tabBtn('open',     'Active',     tasks.filter(t => t.status === 'open' || t.status === 'in_progress').length)}
+        {tabBtn('approval', 'Needs Approval', state?.human_approval_count)}
+        {tabBtn('all',      'All Tasks')}
+        {tabBtn('done',     'Done')}
+        {tabBtn('runs',     'Agent Runs', runs.filter(r => r.status === 'running').length)}
+      </div>
+
+      {/* Task list + detail */}
+      {activeTab !== 'runs' && (
+        <div style={{ display: 'grid', gridTemplateColumns: selected ? '1fr 1fr' : '1fr', gap: '12px' }}>
+          <div>
+            {filteredTasks.length === 0 && <p style={{ color: C.muted, fontSize: '13px' }}>No tasks in this view.</p>}
+            {filteredTasks.map(t => (
+              <BosTaskCard key={t.id} task={t} selected={selected?.id === t.id} onSelect={t2 => setSelected(t2.id === selected?.id ? null : t2)} />
+            ))}
+          </div>
+          {selected && (
+            <div>
+              <BosTaskDetail task={selected} runs={runs} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Agent runs log */}
+      {activeTab === 'runs' && (
+        <div>
+          {runs.length === 0 && <p style={{ color: C.muted, fontSize: '13px' }}>No agent runs yet.</p>}
+          {runs.map(r => {
+            const matchTask = tasks.find(t => t.id === r.task_id)
+            return (
+              <div key={r.id} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: '8px', padding: '10px 14px', marginBottom: '6px' }}>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <span style={{ fontSize: '10px', color: BOS_STATUS_COLOR[r.status] ?? C.muted, fontWeight: 600 }}>{r.status}</span>
+                  <span style={{ fontSize: '10px', color: C.dim }}>{BOS_OWNER_LABEL[r.manager] ?? r.manager}</span>
+                  <span style={{ fontSize: '10px', color: C.muted }}>{new Date(r.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                  {r.model_runtime && <span style={{ fontSize: '10px', color: C.muted }}>{r.model_runtime}</span>}
+                </div>
+                {matchTask && <div style={{ marginTop: '4px', fontSize: '12px', color: C.dim }}>{matchTask.title}</div>}
+                {r.result_summary && <div style={{ marginTop: '4px', fontSize: '12px', color: C.text }}>{r.result_summary}</div>}
+                {r.error_detail && <div style={{ marginTop: '4px', fontSize: '12px', color: C.red }}>{r.error_detail}</div>}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Admin shell ───────────────────────────────────────────────
 const NAV_ITEMS: { id: Section; label: string }[] = [
   { id: 'overview',      label: 'Overview' },
@@ -2864,6 +3118,7 @@ const NAV_ITEMS: { id: Section; label: string }[] = [
   { id: 'consultations', label: 'Consultations' },
   { id: 'access',        label: 'Access Control' },
   { id: 'feedback',      label: 'Feedback' },
+  { id: 'bos',           label: 'Business OS' },
 ]
 
 function AdminShell({ onLogout }: { onLogout: () => void }) {
@@ -2956,6 +3211,7 @@ function AdminShell({ onLogout }: { onLogout: () => void }) {
           {active === 'consultations' && <><h1 style={{ ...S.sectionHead, marginTop: 0 }}>Consultations</h1><Consultations key={(consInitialTab ?? 'default') + (consInitialAppId ?? '')} initialTab={consInitialTab} initialAppId={consInitialAppId} /></>}
           {active === 'access'        && <><h1 style={{ ...S.sectionHead, marginTop: 0 }}>Access Control ({' '})</h1><DmAccessControl /></>}
           {active === 'feedback'      && <><h1 style={{ ...S.sectionHead, marginTop: 0 }}>DM Feedback</h1><DmFeedback /></>}
+          {active === 'bos'           && <BusinessOS />}
         </main>
       </div>
     </div>
