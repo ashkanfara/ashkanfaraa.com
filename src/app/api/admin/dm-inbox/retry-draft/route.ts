@@ -225,39 +225,52 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     fetchPendingInbound(row.sender_id, id),
   ])
 
-  // Build messages array (Anthropic Messages format)
-  type Msg = { role: 'user' | 'assistant'; content: string }
-  const messages: Msg[] = []
-  for (const h of [...historyRows].reverse()) {
-    if (h.message_text)          messages.push({ role: 'user',      content: h.message_text })
-    if (h.final_response_text)   messages.push({ role: 'assistant', content: h.final_response_text })
-  }
-  for (const p of pendingRows) {
+  // Build conversation_history as formatted text — matches Routine Instructions expected shape.
+  // Earlier turns first; each turn is "Customer: ..." / "Ashkan: ..."
+  const conversationHistory = [...historyRows].reverse()
+    .flatMap(h => {
+      const parts: string[] = []
+      if (h.message_text)        parts.push(`Customer: ${h.message_text}`)
+      if (h.final_response_text) parts.push(`Ashkan: ${h.final_response_text}`)
+      return parts
+    })
+    .join('\n')
+
+  // combined_message: all pending messages in chronological order + the current row
+  const pendingTexts = pendingRows
+    .map(p => {
+      const parts: string[] = []
+      if (p.is_story_reply) parts.push('[پاسخ به استوری]')
+      if (p.message_text)   parts.push(p.message_text)
+      else                  parts.push(`[پیام ${p.message_type}]`)
+      return parts.join(' ')
+    })
+  const currentText = (() => {
     const parts: string[] = []
-    if (p.is_story_reply) parts.push('[پاسخ به استوری]')
-    if (p.message_text)   parts.push(p.message_text)
-    else                  parts.push(`[پیام ${p.message_type}]`)
-    messages.push({ role: 'user', content: parts.join(' ') })
-  }
-  const currentParts: string[] = []
-  if (row.is_story_reply) currentParts.push('[پاسخ به استوری]')
-  if (row.message_text)   currentParts.push(row.message_text)
-  else                    currentParts.push(`[پیام ${row.message_type}]`)
-  if (storyCtx) {
-    if (storyCtx.caption)        currentParts.push(`\n[کپشن استوری: ${storyCtx.caption}]`)
-    if (storyCtx.ai_description) currentParts.push(`[توضیح هوش مصنوعی: ${storyCtx.ai_description}]`)
-    if (storyCtx.ocr_text)       currentParts.push(`[متن تصویر: ${storyCtx.ocr_text}]`)
-  }
-  messages.push({ role: 'user', content: currentParts.join(' ') })
+    if (row.is_story_reply) parts.push('[پاسخ به استوری]')
+    if (row.message_text)   parts.push(row.message_text)
+    else                    parts.push(`[پیام ${row.message_type}]`)
+    return parts.join(' ')
+  })()
+  const combinedMessage = [...pendingTexts, currentText].filter(Boolean).join('\n')
 
   // ── 7. Fire Claude Routine trigger ────────────────────────────────────────────
   const triggerPayload = {
-    buffer_id:      id,
-    sender_id:      row.sender_id,
-    generation_id:  generationId,
-    prompt_version: DM_PROMPT_VERSION,
-    messages,
-    story_context:  storyCtx,
+    buffer_id:            id,
+    sender_id:            row.sender_id,
+    generation_id:        generationId,
+    prompt_version:       DM_PROMPT_VERSION,
+    message_text:         row.message_text ?? '',
+    combined_message:     combinedMessage,
+    is_story_reply:       row.is_story_reply ?? false,
+    is_story_mention:     false,
+    story_context:        storyCtx,
+    conversation_history: conversationHistory,
+    user_record: {
+      migration_assistance_link_sent: false,
+      course_link_sent:               false,
+      consultation_link_sent:         false,
+    },
   }
 
   let triggerOk = false
