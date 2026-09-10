@@ -17,6 +17,8 @@ import {
   supabaseConfigured,
   getDmInbox,
   ignoreDm,
+  ignoreConversation,
+  bulkIgnoreConversations,
   rejectDm,
   requeueDm,
   cancelRegenDm,
@@ -51,11 +53,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Supabase is not configured.' }, { status: 503 })
   }
 
-  let body: Record<string, string>
+  let body: Record<string, unknown>
   try { body = await req.json() }
   catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) }
 
-  const { action, id, senderId, displayName, notes } = body
+  const { action, id, senderId, displayName, notes } = body as Record<string, string>
+  const senderIds = body.senderIds as string[] | undefined
 
   try {
     switch (action) {
@@ -64,11 +67,28 @@ export async function POST(req: NextRequest) {
         if (!id) return NextResponse.json({ error: 'id required' }, { status: 422 })
         const result = await ignoreDm(id)
         if (result.ignored) return NextResponse.json({ ok: true, ignored: true })
-        // Return explicit error so the client does not show optimistic success
         const msg = result.reason === 'not_eligible'
-          ? 'Cannot ignore: item is in-flight (SENDING) or already terminal (SENT / SEND_STATUS_UNKNOWN)'
+          ? 'Cannot ignore: item is already terminal (SENT/SENDING/SEND_STATUS_UNKNOWN) or in an unrecognised state'
           : 'Ignore failed — item may have already changed state'
         return NextResponse.json({ ok: false, error: msg }, { status: 422 })
+      }
+
+      case 'ignore_conversation': {
+        if (!senderId) return NextResponse.json({ error: 'senderId required' }, { status: 422 })
+        const result = await ignoreConversation(senderId)
+        if (result.reason) return NextResponse.json({ ok: false, error: 'Supabase error during conversation ignore' }, { status: 500 })
+        return NextResponse.json({ ok: true, ignored: true, count: result.count })
+      }
+
+      case 'bulk_ignore': {
+        if (!senderIds || !Array.isArray(senderIds) || senderIds.length === 0) {
+          return NextResponse.json({ error: 'senderIds array required' }, { status: 422 })
+        }
+        if (senderIds.length > 100) {
+          return NextResponse.json({ error: 'Too many senderIds (max 100 per request)' }, { status: 422 })
+        }
+        const result = await bulkIgnoreConversations(senderIds)
+        return NextResponse.json({ ok: true, totalIgnored: result.totalIgnored, failed: result.failed })
       }
 
       case 'reject': {
@@ -139,7 +159,7 @@ export async function POST(req: NextRequest) {
 
       default:
         return NextResponse.json(
-          { error: 'action must be: ignore | requeue | cancel_regen | retry_send_failed | takeover | release | block | unblock' },
+          { error: 'action must be: ignore | ignore_conversation | bulk_ignore | requeue | cancel_regen | retry_send_failed | takeover | release | block | unblock' },
           { status: 422 }
         )
     }

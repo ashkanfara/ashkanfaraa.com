@@ -1114,7 +1114,9 @@ function ConvWorkspace({ targetItem, pendingCount, onRefresh }: {
   async function mutate(action: string, extra: Record<string, string> = {}) {
     setBusy(action); setErr(null); setSuccess(null)
     try {
-      const data = await callApi('/api/admin/dm-inbox', { action, id: targetItem.id, senderId: targetItem.senderId, ...extra })
+      // 'ignore' in the UI always ignores at the conversation level (all actionable items for this sender).
+      const apiAction = action === 'ignore' ? 'ignore_conversation' : action
+      const data = await callApi('/api/admin/dm-inbox', { action: apiAction, id: targetItem.id, senderId: targetItem.senderId, ...extra })
       if (data.ok) {
         const msgs: Record<string, string> = {
           ignore: 'Ignored', requeue: 'Regeneration requested', retry_send_failed: 'Reset — re-approve to send',
@@ -1585,8 +1587,9 @@ function humanizeMessageText(text: string | null, messageType: string): string {
   return text
 }
 
-function ConvSenderRow({ group, selected, onClick }: {
+function ConvSenderRow({ group, selected, onClick, checked, onCheck }: {
   group: ConversationGroup; selected: boolean; onClick: () => void
+  checked?: boolean; onCheck?: (checked: boolean) => void
 }) {
   const displayName = group.username ? `@${group.username}` : group.displayName ?? 'Instagram User'
   const avatarLabel = group.displayName || group.username || 'I'
@@ -1599,9 +1602,15 @@ function ConvSenderRow({ group, selected, onClick }: {
       padding: '10px 12px', cursor: 'pointer', borderRadius: '6px',
       background: selected ? C.gold + '14' : 'transparent',
       borderLeft: `3px solid ${selected ? C.gold : 'transparent'}`,
-      display: 'flex', gap: '10px', alignItems: 'center',
+      display: 'flex', gap: '8px', alignItems: 'center',
       transition: 'background 0.1s',
     }}>
+      {onCheck !== undefined && (
+        <input type="checkbox" checked={checked ?? false}
+          onChange={e => { e.stopPropagation(); onCheck(e.target.checked) }}
+          onClick={e => e.stopPropagation()}
+          style={{ flexShrink: 0, accentColor: C.gold, cursor: 'pointer', width: '13px', height: '13px' }} />
+      )}
       <SenderAvatar profilePictureUrl={group.profilePictureUrl} label={avatarLabel} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -1628,14 +1637,17 @@ function ConvSenderRow({ group, selected, onClick }: {
 }
 
 function DmInbox({ initialSenderId }: { initialSenderId?: string } = {}) {
-  const [items,     setItems]     = useState<DmItem[] | null>(null)
-  const [loading,   setLoading]   = useState(false)
-  const [err,       setErr]       = useState<string | null>(null)
-  const [selected,  setSelected]  = useState<string | null>(initialSenderId ?? null)
-  const [showList,  setShowList]  = useState(true) // mobile: false = detail view
-  const [dmSearch,  setDmSearch]  = useState('')
+  const [items,        setItems]        = useState<DmItem[] | null>(null)
+  const [loading,      setLoading]      = useState(false)
+  const [err,          setErr]          = useState<string | null>(null)
+  const [selected,     setSelected]     = useState<string | null>(initialSenderId ?? null)
+  const [showList,     setShowList]     = useState(true) // mobile: false = detail view
+  const [dmSearch,     setDmSearch]     = useState('')
   type DmFilter = 'all' | 'needs_draft' | 'needs_review' | 'urgent' | 'attention'
-  const [dmFilter,  setDmFilter]  = useState<DmFilter>('all')
+  const [dmFilter,     setDmFilter]     = useState<DmFilter>('all')
+  const [bulkSelected, setBulkSelected] = useState<Set<string>>(new Set())
+  const [bulkBusy,     setBulkBusy]     = useState(false)
+  const [bulkConfirm,  setBulkConfirm]  = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
@@ -1710,6 +1722,32 @@ function DmInbox({ initialSenderId }: { initialSenderId?: string } = {}) {
     setShowList(false) // on mobile, switch to detail view
   }
 
+  async function doBulkIgnore() {
+    const ids = Array.from(bulkSelected)
+    setBulkBusy(true); setBulkConfirm(false)
+    try {
+      const res = await fetch('/api/admin/dm-inbox', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'bulk_ignore', senderIds: ids }),
+      })
+      const data = await res.json() as { ok: boolean; totalIgnored?: number; failed?: string[]; error?: string }
+      if (data.ok) {
+        setBulkSelected(new Set())
+        void load()
+      } else {
+        // Non-fatal — some may have failed; reload to reflect actual state
+        void load()
+      }
+    } catch { /* ignore */ }
+    finally { setBulkBusy(false) }
+  }
+
+  // Compute total pending message count for bulk confirm dialog
+  const bulkPendingCount = Array.from(bulkSelected).reduce((sum, sid) => {
+    const g = groups.find(x => x.senderId === sid)
+    return sum + (g?.pendingCount ?? 0)
+  }, 0)
+
   const isMobileNarrow = typeof window !== 'undefined' && window.innerWidth < 640
 
   return (
@@ -1749,6 +1787,23 @@ function DmInbox({ initialSenderId }: { initialSenderId?: string } = {}) {
       {err && <p style={{ color: C.red, fontSize: '12px' }}>{err}</p>}
       {loading && !items && <p style={{ color: C.muted, fontSize: '12px' }}>Loading…</p>}
 
+      {/* Bulk ignore confirmation dialog */}
+      {bulkConfirm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: C.sidebar, border: `1px solid ${C.border}`, borderRadius: '10px', padding: '24px 28px', maxWidth: '360px', width: '90%', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <p style={{ margin: 0, fontSize: '13px', color: C.text, fontWeight: 700 }}>Ignore conversations?</p>
+            <p style={{ margin: 0, fontSize: '12px', color: C.muted }}>
+              Ignore {bulkSelected.size} conversation{bulkSelected.size !== 1 ? 's' : ''} and {bulkPendingCount} pending message{bulkPendingCount !== 1 ? 's' : ''}?
+              Only actionable items are affected — SENDING and SENT records are never touched.
+            </p>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+              <button onClick={() => setBulkConfirm(false)} style={{ ...btn('ghost'), fontSize: '12px' }}>Cancel</button>
+              <button onClick={() => void doBulkIgnore()} style={{ ...btn('primary'), fontSize: '12px', background: C.red, borderColor: C.red }}>Ignore</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {items !== null && activeGroups.length === 0 && auditGroups.length === 0 && (
         <p style={{ color: C.muted, fontSize: '12px' }}>Inbox clear.</p>
       )}
@@ -1764,13 +1819,40 @@ function DmInbox({ initialSenderId }: { initialSenderId?: string } = {}) {
               background: C.sidebar, overflowY: 'auto', flexShrink: 0,
               display: 'flex', flexDirection: 'column',
             }}>
+              {/* Bulk action bar */}
+              {bulkSelected.size > 0 && (
+                <div style={{ padding: '6px 10px', borderBottom: `1px solid ${C.border}`, background: C.gold + '11', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '10px', color: C.gold, fontWeight: 700 }}>{bulkSelected.size} selected</span>
+                  <button disabled={bulkBusy} onClick={() => setBulkConfirm(true)}
+                    style={{ ...btn('ghost'), fontSize: '10px', padding: '2px 8px', color: C.red, borderColor: C.red }}>
+                    {bulkBusy ? '…' : 'Ignore selected'}
+                  </button>
+                  <button onClick={() => setBulkSelected(new Set())}
+                    style={{ ...btn('ghost'), fontSize: '10px', padding: '2px 6px' }}>Clear</button>
+                </div>
+              )}
+              {/* Select-all bar */}
+              {filteredGroups.length > 0 && (
+                <div style={{ padding: '4px 10px', display: 'flex', alignItems: 'center', gap: '6px', borderBottom: `1px solid ${C.border2}` }}>
+                  <input type="checkbox"
+                    checked={filteredGroups.length > 0 && filteredGroups.every(g => bulkSelected.has(g.senderId))}
+                    onChange={e => {
+                      if (e.target.checked) setBulkSelected(prev => new Set([...prev, ...filteredGroups.map(g => g.senderId)]))
+                      else setBulkSelected(prev => { const s = new Set(prev); filteredGroups.forEach(g => s.delete(g.senderId)); return s })
+                    }}
+                    style={{ accentColor: C.gold, cursor: 'pointer', width: '12px', height: '12px' }} />
+                  <span style={{ fontSize: '9px', color: C.muted }}>Select all visible ({filteredGroups.length})</span>
+                </div>
+              )}
               <div style={{ padding: '8px 6px', display: 'flex', flexDirection: 'column', gap: '1px', flex: 1 }}>
                 {filteredGroups.length === 0 && activeGroups.length > 0 && (
                   <p style={{ color: C.muted, fontSize: '11px', padding: '12px 8px', textAlign: 'center' }}>No results</p>
                 )}
                 {filteredGroups.map(g => (
                   <ConvSenderRow key={g.senderId} group={g} selected={selected === g.senderId}
-                    onClick={() => selectGroup(g.senderId)} />
+                    onClick={() => selectGroup(g.senderId)}
+                    checked={bulkSelected.has(g.senderId)}
+                    onCheck={checked => setBulkSelected(prev => { const s = new Set(prev); if (checked) s.add(g.senderId); else s.delete(g.senderId); return s })} />
                 ))}
 
                 {/* Audit section in left pane */}

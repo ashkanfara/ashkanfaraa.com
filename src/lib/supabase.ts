@@ -993,19 +993,20 @@ export async function markDmStatusUnknown(id: string): Promise<void> {
   )
 }
 
+// States that are safe to ignore: definitively unsent, not in-flight, not already terminal.
+const IGNORABLE_STATES = 'PENDING_REVIEW,SEND_FAILED,IG_SEND_ERROR,AI_RECOMMENDED_IGNORE,DRAFT_FAILED'
+
 /**
- * Ignore an unsent review item — human decided no response is needed.
- * Allowed from: PENDING_REVIEW, SEND_FAILED, IG_SEND_ERROR, AI_RECOMMENDED_IGNORE (all definitively unsent).
+ * Ignore a single unsent review item — human decided no response is needed.
+ * Allowed from: PENDING_REVIEW, SEND_FAILED, IG_SEND_ERROR, AI_RECOMMENDED_IGNORE, DRAFT_FAILED.
  * Blocked for: SENDING (in-flight), SEND_STATUS_UNKNOWN (outcome uncertain), SENT, REJECTED.
  * Does NOT block the sender; future inbound messages remain eligible for AI drafting.
- * Returns { ignored: true } when the row was transitioned.
- * Returns { ignored: false, reason } when the row was ineligible or not found.
  */
 export async function ignoreDm(id: string): Promise<{ ignored: boolean; reason?: string }> {
   const res = await fetch(
     `${base()}/rest/v1/instagram_dm_buffer` +
     `?id=eq.${encodeURIComponent(id)}` +
-    `&failed_reason=in.(PENDING_REVIEW,SEND_FAILED,IG_SEND_ERROR,AI_RECOMMENDED_IGNORE)` +
+    `&failed_reason=in.(${IGNORABLE_STATES})` +
     `&select=id`,
     {
       method:  'PATCH',
@@ -1017,6 +1018,45 @@ export async function ignoreDm(id: string): Promise<{ ignored: boolean; reason?:
   const rows = await res.json() as { id: string }[]
   if (rows.length === 0) return { ignored: false, reason: 'not_eligible' }
   return { ignored: true }
+}
+
+/**
+ * Ignore all actionable pending items for a single sender (conversation-level ignore).
+ * Transitions PENDING_REVIEW, SEND_FAILED, IG_SEND_ERROR, AI_RECOMMENDED_IGNORE, DRAFT_FAILED → IGNORED_BY_HUMAN.
+ * Never touches SENDING, SEND_STATUS_UNKNOWN, SENT, or other terminal states.
+ * Returns count of rows transitioned.
+ */
+export async function ignoreConversation(senderId: string): Promise<{ count: number; reason?: string }> {
+  const res = await fetch(
+    `${base()}/rest/v1/instagram_dm_buffer` +
+    `?sender_id=eq.${encodeURIComponent(senderId)}` +
+    `&failed_reason=in.(${IGNORABLE_STATES})` +
+    `&select=id`,
+    {
+      method:  'PATCH',
+      headers: { ...headers(), Prefer: 'return=representation' },
+      body:    JSON.stringify({ failed_reason: 'IGNORED_BY_HUMAN', processed: true, processing: false }),
+    }
+  )
+  if (!res.ok) return { count: 0, reason: 'supabase_error' }
+  const rows = await res.json() as { id: string }[]
+  return { count: rows.length }
+}
+
+/**
+ * Bulk conversation-level ignore across multiple senders.
+ * Processes each sender sequentially; partial failures are collected and returned.
+ * Returns { totalIgnored, failed: senderIds[] }.
+ */
+export async function bulkIgnoreConversations(senderIds: string[]): Promise<{ totalIgnored: number; failed: string[] }> {
+  let totalIgnored = 0
+  const failed: string[] = []
+  for (const senderId of senderIds) {
+    const result = await ignoreConversation(senderId)
+    if (result.reason) failed.push(senderId)
+    else totalIgnored += result.count
+  }
+  return { totalIgnored, failed }
 }
 
 /** Reject a PENDING_REVIEW draft. Idempotent. Used by n8n for blocked-sender flows. */
