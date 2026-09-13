@@ -127,6 +127,19 @@ async function fetchStoryCtx(storyId: string): Promise<StoryCtx | null> {
   return rows[0] ?? null
 }
 
+async function fetchSiblingGenerating(senderId: string, excludeId: string): Promise<{ generation_id: string } | null> {
+  const res = await fetch(
+    `${SUPABASE_BASE()}/rest/v1/instagram_dm_buffer` +
+    `?sender_id=eq.${encodeURIComponent(senderId)}&id=neq.${encodeURIComponent(excludeId)}` +
+    `&failed_reason=eq.DRAFT_GENERATING&response_sent=eq.false` +
+    `&select=generation_id&limit=1`,
+    { headers: SUPABASE_HEADERS() }
+  )
+  if (!res.ok) return null
+  const rows = await res.json() as { generation_id: string }[]
+  return rows[0] ?? null
+}
+
 async function fetchPendingInbound(senderId: string, excludeId: string): Promise<PendingRow[]> {
   const cutoff = new Date(Date.now() - WINDOW_MS).toISOString()
   // Include all unresolved inbound states so the AI sees the full conversation bundle
@@ -186,6 +199,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   if (Date.now() > new Date(row.created_at).getTime() + WINDOW_MS)
     return NextResponse.json({ ok: false, error: 'messaging_window_expired' }, { status: 409 })
+
+  // ── 4b. Idempotency guard: if a sibling for this sender is already generating, return noop ──
+  // Prevents duplicate Routine fires when multiple DRAFT_FAILED rows exist for one sender.
+  // When the caller explicitly re-retries a row that is already DRAFT_GENERATING (isDraftGenerating),
+  // we allow it to supersede — so only check siblings in the normal DRAFT_FAILED path.
+  if (!isDraftGenerating) {
+    const sibling = await fetchSiblingGenerating(row.sender_id, id)
+    if (sibling) {
+      console.log(`[retry-draft] noop — sibling already generating | sender=${row.sender_id} sibling_gen=${sibling.generation_id}`)
+      return NextResponse.json({ ok: true, status: 'already_generating', noop: true, generationId: sibling.generation_id })
+    }
+  }
 
   // ── 5. Generate new UUID + atomically claim DRAFT_GENERATING ──
   const generationId = randomUUID()
