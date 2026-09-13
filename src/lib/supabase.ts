@@ -923,6 +923,79 @@ export async function saveDmFeedback(data: DmFeedbackRecord): Promise<void> {
   }
 }
 
+/**
+ * Read a single dm_buffer row for the send route's pre-claim staleness check.
+ * Returns { senderId, createdAt } or null if not found.
+ */
+export async function fetchDmRowMeta(id: string): Promise<{ senderId: string; createdAt: string } | null> {
+  const res = await fetch(
+    `${base()}/rest/v1/instagram_dm_buffer` +
+    `?id=eq.${encodeURIComponent(id)}&select=sender_id,created_at&limit=1`,
+    { headers: headers() }
+  )
+  if (!res.ok) return null
+  const rows = await res.json() as { sender_id: string; created_at: string }[]
+  if (rows.length === 0) return null
+  return { senderId: rows[0].sender_id, createdAt: rows[0].created_at }
+}
+
+/**
+ * Count fresh inbound messages (never processed) for a sender that arrived AFTER
+ * the given ISO timestamp. Used to detect bundle staleness before approving a send.
+ * A non-zero result means new messages arrived after the draft was generated.
+ */
+export async function countFreshInboundAfter(senderId: string, afterIso: string): Promise<number> {
+  const res = await fetch(
+    `${base()}/rest/v1/instagram_dm_buffer` +
+    `?sender_id=eq.${encodeURIComponent(senderId)}` +
+    `&response_sent=eq.false` +
+    `&failed_reason=is.null` +
+    `&processed=eq.false` +
+    `&created_at=gt.${encodeURIComponent(afterIso)}` +
+    `&select=id`,
+    { headers: headers() }
+  )
+  if (!res.ok) return 0
+  const rows = await res.json() as { id: string }[]
+  return rows.length
+}
+
+/**
+ * After a successful send, mark all OTHER pending sibling rows for the same sender
+ * as SUPERSEDED — they were addressed by the bundle reply.
+ *
+ * Two PATCHes needed because PostgREST cannot express
+ * (failed_reason IN (...) OR (failed_reason IS NULL AND processed = false)) in one URL.
+ *
+ * Never touches: SENT, SENDING, SEND_STATUS_UNKNOWN, EXPIRED, REJECTED,
+ * IGNORED_BY_HUMAN, SUPERSEDED (all terminal or in-flight).
+ *
+ * Returns total count of rows transitioned.
+ */
+export async function supersedeBundleSiblings(senderId: string, primaryId: string): Promise<number> {
+  const patch = JSON.stringify({ failed_reason: 'SUPERSEDED', processed: true, processing: false })
+  const common = `sender_id=eq.${encodeURIComponent(senderId)}&id=neq.${encodeURIComponent(primaryId)}&response_sent=eq.false`
+
+  const [r1, r2] = await Promise.all([
+    // Named actionable states
+    fetch(
+      `${base()}/rest/v1/instagram_dm_buffer?${common}` +
+      `&failed_reason=in.(PENDING_REVIEW,DRAFT_FAILED,DRAFT_GENERATING,AI_RECOMMENDED_IGNORE)&select=id`,
+      { method: 'PATCH', headers: { ...headers(), Prefer: 'return=representation' }, body: patch }
+    ),
+    // Fresh inbound (never reached any failed_reason)
+    fetch(
+      `${base()}/rest/v1/instagram_dm_buffer?${common}` +
+      `&failed_reason=is.null&processed=eq.false&select=id`,
+      { method: 'PATCH', headers: { ...headers(), Prefer: 'return=representation' }, body: patch }
+    ),
+  ])
+
+  const c1 = r1.ok ? (await r1.json() as { id: string }[]).length : 0
+  const c2 = r2.ok ? (await r2.json() as { id: string }[]).length : 0
+  return c1 + c2
+}
+
 export async function getDmFeedback(limit = 100, offsetN = 0): Promise<Record<string, unknown>[]> {
   const res = await fetch(
     `${base()}/rest/v1/dm_response_feedback` +

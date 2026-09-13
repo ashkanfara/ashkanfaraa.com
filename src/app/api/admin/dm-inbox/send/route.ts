@@ -39,12 +39,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import {
   supabaseConfigured,
+  fetchDmRowMeta,
+  countFreshInboundAfter,
   claimDmForSend,
   markDmSent,
   markDmSendFailed,
   markDmStatusUnknown,
   getBlockedSenderIds,
   saveDmFeedback,
+  supersedeBundleSiblings,
 } from '@/lib/supabase'
 import { requireAdminSession, validateSameOrigin } from '@/lib/adminSession'
 
@@ -108,6 +111,22 @@ export async function POST(req: NextRequest) {
       { ok: false, error: 'Instagram API is not configured on this server.' },
       { status: 503 }
     )
+  }
+
+  // ── 4a. Staleness pre-check ──────────────────────────────────
+  // Before claiming, verify no new inbound messages arrived after the primary row was
+  // created (which would make this draft address an incomplete conversation).
+  // This is a read-only check — no side effects if stale is detected.
+  const rowMeta = await fetchDmRowMeta(id)
+  if (rowMeta) {
+    const newCount = await countFreshInboundAfter(rowMeta.senderId, rowMeta.createdAt)
+    if (newCount > 0) {
+      return NextResponse.json({
+        ok:    false,
+        error: 'bundle_stale',
+        hint:  'A new message arrived after this draft was generated. Refresh the inbox to include it in the reply.',
+      })
+    }
   }
 
   // ── 4. Atomic claim ──────────────────────────────────────────
@@ -196,6 +215,13 @@ export async function POST(req: NextRequest) {
         hint:  'Instagram sent the message but the database could not be updated. Check your Instagram outbox. Do not retry.',
       })
     }
+
+    // Mark sibling bundle rows as SUPERSEDED — fire-and-forget, non-blocking.
+    // These are other pending messages from the same sender that were addressed
+    // by this consolidated bundle reply. Failures are logged but never block the response.
+    supersedeBundleSiblings(senderId, id).then(count => {
+      if (count > 0) console.log(`[dm-inbox/send] Superseded ${count} bundle siblings for sender=${senderId}`)
+    }).catch(e => console.error('[dm-inbox/send] supersedeBundleSiblings failed (non-fatal):', e))
 
     // Write feedback record — fire-and-forget, never blocks or fails the send response
     try {

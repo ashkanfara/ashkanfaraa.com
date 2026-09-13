@@ -1106,6 +1106,7 @@ function ConvWorkspace({ targetItem, pendingCount, onRefresh }: {
       const data = await callApi('/api/admin/dm-inbox/send', { id: targetItem.id, finalText: editText, feedbackCategory: fbCategory, feedbackNote: fbNote.trim() || null })
       if (data.ok && data.alreadySent) { setErr('Already handled — refresh to see current state'); setTimeout(onRefresh, 1200) }
       else if (data.ok) { setSuccess('✓ Sent'); setTimeout(onRefresh, 1200) }
+      else if (data.error === 'bundle_stale') { setErr('New message arrived since draft was generated — refresh to include it in the reply'); setTimeout(onRefresh, 1500) }
       else               { setErr(data.error ?? 'Send failed') }
     } catch { setErr('Network error') }
     finally { setBusy(null) }

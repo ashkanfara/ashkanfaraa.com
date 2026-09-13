@@ -54,7 +54,7 @@ const SYSTEM_PROMPT = (process.env.DM_SYSTEM_PROMPT ?? `
 - هرگز جزئیاتی درباره برنامه، قیمت‌ها، یا در دسترس بودن اشکان را جعل نکنید
 - هرگز نتایج خاصی وعده ندهید
 
-یک پیشنهاد پاسخ برای آخرین پیام دریافتی بنویسید.
+اگر کاربر چند پیام متوالی فرستاده، همه آن‌ها را با هم در نظر بگیرید و یک پاسخ منسجم بنویسید که به نیت کلی مکالمه پاسخ دهد — نه جواب جداگانه برای هر پیام.
 `).trim()
 
 // ── Shared: fetch row + validate state ────────────────────────────────────
@@ -143,13 +143,13 @@ async function fetchPendingInbound(senderId: string, excludeId: string): Promise
   const hdrs = SUPABASE_HEADERS()
   const windowCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
 
-  // PostgREST `or` filter covers both states in one round-trip
+  // Include all unresolved inbound states — fresh, awaiting draft, draft failed, or has a draft
   const res = await fetch(
     `${base}/rest/v1/instagram_dm_buffer` +
     `?sender_id=eq.${encodeURIComponent(senderId)}` +
     `&id=neq.${encodeURIComponent(excludeId)}` +
     `&response_sent=eq.false` +
-    `&or=(failed_reason.is.null,failed_reason.eq.PENDING_REVIEW)` +
+    `&or=(failed_reason.is.null,failed_reason.eq.PENDING_REVIEW,failed_reason.eq.DRAFT_FAILED,failed_reason.eq.DRAFT_GENERATING)` +
     `&created_at=gt.${encodeURIComponent(windowCutoff)}` +
     `&select=id,message_text,message_type,created_at,is_story_reply,story_id,failed_reason,processed` +
     `&order=created_at.asc&limit=10`,
@@ -159,8 +159,8 @@ async function fetchPendingInbound(senderId: string, excludeId: string): Promise
   const rows = await res.json() as PendingInboundRow[]
 
   return rows
-    .filter(r => !(r.failed_reason === null && r.processed === true)) // exclude n8n completions
-    .slice(0, 5)
+    .filter(r => !(r.failed_reason === null && r.processed === true)) // exclude n8n "no reply" completions
+    .slice(0, 9) // allow up to 9 siblings (+ the target row = 10 total)
 }
 
 async function fetchStoryCtx(storyId: string): Promise<StoryCtx | null> {
@@ -314,7 +314,7 @@ function buildPromptPackage(
   }
 
   lines.push('')
-  lines.push('━━━ CURRENT INBOUND MESSAGE (respond to this one) ━━━')
+  lines.push('━━━ LATEST INBOUND MESSAGE ━━━')
   lines.push('')
 
   if (row.is_story_reply) lines.push('Type: STORY REPLY')
@@ -338,6 +338,9 @@ function buildPromptPackage(
   lines.push('')
   lines.push('━━━ TASK ━━━')
   lines.push('')
+  lines.push('Respond to the conversation as a whole. The sender may have sent several consecutive messages.')
+  lines.push('Address their combined intent naturally in ONE concise reply.')
+  lines.push('Do NOT reply separately to each message unless clearly necessary.')
   lines.push('Reply ONLY with the draft message text. No explanation, no prefixes, no quotes.')
   lines.push('Follow all rules in the system prompt exactly.')
 

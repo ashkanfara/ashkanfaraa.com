@@ -129,17 +129,19 @@ async function fetchStoryCtx(storyId: string): Promise<StoryCtx | null> {
 
 async function fetchPendingInbound(senderId: string, excludeId: string): Promise<PendingRow[]> {
   const cutoff = new Date(Date.now() - WINDOW_MS).toISOString()
+  // Include all unresolved inbound states so the AI sees the full conversation bundle
   const res = await fetch(
     `${SUPABASE_BASE()}/rest/v1/instagram_dm_buffer` +
     `?sender_id=eq.${encodeURIComponent(senderId)}&id=neq.${encodeURIComponent(excludeId)}` +
-    `&response_sent=eq.false&or=(failed_reason.is.null,failed_reason.eq.PENDING_REVIEW)` +
+    `&response_sent=eq.false` +
+    `&or=(failed_reason.is.null,failed_reason.eq.PENDING_REVIEW,failed_reason.eq.DRAFT_FAILED,failed_reason.eq.DRAFT_GENERATING)` +
     `&created_at=gt.${encodeURIComponent(cutoff)}&select=id,message_text,message_type,` +
     `created_at,is_story_reply,story_id,failed_reason,processed&order=created_at.asc&limit=10`,
     { headers: SUPABASE_HEADERS() }
   )
   if (!res.ok) return []
   const rows = await res.json() as PendingRow[]
-  return rows.filter(r => !(r.failed_reason === null && r.processed === true)).slice(0, 5)
+  return rows.filter(r => !(r.failed_reason === null && r.processed === true)).slice(0, 9)
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────────────────────
@@ -236,7 +238,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     })
     .join('\n')
 
-  // combined_message: all pending messages in chronological order + the current row
+  // combined_message: all pending messages in chronological order + the current row.
+  // Bundle instruction is prepended so the AI addresses the full conversation as one reply.
   const pendingTexts = pendingRows
     .map(p => {
       const parts: string[] = []
@@ -252,7 +255,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     else                    parts.push(`[پیام ${row.message_type}]`)
     return parts.join(' ')
   })()
-  const combinedMessage = [...pendingTexts, currentText].filter(Boolean).join('\n')
+  const allTexts = [...pendingTexts, currentText].filter(Boolean)
+  const bundleNote = allTexts.length > 1
+    ? `[BUNDLE: ${allTexts.length} consecutive messages — respond to all as ONE reply]\n`
+    : ''
+  const combinedMessage = bundleNote + allTexts.join('\n')
 
   // ── 7. Fire Claude Routine trigger ────────────────────────────────────────────
   const triggerPayload = {
@@ -262,6 +269,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     prompt_version:       DM_PROMPT_VERSION,
     message_text:         row.message_text ?? '',
     combined_message:     combinedMessage,
+    bundle_size:          allTexts.length, // number of messages in this conversation bundle
     is_story_reply:       row.is_story_reply ?? false,
     is_story_mention:     false,
     story_context:        storyCtx,
