@@ -47,6 +47,7 @@ interface DmItem {
   messageCount: number | null; notes: string | null
   conversationOwner: string | null; humanTakeoverReason: string | null
   storyContext: DmStoryContext | null; history: ConvHistoryRow[]
+  canSend: boolean; windowExpiresAt: string | null
 }
 interface FeedbackRow {
   id: string; buffer_id: string; sender_id: string
@@ -1059,10 +1060,11 @@ function ConvDetailTimeline({ history, targetId, pendingIds }: {
 // ConvWorkspace — ONE response workspace per conversation.
 // key={targetItem.id} on usage site ensures React remounts it when target changes,
 // resetting all local state cleanly.
-function ConvWorkspace({ targetItem, pendingCount, onRefresh }: {
+function ConvWorkspace({ targetItem, pendingCount, onRefresh, effectiveCreatedAt }: {
   targetItem: DmItem
   pendingCount: number
   onRefresh: () => void
+  effectiveCreatedAt?: string
 }) {
   const [pasteText,     setPasteText]     = useState('')
   const [writeMode,     setWriteMode]     = useState<'write' | null>(null)
@@ -1076,7 +1078,7 @@ function ConvWorkspace({ targetItem, pendingCount, onRefresh }: {
   const [fbNote,        setFbNote]        = useState('')
 
   const cardState   = getCardState(targetItem)
-  const msLeft      = windowMsRemaining(targetItem.createdAt)
+  const msLeft      = windowMsRemaining(effectiveCreatedAt ?? targetItem.createdAt)
   const urgent      = msLeft < 2 * 3_600_000
   const windowColor = urgent ? C.red : msLeft < 6 * 3_600_000 ? C.gold : C.green
   const displayName = targetItem.username ? `@${targetItem.username}` : targetItem.displayName ?? 'Instagram User'
@@ -1356,10 +1358,16 @@ function ConvWorkspace({ targetItem, pendingCount, onRefresh }: {
         {success && <p style={{ color: C.green, fontSize: '11px', margin: '8px 0 0' }}>{success}</p>}
         <FeedbackControls category={fbCategory} note={fbNote} onCategory={setFbCategory} onNote={setFbNote} />
         <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '10px' }}>
-          <button disabled={isBusy || !editText.trim()} onClick={() => void send()}
-            style={{ ...btn('primary'), opacity: (isBusy || !editText.trim()) ? 0.5 : 1, fontSize: '12px' }}>
-            {busy === 'send' ? '…' : 'Approve & Send'}
-          </button>
+          {msLeft === 0 ? (
+            <div style={{ padding: '8px 12px', background: '#1a0808', border: `1px solid ${C.red}`, borderRadius: '6px', fontSize: '12px', color: C.red, fontWeight: 700, letterSpacing: '0.05em' }}>
+              Expired — cannot send
+            </div>
+          ) : (
+            <button disabled={isBusy || !editText.trim()} onClick={() => void send()}
+              style={{ ...btn('primary'), opacity: (isBusy || !editText.trim()) ? 0.5 : 1, fontSize: '12px' }}>
+              {busy === 'send' ? '…' : 'Approve & Send'}
+            </button>
+          )}
           <button disabled={isBusy} onClick={() => void mutate('ignore')} style={{ ...btn('ghost'), fontSize: '12px' }}>
             {busy === 'ignore' ? '…' : pendingCount > 1 ? 'Ignore this message' : 'Ignore'}
           </button>
@@ -1481,7 +1489,10 @@ function SenderConvDetail({ group, onRefresh }: { group: ConversationGroup; onRe
       )}
 
       {/* Response workspace — key resets all state on target change */}
-      <ConvWorkspace key={targetItem.id} targetItem={targetItem} pendingCount={pendingItems.length} onRefresh={onRefresh} />
+      <ConvWorkspace key={targetItem.id} targetItem={targetItem} pendingCount={pendingItems.length} onRefresh={onRefresh}
+        effectiveCreatedAt={pendingItems.length > 0
+          ? pendingItems.reduce((best, i) => i.createdAt > best ? i.createdAt : best, pendingItems[0].createdAt)
+          : targetItem.createdAt} />
 
       {/* Footer: IG link + debug info */}
       <div style={{ padding: '6px 16px', fontSize: '9px', color: '#2a2420', borderTop: `1px solid ${C.border2}`, display: 'flex', gap: '12px', flexWrap: 'wrap' }}>

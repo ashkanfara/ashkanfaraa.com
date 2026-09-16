@@ -56,6 +56,25 @@ const IG_API        = 'https://graph.instagram.com/v25.0/me/messages'
 const IG_TIMEOUT_MS = 30_000                         // 30 s Instagram call timeout
 
 /**
+ * Fetch the newest created_at across all unresolved pending rows for a sender.
+ * Used to anchor the messaging window to the latest inbound message, not the
+ * specific row being approved (which may be an older sibling in a bundle).
+ */
+async function fetchNewestPendingCreatedAt(senderId: string): Promise<string | null> {
+  const base = process.env.SUPABASE_URL!.replace(/\/$/, '')
+  const key  = process.env.SUPABASE_SERVICE_ROLE_KEY!
+  const res  = await fetch(
+    `${base}/rest/v1/instagram_dm_buffer` +
+    `?sender_id=eq.${encodeURIComponent(senderId)}&response_sent=eq.false` +
+    `&select=created_at&order=created_at.desc&limit=1`,
+    { headers: { apikey: key, Authorization: `Bearer ${key}` } }
+  )
+  if (!res.ok) return null
+  const rows = await res.json() as { created_at: string }[]
+  return rows[0]?.created_at ?? null
+}
+
+/**
  * Transition a row we own (already in SENDING) to EXPIRED or REJECTED.
  * These are unconditional PATCHes — we hold the row in SENDING so no race.
  */
@@ -142,7 +161,11 @@ export async function POST(req: NextRequest) {
   const { senderId, createdAt, responseText: originalDraft, messageText, draftSource } = claimed
 
   // ── 5. Re-check: messaging window (server-side) ──────────────
-  const windowExpiry = new Date(createdAt).getTime() + WINDOW_MS
+  // Anchor to the NEWEST unresolved pending row for this sender — a bundle's newest
+  // message determines the Meta window, not the specific row being approved.
+  const newestPendingTs = await fetchNewestPendingCreatedAt(senderId)
+  const windowAnchor    = newestPendingTs ?? createdAt
+  const windowExpiry    = new Date(windowAnchor).getTime() + WINDOW_MS
   if (Date.now() > windowExpiry) {
     await forceTransition(id, 'EXPIRED')
     return NextResponse.json({ ok: false, error: 'messaging_window_expired' })
