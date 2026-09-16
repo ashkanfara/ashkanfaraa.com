@@ -911,9 +911,10 @@ export interface DmFeedbackRecord {
 }
 
 export async function saveDmFeedback(data: DmFeedbackRecord): Promise<void> {
+  // POST only pre-existing columns so this is safe before DM_OUTBOUND_HISTORY_MIGRATION.sql
   const res = await fetch(`${base()}/rest/v1/dm_response_feedback`, {
     method:  'POST',
-    headers: headers(),
+    headers: { ...headers(), Prefer: 'return=representation' },
     body: JSON.stringify({
       buffer_id:           data.bufferId,
       sender_id:           data.senderId,
@@ -925,18 +926,47 @@ export async function saveDmFeedback(data: DmFeedbackRecord): Promise<void> {
       feedback_rating:     data.feedbackRating,
       feedback_category:   data.feedbackCategory,
       feedback_note:       data.feedbackNote,
-      // Forensic / outbound history columns (ignored by PostgREST if columns don't exist yet)
-      ig_message_id:       data.igMessageId,
-      ig_http_status:      data.igHttpStatus,
-      approval_ts:         data.approvalTs,
-      send_attempt_ts:     data.sendAttemptTs,
-      send_state:          data.sendState,
-      is_first_reply:      data.isFirstReply,
     }),
   })
   if (!res.ok) {
     console.error('[supabase/saveDmFeedback] POST failed:', res.status, await res.text())
     throw new Error(`saveDmFeedback failed: ${res.status}`)
+  }
+  // Fire-and-forget forensic columns on the just-inserted row (safe before migration)
+  try {
+    const rows = await res.json() as { id: string }[]
+    const feedbackId = rows[0]?.id
+    if (feedbackId) {
+      void writeForensicFeedbackMeta(feedbackId, data)
+    }
+  } catch { /* non-fatal */ }
+}
+
+async function writeForensicFeedbackMeta(feedbackId: string, data: DmFeedbackRecord): Promise<void> {
+  try {
+    const res = await fetch(
+      `${base()}/rest/v1/dm_response_feedback?id=eq.${encodeURIComponent(feedbackId)}`,
+      {
+        method:  'PATCH',
+        headers: headers(),
+        body: JSON.stringify({
+          ig_message_id:  data.igMessageId,
+          ig_http_status: data.igHttpStatus,
+          approval_ts:    data.approvalTs,
+          send_attempt_ts: data.sendAttemptTs,
+          send_state:     data.sendState,
+          is_first_reply: data.isFirstReply,
+        }),
+      }
+    )
+    if (!res.ok) {
+      const text = await res.text()
+      if (!text.includes('PGRST204')) {
+        console.warn('[supabase/writeForensicFeedbackMeta] unexpected error:', res.status, text)
+      }
+    }
+  } catch (e) {
+    console.warn('[supabase/writeForensicFeedbackMeta] suppressed:', e)
   }
 }
 
@@ -1027,6 +1057,38 @@ export async function getDmFeedback(limit = 100, offsetN = 0): Promise<Record<st
 }
 
 /**
+ * Write forensic Meta API response columns to instagram_dm_buffer.
+ * Fire-and-forget — called after the critical state transition succeeds.
+ * Silently suppresses PostgREST HTTP 400 (PGRST204 unknown column) so this is
+ * safe to call before DM_OUTBOUND_HISTORY_MIGRATION.sql has been applied.
+ */
+async function writeForensicBufferMeta(
+  id: string,
+  data: { igHttpStatus?: number | null; igResponseBody?: string | null; isFirstReply?: boolean | null },
+): Promise<void> {
+  try {
+    const body: Record<string, unknown> = {}
+    if (data.igHttpStatus  !== undefined) body.ig_http_status  = data.igHttpStatus
+    if (data.igResponseBody !== undefined) body.ig_response_body = data.igResponseBody
+    if (data.isFirstReply  !== undefined) body.is_first_reply  = data.isFirstReply
+    if (Object.keys(body).length === 0) return
+    const res = await fetch(
+      `${base()}/rest/v1/instagram_dm_buffer?id=eq.${encodeURIComponent(id)}`,
+      { method: 'PATCH', headers: headers(), body: JSON.stringify(body) },
+    )
+    if (!res.ok) {
+      const text = await res.text()
+      // PGRST204 = column not found — migration not applied yet; non-fatal
+      if (!text.includes('PGRST204')) {
+        console.warn('[supabase/writeForensicBufferMeta] unexpected error:', res.status, text)
+      }
+    }
+  } catch (e) {
+    console.warn('[supabase/writeForensicBufferMeta] suppressed:', e)
+  }
+}
+
+/**
  * Mark a row SENT after confirmed Instagram success.
  * Preserves response_text (original AI draft) — only writes final_response_text.
  *
@@ -1053,10 +1115,6 @@ export async function markDmSent(
         response_sent_at:    new Date().toISOString(),
         final_response_text: finalText,
         ig_message_id:       messageId ?? null,
-        // Forensic columns (no-op if columns don't exist yet — PostgREST ignores unknown keys)
-        ig_http_status:      igHttpStatus,
-        ig_response_body:    igResponseBody,
-        is_first_reply:      isFirstReply,
       }),
     }
   )
@@ -1064,6 +1122,8 @@ export async function markDmSent(
     console.error('[supabase/markDmSent] PATCH failed:', res.status, await res.text())
     return false
   }
+  // Forensic columns written separately — safe before migration is applied
+  void writeForensicBufferMeta(id, { igHttpStatus, igResponseBody, isFirstReply })
   return true
 }
 
@@ -1082,13 +1142,12 @@ export async function markDmSendFailed(
       method: 'PATCH',
       headers: headers(),
       body: JSON.stringify({
-        failed_reason:    'SEND_FAILED',
-        processing:       false,
-        ig_http_status:   igHttpStatus,
-        ig_response_body: igResponseBody,
+        failed_reason: 'SEND_FAILED',
+        processing:    false,
       }),
     }
   )
+  void writeForensicBufferMeta(id, { igHttpStatus, igResponseBody })
 }
 
 /**
@@ -1111,13 +1170,12 @@ export async function markDmStatusUnknown(
       method: 'PATCH',
       headers: headers(),
       body: JSON.stringify({
-        failed_reason:    'SEND_STATUS_UNKNOWN',
-        processing:       false,
-        ig_http_status:   igHttpStatus,
-        ig_response_body: igResponseBody,
+        failed_reason: 'SEND_STATUS_UNKNOWN',
+        processing:    false,
       }),
     }
   )
+  void writeForensicBufferMeta(id, { igHttpStatus, igResponseBody })
 }
 
 // States that are safe to ignore: definitively unsent, not in-flight, not already terminal.
