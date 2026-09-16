@@ -852,12 +852,14 @@ export async function getDmInbox(): Promise<{
  *
  */
 export async function claimDmForSend(id: string, finalText: string): Promise<{
-  senderId: string; createdAt: string; responseText: string | null; messageText: string | null; draftSource: string | null
+  senderId: string; createdAt: string; responseText: string | null
+  messageText: string | null; draftSource: string | null; sendingStartedAt: string
 } | null> {
+  const sendingStartedAt = new Date().toISOString()
   const patchBody: Record<string, string | null> = {
     failed_reason:       'SENDING',
     final_response_text: finalText,
-    sending_started_at:  new Date().toISOString(),
+    sending_started_at:  sendingStartedAt,
   }
   const res = await fetch(
     `${base()}/rest/v1/instagram_dm_buffer` +
@@ -879,11 +881,12 @@ export async function claimDmForSend(id: string, finalText: string): Promise<{
   }[]
   if (rows.length === 0) return null
   return {
-    senderId:    rows[0].sender_id,
-    createdAt:   rows[0].created_at,
-    responseText: rows[0].response_text,
-    messageText: rows[0].message_text  ?? null,
-    draftSource: rows[0].draft_source  ?? null,
+    senderId:         rows[0].sender_id,
+    createdAt:        rows[0].created_at,
+    responseText:     rows[0].response_text,
+    messageText:      rows[0].message_text  ?? null,
+    draftSource:      rows[0].draft_source  ?? null,
+    sendingStartedAt,
   }
 }
 
@@ -898,6 +901,13 @@ export interface DmFeedbackRecord {
   feedbackRating:    string | null
   feedbackCategory:  string | null
   feedbackNote:      string | null
+  // Outbound history / forensic fields (populated at send time)
+  igMessageId:       string | null
+  igHttpStatus:      number | null
+  approvalTs:        string           // = sending_started_at from claimDmForSend
+  sendAttemptTs:     string           // = timestamp just before the IG API call
+  sendState:         string           // SENT | SEND_FAILED | SEND_STATUS_UNKNOWN
+  isFirstReply:      boolean          // true = Message Request conversation
 }
 
 export async function saveDmFeedback(data: DmFeedbackRecord): Promise<void> {
@@ -915,6 +925,13 @@ export async function saveDmFeedback(data: DmFeedbackRecord): Promise<void> {
       feedback_rating:     data.feedbackRating,
       feedback_category:   data.feedbackCategory,
       feedback_note:       data.feedbackNote,
+      // Forensic / outbound history columns (ignored by PostgREST if columns don't exist yet)
+      ig_message_id:       data.igMessageId,
+      ig_http_status:      data.igHttpStatus,
+      approval_ts:         data.approvalTs,
+      send_attempt_ts:     data.sendAttemptTs,
+      send_state:          data.sendState,
+      is_first_reply:      data.isFirstReply,
     }),
   })
   if (!res.ok) {
@@ -1017,7 +1034,14 @@ export async function getDmFeedback(limit = 100, offsetN = 0): Promise<Record<st
  * If this returns false after Instagram already sent the message, the caller
  * must transition to SEND_STATUS_UNKNOWN — NOT resend.
  */
-export async function markDmSent(id: string, finalText: string, messageId: string | null): Promise<boolean> {
+export async function markDmSent(
+  id: string,
+  finalText: string,
+  messageId: string | null,
+  igHttpStatus: number | null = null,
+  igResponseBody: string | null = null,
+  isFirstReply: boolean | null = null,
+): Promise<boolean> {
   const res = await fetch(
     `${base()}/rest/v1/instagram_dm_buffer?id=eq.${encodeURIComponent(id)}`,
     {
@@ -1029,6 +1053,10 @@ export async function markDmSent(id: string, finalText: string, messageId: strin
         response_sent_at:    new Date().toISOString(),
         final_response_text: finalText,
         ig_message_id:       messageId ?? null,
+        // Forensic columns (no-op if columns don't exist yet — PostgREST ignores unknown keys)
+        ig_http_status:      igHttpStatus,
+        ig_response_body:    igResponseBody,
+        is_first_reply:      isFirstReply,
       }),
     }
   )
@@ -1043,10 +1071,23 @@ export async function markDmSent(id: string, finalText: string, messageId: strin
  * Mark a row SEND_FAILED: Instagram definitively rejected the request (4xx error
  * returned before acceptance). The message was NOT sent. The admin can retry safely.
  */
-export async function markDmSendFailed(id: string): Promise<void> {
+export async function markDmSendFailed(
+  id: string,
+  igHttpStatus: number | null = null,
+  igResponseBody: string | null = null,
+): Promise<void> {
   await fetch(
     `${base()}/rest/v1/instagram_dm_buffer?id=eq.${encodeURIComponent(id)}`,
-    { method: 'PATCH', headers: headers(), body: JSON.stringify({ failed_reason: 'SEND_FAILED', processing: false }) }
+    {
+      method: 'PATCH',
+      headers: headers(),
+      body: JSON.stringify({
+        failed_reason:    'SEND_FAILED',
+        processing:       false,
+        ig_http_status:   igHttpStatus,
+        ig_response_body: igResponseBody,
+      }),
+    }
   )
 }
 
@@ -1059,10 +1100,23 @@ export async function markDmSendFailed(id: string): Promise<void> {
  * This state is NON-RESENDABLE. The admin must manually check their Instagram outbox
  * and resolve via Supabase before any further action. There is no automated recovery.
  */
-export async function markDmStatusUnknown(id: string): Promise<void> {
+export async function markDmStatusUnknown(
+  id: string,
+  igHttpStatus: number | null = null,
+  igResponseBody: string | null = null,
+): Promise<void> {
   await fetch(
     `${base()}/rest/v1/instagram_dm_buffer?id=eq.${encodeURIComponent(id)}`,
-    { method: 'PATCH', headers: headers(), body: JSON.stringify({ failed_reason: 'SEND_STATUS_UNKNOWN', processing: false }) }
+    {
+      method: 'PATCH',
+      headers: headers(),
+      body: JSON.stringify({
+        failed_reason:    'SEND_STATUS_UNKNOWN',
+        processing:       false,
+        ig_http_status:   igHttpStatus,
+        ig_response_body: igResponseBody,
+      }),
+    }
   )
 }
 
