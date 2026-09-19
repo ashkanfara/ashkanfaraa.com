@@ -863,7 +863,7 @@ export async function claimDmForSend(id: string, finalText: string): Promise<{
   }
   const res = await fetch(
     `${base()}/rest/v1/instagram_dm_buffer` +
-    `?id=eq.${encodeURIComponent(id)}&failed_reason=in.(PENDING_REVIEW,AI_RECOMMENDED_IGNORE)` +
+    `?id=eq.${encodeURIComponent(id)}&response_sent=eq.false&failed_reason=in.(PENDING_REVIEW,AI_RECOMMENDED_IGNORE)` +
     `&select=sender_id,created_at,response_text,message_text,draft_source`,
     {
       method:  'PATCH',
@@ -872,8 +872,7 @@ export async function claimDmForSend(id: string, finalText: string): Promise<{
     }
   )
   if (!res.ok) {
-    console.error('[supabase/claimDmForSend] PATCH failed:', res.status, await res.text())
-    return null
+    throw new Error(`Send claim failed (${res.status})`)
   }
   const rows = await res.json() as {
     sender_id: string; created_at: string; response_text: string | null
@@ -980,7 +979,7 @@ export async function fetchDmRowMeta(id: string): Promise<{ senderId: string; cr
     `?id=eq.${encodeURIComponent(id)}&select=sender_id,created_at&limit=1`,
     { headers: headers() }
   )
-  if (!res.ok) return null
+  if (!res.ok) throw new Error(`Message lookup failed (${res.status})`)
   const rows = await res.json() as { sender_id: string; created_at: string }[]
   if (rows.length === 0) return null
   return { senderId: rows[0].sender_id, createdAt: rows[0].created_at }
@@ -1002,14 +1001,15 @@ export async function countFreshInboundAfter(senderId: string, afterIso: string)
     `&select=id`,
     { headers: headers() }
   )
-  if (!res.ok) return 0
+  if (!res.ok) throw new Error(`Fresh-message lookup failed (${res.status})`)
   const rows = await res.json() as { id: string }[]
   return rows.length
 }
 
 /**
  * After a successful send, mark all OTHER pending sibling rows for the same sender
- * as SUPERSEDED — they were addressed by the bundle reply.
+ * at or before the approved primary message as SUPERSEDED.
+ * Newer arrivals must remain pending, even if they arrive during the send.
  *
  * Two PATCHes needed because PostgREST cannot express
  * (failed_reason IN (...) OR (failed_reason IS NULL AND processed = false)) in one URL.
@@ -1019,9 +1019,10 @@ export async function countFreshInboundAfter(senderId: string, afterIso: string)
  *
  * Returns total count of rows transitioned.
  */
-export async function supersedeBundleSiblings(senderId: string, primaryId: string): Promise<number> {
+export async function supersedeBundleSiblings(senderId: string, primaryId: string, throughIso: string): Promise<number> {
+  if (!Number.isFinite(Date.parse(throughIso))) throw new Error('Invalid bundle boundary')
   const patch = JSON.stringify({ failed_reason: 'SUPERSEDED', processed: true, processing: false })
-  const common = `sender_id=eq.${encodeURIComponent(senderId)}&id=neq.${encodeURIComponent(primaryId)}&response_sent=eq.false`
+  const common = `sender_id=eq.${encodeURIComponent(senderId)}&id=neq.${encodeURIComponent(primaryId)}&response_sent=eq.false&created_at=lte.${encodeURIComponent(throughIso)}`
 
   const [r1, r2] = await Promise.all([
     // Named actionable states

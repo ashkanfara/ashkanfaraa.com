@@ -22,4 +22,8 @@ Target: one inbound ingestion path, one durable conversation queue, one draft en
 
 Before retiring paths, inventory the live n8n workflow and Claude Routine configuration against deployed code. Both direct generation and Routine callbacks currently exist, with differing prompt-version handling. Preserve their actual behavior before consolidating. Do not remove block controls yet: legacy blocklist, access rules and human takeover are connected. Separate obsolete UI from active consent/access rules.
 
-Known issues to address next: send claim failures reported as already sent; bundle cleanup can supersede arrivals during a send; per-row draft claims do not serialize an entire conversation; Routine context uses hardcoded link-sent flags. Fix with isolated concurrency tests, not live customer sends. Roll out separately from restoring deployment so failures are attributable and reversible.
+Implemented send fixes: claim/read failures stop before Instagram and return errors; unsent-only claims prevent contradictory rows from being resent; cleanup only covers messages at or before the approved primary message and is awaited; newer arrivals stay pending. HTTP 5xx and incomplete success responses remain non-resendable pending reconciliation. Generic account restrictions no longer masquerade as window errors. Local timer badges are explicitly estimates, not confirmed expiry.
+
+Isolated tests cover old timestamps reaching the mocked API, genuine window errors, unrelated account errors, uncertain delivery, failed claims, stale bundles and guarded cleanup. Production build and targeted lint pass.
+
+Remaining: per-row draft claims do not serialize an entire conversation; exact draft bundle membership is not yet persisted; Routine context uses hardcoded link-sent flags. Fix with isolated concurrency tests, not live customer sends. Roll out separately from restoring deployment so failures are attributable and reversible.

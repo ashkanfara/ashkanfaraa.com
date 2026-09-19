@@ -34,7 +34,7 @@
  *
  * Returns:
  *   { ok: true, sent: true, messageId }          — success
- *   { ok: true, alreadySent: true }              — idempotent (already handled)
+ *   HTTP 409                                  — already handled or changed
  *   { ok: false, error: 'ig_messaging_window' | 'ig_send_failed' |
  *                        'sender_is_blocked' | 'send_status_unknown' | ... }
  */
@@ -70,7 +70,7 @@ function isMetaWindowError(responseBody: string | null): boolean {
     if (err.error_subcode === 2018141) return true   // documented window-expiry subcode
     const msg = typeof err.message === 'string' ? err.message.toLowerCase() : ''
     if (msg.includes('24 hour') || msg.includes('outside the window') ||
-        msg.includes('messaging window') || msg.includes('cannot send messages')) return true
+        msg.includes('messaging window')) return true
   } catch { /* not parseable */ }
   return false
 }
@@ -137,26 +137,24 @@ export async function POST(req: NextRequest) {
   // Before claiming, verify no new inbound messages arrived after the primary row was
   // created (which would make this draft address an incomplete conversation).
   // This is a read-only check — no side effects if stale is detected.
-  const rowMeta = await fetchDmRowMeta(id)
-  if (rowMeta) {
+  let claimed: Awaited<ReturnType<typeof claimDmForSend>>
+  try {
+    const rowMeta = await fetchDmRowMeta(id)
+    if (!rowMeta) return NextResponse.json({ ok: false, error: 'Message no longer available. Refresh the inbox.' }, { status: 404 })
     const newCount = await countFreshInboundAfter(rowMeta.senderId, rowMeta.createdAt)
     if (newCount > 0) {
       return NextResponse.json({
-        ok:    false,
-        error: 'bundle_stale',
-        hint:  'A new message arrived after this draft was generated. Refresh the inbox to include it in the reply.',
-      })
+        ok: false, error: 'bundle_stale',
+        hint: 'A new message arrived. Refresh the inbox before approving this reply.',
+      }, { status: 409 })
     }
+    claimed = await claimDmForSend(id, finalText)
+  } catch {
+    // No Instagram request has started; a database failure is never a sent receipt.
+    return NextResponse.json({ ok: false, error: 'Could not verify the send state. Refresh and try again.' }, { status: 503 })
   }
-
-  // ── 4. Atomic claim ──────────────────────────────────────────
-  // PATCH WHERE failed_reason = PENDING_REVIEW → SENDING.
-  // Also persists finalText immediately so it is not lost if step 6+ fails.
-  // Loads sender_id + created_at from Supabase — never from the browser.
-  // Returns null if 0 rows updated → already handled (SENT/REJECTED/EXPIRED/SENDING/etc.)
-  const claimed = await claimDmForSend(id, finalText)
   if (!claimed) {
-    return NextResponse.json({ ok: true, alreadySent: true })
+    return NextResponse.json({ ok: false, error: 'Message already handled or changed. Refresh the inbox.' }, { status: 409 })
   }
 
   const { senderId, createdAt, responseText: originalDraft, messageText, draftSource } = claimed
@@ -192,9 +190,9 @@ export async function POST(req: NextRequest) {
   // ── 8. Call Instagram Graph API ──────────────────────────────
   // Outcome classification:
   //   'success'            — HTTP 2xx AND response contains a non-empty message_id
-  //   'definitive_failure' — HTTP 4xx/5xx from IG (message was NOT sent)
+  //   'definitive_failure' — HTTP 4xx rejection from IG
   //   'ambiguous_200'      — HTTP 2xx but NO message_id in response body (unexpected; treat as unknown)
-  //   'unknown'            — timeout, network error, or thrown exception
+  //   'unknown'            — HTTP 5xx, timeout, network error, or thrown exception
   type IgOutcome = 'success' | 'definitive_failure' | 'ambiguous_200' | 'unknown'
   let igOutcome: IgOutcome = 'unknown'
   let igMessageId: string | null = null
@@ -242,10 +240,10 @@ export async function POST(req: NextRequest) {
         )
       }
     } else {
-      // IG returned an error response — message was NOT sent
-      igOutcome = 'definitive_failure'
+      // A server failure can occur after acceptance; do not make it resendable.
+      igOutcome = igRes.status >= 500 ? 'unknown' : 'definitive_failure'
       console.error(
-        `[dm-inbox/send] IG definitive failure | review=${id} sender=${senderId}` +
+        `[dm-inbox/send] IG error response | review=${id} sender=${senderId}` +
         ` http=${igHttpStatus} body=${igResponseBody} first_reply=${isFirstReply}`
       )
     }
@@ -282,8 +280,8 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    // Mark sibling bundle rows as SUPERSEDED — fire-and-forget, non-blocking.
-    supersedeBundleSiblings(senderId, id).then(count => {
+    // Complete cleanup before the serverless response; preserve newer arrivals.
+    await supersedeBundleSiblings(senderId, id, createdAt).then(count => {
       if (count > 0) console.log(`[dm-inbox/send] Superseded ${count} bundle siblings for sender=${senderId}`)
     }).catch(e => console.error('[dm-inbox/send] supersedeBundleSiblings failed (non-fatal):', e))
 

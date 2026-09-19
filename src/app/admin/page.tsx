@@ -169,7 +169,7 @@ function windowMsRemaining(createdAt: string): number {
   return Math.max(0, new Date(createdAt).getTime() + WINDOW_MS - Date.now())
 }
 function fmtWindowRemaining(ms: number): string {
-  if (ms <= 0) return 'Expired'
+  if (ms <= 0) return '24h+ (estimate)'
   const h = Math.floor(ms / 3_600_000)
   const m = Math.floor((ms % 3_600_000) / 60_000)
   if (h >= 2) return `${h}h ${m}m`
@@ -786,7 +786,7 @@ function DmInboxItem({ item, onRefresh }: { item: DmItem; onRefresh: () => void 
               {item.conversationOwner === 'human_temp' && <span style={{ fontSize: '10px', color: C.green, border: `1px solid ${C.green}`, borderRadius: '4px', padding: '1px 5px' }}>Human Hold</span>}
             </div>
             <div style={{ fontSize: '11px', color: windowColor, marginTop: '2px', fontWeight: urgent ? 700 : 400 }}>
-              {stateDesc} · ⏱ {fmtWindowRemaining(msLeft)} remaining
+              {stateDesc} · ⏱ {fmtWindowRemaining(msLeft)} · estimated reply time
             </div>
           </div>
         </div>
@@ -1140,7 +1140,7 @@ function ConvWorkspace({ targetItem, pendingCount, onRefresh, effectiveCreatedAt
 
   const windowBar = (
     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
-      <span style={{ fontSize: '11px', color: windowColor, fontWeight: urgent ? 700 : 400 }}>⏱ {fmtWindowRemaining(msLeft)} window</span>
+      <span style={{ fontSize: '11px', color: windowColor, fontWeight: urgent ? 700 : 400 }}>⏱ {fmtWindowRemaining(msLeft)} · Instagram checks eligibility when sending</span>
       {multiPendingNote}
     </div>
   )
@@ -1433,7 +1433,7 @@ function ConvWorkspace({ targetItem, pendingCount, onRefresh, effectiveCreatedAt
         {windowBar}
         <div style={{ padding: '10px 12px', background: isWindowExpired ? '#1a1200' : '#1c0a0a', border: `1px solid ${isWindowExpired ? '#5a4a10' : C.red}`, borderRadius: '6px', marginBottom: '10px' }}>
           <span style={{ fontSize: '11px', color: isWindowExpired ? '#c8a840' : C.red, fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-            {isWindowExpired ? 'LOCAL TIMER EXPIRED — NOT SENT' : 'SEND FAILED'}
+            {isWindowExpired ? 'HELD BY THE OLD TIMER — DRAFT SAVED' : 'SEND FAILED'}
           </span>
           <p style={{ margin: 0, fontSize: '12px', color: '#bfb5a6', lineHeight: 1.5 }}>
             {isWindowExpired
@@ -1682,6 +1682,7 @@ function DmInbox({ initialSenderId }: { initialSenderId?: string } = {}) {
         history: history[item.senderId] ?? [],
       }))
       setItems(mapped)
+      if (data.recoveryWarning) setErr(data.recoveryWarning)
       // Auto-select first group if none selected (and no initialSenderId was requested)
       if (!selected && mapped.length > 0) {
         const groups = groupBySender(mapped)
