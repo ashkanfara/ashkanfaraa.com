@@ -1,3 +1,4 @@
+import { DM_ROUTINE_PROMPT_VERSION } from '@/lib/dm-routine-contract'
 /**
  * POST /api/admin/dm-inbox/retry-draft
  *
@@ -45,7 +46,7 @@ const SUPABASE_HEADERS = () => ({
   'Content-Type': 'application/json',
 })
 
-const DM_PROMPT_VERSION = '2026-09-03-v1'
+const DM_PROMPT_VERSION = DM_ROUTINE_PROMPT_VERSION
 const WINDOW_MS         = 30 * 24 * 60 * 60 * 1000  // context window for AI sibling fetch (not a send gate)
 
 // ── Row types ─────────────────────────────────────────────────────────────────────────────────

@@ -27,3 +27,9 @@ Implemented send fixes: claim/read failures stop before Instagram and return err
 Isolated tests cover old timestamps reaching the mocked API, genuine window errors, unrelated account errors, uncertain delivery, failed claims, stale bundles and guarded cleanup. Production build and targeted lint pass.
 
 Remaining: per-row draft claims do not serialize an entire conversation; exact draft bundle membership is not yet persisted; Routine context uses hardcoded link-sent flags. Fix with isolated concurrency tests, not live customer sends. Roll out separately from restoring deployment so failures are attributable and reversible.
+
+## Removed unused duplication
+
+Removed the unreferenced single-message review component, its generation-failure component and its private timeline renderer. The active conversation workspace already contains the review, retry, human-reply and history behavior. This removes approximately 590 lines of obsolete parallel UI code. Routine request and callback validation now import one unchanged prompt-version constant, preventing the two ends from drifting without altering the persona.
+
+Lint baseline: the admin page had 21 errors and 5 warnings before this work; repository-wide lint is not a clean baseline. Modified server modules pass targeted lint.

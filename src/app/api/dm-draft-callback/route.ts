@@ -1,3 +1,4 @@
+import { DM_ROUTINE_PROMPT_VERSION } from '@/lib/dm-routine-contract'
 /**
  * POST /api/dm-draft-callback
  *
@@ -40,7 +41,7 @@ const SUPABASE_HEADERS = () => ({
   'Content-Type': 'application/json',
 })
 
-const EXPECTED_PROMPT_VERSION = '2026-09-03-v1'
+const EXPECTED_PROMPT_VERSION = DM_ROUTINE_PROMPT_VERSION
 const EXPECTED_DRAFT_SOURCE   = 'CLAUDE_ROUTINE_v1'
 const MAX_DRAFT_LENGTH        = 1000
 // ── Auth ─────────────────────────────────────────────────────────────────────
