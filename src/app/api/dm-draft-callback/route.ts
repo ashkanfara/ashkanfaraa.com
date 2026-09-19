@@ -43,8 +43,6 @@ const SUPABASE_HEADERS = () => ({
 const EXPECTED_PROMPT_VERSION = '2026-09-03-v1'
 const EXPECTED_DRAFT_SOURCE   = 'CLAUDE_ROUTINE_v1'
 const MAX_DRAFT_LENGTH        = 1000
-const WINDOW_MS               = 24 * 60 * 60 * 1000
-
 // ── Auth ─────────────────────────────────────────────────────────────────────
 
 function verifyBearer(req: NextRequest): boolean {
@@ -201,12 +199,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       error: `Row is no longer in DRAFT_GENERATING state (current: ${row.failed_reason})`,
     }, { status: 409 })
 
-  // ── 11. 24h messaging window ──────────────────────────────────
-  const createdAt = new Date(row.created_at).getTime()
-  if (Date.now() > createdAt + WINDOW_MS)
-    return NextResponse.json({ ok: false, error: 'messaging_window_expired' }, { status: 409 })
-
-  // ── 12. Blocklist check ───────────────────────────────────────
+  // ── 11. Blocklist check ───────────────────────────────────────
   const blocked = await isBlocked(row.sender_id)
   if (blocked)
     return NextResponse.json({ ok: false, error: 'Sender is blocked' }, { status: 409 })

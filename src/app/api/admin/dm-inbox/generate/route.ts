@@ -141,7 +141,7 @@ async function fetchHistory(senderId: string): Promise<{ message_text: string | 
 async function fetchPendingInbound(senderId: string, excludeId: string): Promise<PendingInboundRow[]> {
   const base = SUPABASE_BASE()
   const hdrs = SUPABASE_HEADERS()
-  const windowCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+  const windowCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
 
   // Include all unresolved inbound states — fresh, awaiting draft, draft failed, or has a draft
   const res = await fetch(
@@ -206,10 +206,6 @@ function classifyRow(row: DmRow): { valid: true; rowClass: RowClass } | { valid:
   const isPendingNoDraft = row.failed_reason === 'PENDING_REVIEW' && (!row.response_text)
   if (!isFreshInbound && !isDraftFailed && !isPendingNoDraft)
     return { valid: false, error: `Row is not in a pre-generation state (failed_reason=${row.failed_reason})`, status: 409 }
-
-  const windowMs = 24 * 60 * 60 * 1000
-  if (Date.now() > new Date(row.created_at).getTime() + windowMs)
-    return { valid: false, error: 'messaging_window_expired', status: 409 }
 
   const rowClass: RowClass = isFreshInbound ? 'fresh_inbound' : isDraftFailed ? 'draft_failed' : 'pending_no_draft'
   return { valid: true, rowClass }

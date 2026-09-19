@@ -47,7 +47,6 @@ interface DmItem {
   messageCount: number | null; notes: string | null
   conversationOwner: string | null; humanTakeoverReason: string | null
   storyContext: DmStoryContext | null; history: ConvHistoryRow[]
-  canSend: boolean; windowExpiresAt: string | null
 }
 interface FeedbackRow {
   id: string; buffer_id: string; sender_id: string
@@ -185,7 +184,8 @@ function getCardState(item: DmItem): CardState {
   }
   if (item.failedReason === 'SENDING')             return 'sending'
   if (item.failedReason === 'SEND_STATUS_UNKNOWN') return 'status_unknown'
-  if (item.failedReason === 'SEND_FAILED' || item.failedReason === 'IG_SEND_ERROR') return 'send_failed_open'
+  if (item.failedReason === 'SEND_FAILED' || item.failedReason === 'IG_SEND_ERROR' ||
+      item.failedReason === 'EXPIRED' || item.failedReason === 'INSTAGRAM_24H_WINDOW_EXPIRED') return 'send_failed_open'
   if (item.failedReason === 'AI_RECOMMENDED_IGNORE') return 'ai_suggested_ignore'
   if (item.failedReason === 'HUMAN_TEMP_SKIP')          return 'human_managed'
   if (item.failedReason === 'STORY_MENTION_HUMAN_HOLD') return 'story_mention'
@@ -615,6 +615,7 @@ function DmInboxItem({ item, onRefresh }: { item: DmItem; onRefresh: () => void 
       const data = await call('/api/admin/dm-inbox/send', { id: item.id, finalText: editText, feedbackCategory: fbCategory, feedbackNote: fbNote.trim() || null })
       if (data.ok && data.alreadySent) { setErr('Already handled — refresh to see current state'); setTimeout(onRefresh, 1200) }
       else if (data.ok) { setSuccess('✓ Sent'); setTimeout(onRefresh, 1200) }
+      else if (data.error === 'ig_messaging_window') { setErr('Instagram rejected — messaging window closed. Message was NOT sent.'); setTimeout(onRefresh, 1500) }
       else               { setErr(data.error ?? 'Send failed') }
     } catch { setErr('Network error') }
     finally { setBusy(null) }
@@ -1109,6 +1110,7 @@ function ConvWorkspace({ targetItem, pendingCount, onRefresh, effectiveCreatedAt
       if (data.ok && data.alreadySent) { setErr('Already handled — refresh to see current state'); setTimeout(onRefresh, 1200) }
       else if (data.ok) { setSuccess('✓ Sent'); setTimeout(onRefresh, 1200) }
       else if (data.error === 'bundle_stale') { setErr('New message arrived since draft was generated — refresh to include it in the reply'); setTimeout(onRefresh, 1500) }
+      else if (data.error === 'ig_messaging_window') { setErr('Instagram rejected — messaging window closed. Message was NOT sent.'); setTimeout(onRefresh, 1500) }
       else               { setErr(data.error ?? 'Send failed') }
     } catch { setErr('Network error') }
     finally { setBusy(null) }
@@ -1357,17 +1359,16 @@ function ConvWorkspace({ targetItem, pendingCount, onRefresh, effectiveCreatedAt
         {err     && <p style={{ color: C.red,   fontSize: '11px', margin: '8px 0 0' }}>{err}</p>}
         {success && <p style={{ color: C.green, fontSize: '11px', margin: '8px 0 0' }}>{success}</p>}
         <FeedbackControls category={fbCategory} note={fbNote} onCategory={setFbCategory} onNote={setFbNote} />
-        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '10px' }}>
-          {msLeft === 0 ? (
-            <div style={{ padding: '8px 12px', background: '#1a0808', border: `1px solid ${C.red}`, borderRadius: '6px', fontSize: '12px', color: C.red, fontWeight: 700, letterSpacing: '0.05em' }}>
-              Expired — cannot send
-            </div>
-          ) : (
-            <button disabled={isBusy || !editText.trim()} onClick={() => void send()}
-              style={{ ...btn('primary'), opacity: (isBusy || !editText.trim()) ? 0.5 : 1, fontSize: '12px' }}>
-              {busy === 'send' ? '…' : 'Approve & Send'}
-            </button>
-          )}
+        {msLeft === 0 && (
+          <div style={{ padding: '6px 10px', background: '#1a1200', border: `1px solid #5a4a10`, borderRadius: '6px', fontSize: '11px', color: '#c8a840', marginTop: '8px' }}>
+            ⚠ Meta 24h window may have closed — Instagram will be the final authority on this send attempt.
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '8px' }}>
+          <button disabled={isBusy || !editText.trim()} onClick={() => void send()}
+            style={{ ...btn('primary'), opacity: (isBusy || !editText.trim()) ? 0.5 : 1, fontSize: '12px' }}>
+            {busy === 'send' ? '…' : 'Approve & Send'}
+          </button>
           <button disabled={isBusy} onClick={() => void mutate('ignore')} style={{ ...btn('ghost'), fontSize: '12px' }}>
             {busy === 'ignore' ? '…' : pendingCount > 1 ? 'Ignore this message' : 'Ignore'}
           </button>
@@ -1426,12 +1427,20 @@ function ConvWorkspace({ targetItem, pendingCount, onRefresh, effectiveCreatedAt
 
   // ── send_failed_open ─────────────────────────────────────────
   if (cardState === 'send_failed_open') {
+    const isWindowExpired = targetItem.failedReason === 'EXPIRED' || targetItem.failedReason === 'INSTAGRAM_24H_WINDOW_EXPIRED'
     return (
       <div style={wrapStyle}>
         {windowBar}
-        <div style={{ padding: '10px 12px', background: '#1c0a0a', border: `1px solid ${C.red}`, borderRadius: '6px', marginBottom: '10px' }}>
-          <span style={{ fontSize: '11px', color: C.red, fontWeight: 700, display: 'block', marginBottom: '4px' }}>SEND FAILED</span>
-          {targetItem.responseText && <p style={{ margin: 0, fontSize: '12px', color: '#bfb5a6', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right' }}>Attempted: {targetItem.responseText}</p>}
+        <div style={{ padding: '10px 12px', background: isWindowExpired ? '#1a1200' : '#1c0a0a', border: `1px solid ${isWindowExpired ? '#5a4a10' : C.red}`, borderRadius: '6px', marginBottom: '10px' }}>
+          <span style={{ fontSize: '11px', color: isWindowExpired ? '#c8a840' : C.red, fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+            {isWindowExpired ? 'LOCAL TIMER EXPIRED — NOT SENT' : 'SEND FAILED'}
+          </span>
+          <p style={{ margin: 0, fontSize: '12px', color: '#bfb5a6', lineHeight: 1.5 }}>
+            {isWindowExpired
+              ? 'Our 24h local timer expired before this was sent. The draft is preserved. Click Retry Send to re-add to queue, then Approve & Send — Instagram will determine if the window is still open.'
+              : 'Instagram rejected this message. Message was NOT sent.'}
+          </p>
+          {targetItem.responseText && <p style={{ margin: '6px 0 0', fontSize: '12px', color: '#bfb5a6', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right' }}>Draft: {targetItem.responseText}</p>}
         </div>
         {err     && <p style={{ color: C.red,   fontSize: '11px', margin: '0 0 8px' }}>{err}</p>}
         {success && <p style={{ color: C.green, fontSize: '11px', margin: '0 0 8px' }}>{success}</p>}

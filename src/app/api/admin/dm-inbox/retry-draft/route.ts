@@ -46,7 +46,7 @@ const SUPABASE_HEADERS = () => ({
 })
 
 const DM_PROMPT_VERSION = '2026-09-03-v1'
-const WINDOW_MS         = 24 * 60 * 60 * 1000
+const WINDOW_MS         = 30 * 24 * 60 * 60 * 1000  // context window for AI sibling fetch (not a send gate)
 
 // ── Row types ─────────────────────────────────────────────────────────────────────────────────
 
@@ -196,9 +196,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   if (!isFreshInbound && !isDraftFailed && !isDraftGenerating)
     return NextResponse.json({ ok: false, error: `Row is not in a retryable state (failed_reason=${row.failed_reason})` }, { status: 409 })
-
-  if (Date.now() > new Date(row.created_at).getTime() + WINDOW_MS)
-    return NextResponse.json({ ok: false, error: 'messaging_window_expired' }, { status: 409 })
 
   // ── 4b. Idempotency guard: if a sibling for this sender is already generating, return noop ──
   // Prevents duplicate Routine fires when multiple DRAFT_FAILED rows exist for one sender.

@@ -32,8 +32,6 @@ import { requireAdminSession, unauthorized, validateSameOrigin } from '@/lib/adm
 
 // ── GET ───────────────────────────────────────────────────────
 
-const WINDOW_MS = 24 * 60 * 60 * 1000
-
 export async function GET(req: NextRequest) {
   if (!requireAdminSession(req)) return unauthorized()
   if (!supabaseConfigured()) {
@@ -41,23 +39,7 @@ export async function GET(req: NextRequest) {
   }
 
   const { items, history } = await getDmInbox()
-
-  // Compute canSend + windowExpiresAt per item using the newest createdAt for each sender.
-  // This makes the window anchor the latest inbound message, not the specific row's timestamp.
-  const newestBySender = new Map<string, number>()
-  for (const item of items) {
-    const ts = new Date(item.createdAt).getTime()
-    const cur = newestBySender.get(item.senderId) ?? 0
-    if (ts > cur) newestBySender.set(item.senderId, ts)
-  }
-  const now = Date.now()
-  const enrichedItems = items.map(item => {
-    const newestTs    = newestBySender.get(item.senderId) ?? new Date(item.createdAt).getTime()
-    const windowExpiry = newestTs + WINDOW_MS
-    return { ...item, canSend: now < windowExpiry, windowExpiresAt: new Date(windowExpiry).toISOString() }
-  })
-
-  return NextResponse.json({ items: enrichedItems, history })
+  return NextResponse.json({ items, history })
 }
 
 // ── POST ──────────────────────────────────────────────────────

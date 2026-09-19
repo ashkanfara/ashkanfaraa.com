@@ -90,10 +90,6 @@ export async function POST(req: NextRequest) {
   if (!isFreshInbound && !isDraftFailed && !isPendingNoDraft)
     return NextResponse.json({ ok: false, error: `Row is not in a pre-draft state (failed_reason=${row.failed_reason})` }, { status: 409 })
 
-  const windowMs = 24 * 60 * 60 * 1000
-  if (Date.now() > new Date(row.created_at).getTime() + windowMs)
-    return NextResponse.json({ ok: false, error: 'messaging_window_expired' }, { status: 409 })
-
   // ── Save draft + transition to PENDING_REVIEW ────────────────
   // draftSource: 'CLAUDE_MANUAL_v1' or 'HUMAN_v1' (includes prompt version for traceability)
   const sourceTag = `${draftSource}_${DM_PROMPT_VERSION}`

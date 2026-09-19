@@ -12,8 +12,11 @@
  *   SENDING        → (IG success + DB ok) → SENT
  *   SENDING        → (IG success + DB fail) → SEND_STATUS_UNKNOWN (NON-RESENDABLE)
  *   SENDING        → (timeout/unknown)      → SEND_STATUS_UNKNOWN (NON-RESENDABLE)
- *   SENDING        → (window expired)       → EXPIRED
  *   SENDING        → (blocked)              → REJECTED
+ *
+ * Messaging window: Meta is the sole authority. The local 24h timer is NOT enforced here.
+ * If Meta rejects because the window closed, the outcome is SEND_FAILED (retryable) and
+ * the specific error 'ig_messaging_window' is returned to the UI.
  *
  * Security:
  *   - Admin session cookie verified before any action
@@ -32,8 +35,8 @@
  * Returns:
  *   { ok: true, sent: true, messageId }          — success
  *   { ok: true, alreadySent: true }              — idempotent (already handled)
- *   { ok: false, error: 'messaging_window_expired' | 'sender_is_blocked' |
- *                        'ig_send_failed' | 'send_status_unknown' | ... }
+ *   { ok: false, error: 'ig_messaging_window' | 'ig_send_failed' |
+ *                        'sender_is_blocked' | 'send_status_unknown' | ... }
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -51,34 +54,32 @@ import {
 } from '@/lib/supabase'
 import { requireAdminSession, validateSameOrigin } from '@/lib/adminSession'
 
-const WINDOW_MS     = 24 * 60 * 60 * 1000          // Instagram 24-hour Customer Care window
 const IG_API        = 'https://graph.instagram.com/v25.0/me/messages'
 const IG_TIMEOUT_MS = 30_000                         // 30 s Instagram call timeout
 
 /**
- * Fetch the newest created_at across all unresolved pending rows for a sender.
- * Used to anchor the messaging window to the latest inbound message, not the
- * specific row being approved (which may be an older sibling in a bundle).
+ * Detect whether a Meta error response indicates the messaging window has closed.
+ * Meta returns various error codes/messages for this; check the common ones.
  */
-async function fetchNewestPendingCreatedAt(senderId: string): Promise<string | null> {
-  const base = process.env.SUPABASE_URL!.replace(/\/$/, '')
-  const key  = process.env.SUPABASE_SERVICE_ROLE_KEY!
-  const res  = await fetch(
-    `${base}/rest/v1/instagram_dm_buffer` +
-    `?sender_id=eq.${encodeURIComponent(senderId)}&response_sent=eq.false` +
-    `&select=created_at&order=created_at.desc&limit=1`,
-    { headers: { apikey: key, Authorization: `Bearer ${key}` } }
-  )
-  if (!res.ok) return null
-  const rows = await res.json() as { created_at: string }[]
-  return rows[0]?.created_at ?? null
+function isMetaWindowError(responseBody: string | null): boolean {
+  if (!responseBody) return false
+  try {
+    const body = JSON.parse(responseBody) as Record<string, unknown>
+    const err  = body?.error as Record<string, unknown> | undefined
+    if (!err) return false
+    if (err.error_subcode === 2018141) return true   // documented window-expiry subcode
+    const msg = typeof err.message === 'string' ? err.message.toLowerCase() : ''
+    if (msg.includes('24 hour') || msg.includes('outside the window') ||
+        msg.includes('messaging window') || msg.includes('cannot send messages')) return true
+  } catch { /* not parseable */ }
+  return false
 }
 
 /**
- * Transition a row we own (already in SENDING) to EXPIRED or REJECTED.
- * These are unconditional PATCHes — we hold the row in SENDING so no race.
+ * Transition a row we own (already in SENDING) to REJECTED.
+ * Unconditional PATCH — we hold the row in SENDING so no race.
  */
-async function forceTransition(id: string, state: 'EXPIRED' | 'REJECTED'): Promise<void> {
+async function forceTransition(id: string, state: 'REJECTED'): Promise<void> {
   const base = process.env.SUPABASE_URL!.replace(/\/$/, '')
   const key  = process.env.SUPABASE_SERVICE_ROLE_KEY!
   await fetch(`${base}/rest/v1/instagram_dm_buffer?id=eq.${encodeURIComponent(id)}`, {
@@ -160,18 +161,9 @@ export async function POST(req: NextRequest) {
 
   const { senderId, createdAt, responseText: originalDraft, messageText, draftSource } = claimed
 
-  // ── 5. Re-check: messaging window (server-side) ──────────────
-  // Anchor to the NEWEST unresolved pending row for this sender — a bundle's newest
-  // message determines the Meta window, not the specific row being approved.
-  const newestPendingTs = await fetchNewestPendingCreatedAt(senderId)
-  const windowAnchor    = newestPendingTs ?? createdAt
-  const windowExpiry    = new Date(windowAnchor).getTime() + WINDOW_MS
-  if (Date.now() > windowExpiry) {
-    await forceTransition(id, 'EXPIRED')
-    return NextResponse.json({ ok: false, error: 'messaging_window_expired' })
-  }
-
-  // ── 6. Re-check: blocklist (server-side) ────────────────────
+  // ── 5. Re-check: blocklist (server-side) ────────────────────
+  // Note: messaging window is NOT checked here. Meta is the authority.
+  // If Meta rejects for window reasons, outcome is SEND_FAILED (error: ig_messaging_window).
   const blocked = await getBlockedSenderIds([senderId])
   if (blocked.has(senderId)) {
     await forceTransition(id, 'REJECTED')
@@ -357,6 +349,13 @@ export async function POST(req: NextRequest) {
         sendAttemptTs, sendState: 'SEND_FAILED', isFirstReply,
       })
     } catch { /* non-fatal */ }
+    if (isMetaWindowError(igResponseBody)) {
+      return NextResponse.json({
+        ok: false,
+        error: 'ig_messaging_window',
+        hint: 'Instagram rejected this reply because the messaging window has closed.',
+      })
+    }
     return NextResponse.json({ ok: false, error: 'ig_send_failed' })
   }
 

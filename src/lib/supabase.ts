@@ -641,7 +641,7 @@ export async function getDmInbox(): Promise<{
     // Main query: rows with explicit actionable failed_reason values
     const mainRes = await fetch(
       `${base()}/rest/v1/instagram_dm_buffer` +
-      `?failed_reason=in.(PENDING_REVIEW,DRAFT_FAILED,DRAFT_GENERATING,SEND_FAILED,IG_SEND_ERROR,SEND_STATUS_UNKNOWN,SENDING,AI_RECOMMENDED_IGNORE,HUMAN_TEMP_SKIP,STORY_MENTION_HUMAN_HOLD)` +
+      `?failed_reason=in.(PENDING_REVIEW,DRAFT_FAILED,DRAFT_GENERATING,SEND_FAILED,IG_SEND_ERROR,SEND_STATUS_UNKNOWN,SENDING,AI_RECOMMENDED_IGNORE,HUMAN_TEMP_SKIP,STORY_MENTION_HUMAN_HOLD,EXPIRED,INSTAGRAM_24H_WINDOW_EXPIRED)` +
       `&created_at=gt.${encodeURIComponent(windowCutoff)}` +
       `&select=${SELECT}` +
       `&order=created_at.asc`,
@@ -1277,7 +1277,7 @@ export async function rejectDm(id: string): Promise<boolean> {
 export async function retryDmSendFailed(id: string): Promise<boolean> {
   const res = await fetch(
     `${base()}/rest/v1/instagram_dm_buffer` +
-    `?id=eq.${encodeURIComponent(id)}&failed_reason=in.(SEND_FAILED,IG_SEND_ERROR)` +
+    `?id=eq.${encodeURIComponent(id)}&failed_reason=in.(SEND_FAILED,IG_SEND_ERROR,EXPIRED,INSTAGRAM_24H_WINDOW_EXPIRED)` +
     `&select=id`,
     {
       method:  'PATCH',
