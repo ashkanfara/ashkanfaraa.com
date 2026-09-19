@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/cron/reset-stale-drafts",
-      "schedule": "*/5 * * * *"
+      "schedule": "0 0 * * *"
     }
   ]
 }

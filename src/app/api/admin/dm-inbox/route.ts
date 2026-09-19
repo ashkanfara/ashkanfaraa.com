@@ -13,6 +13,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { recoverStaleDmDrafts } from '@/lib/dm-draft-recovery'
 import {
   supabaseConfigured,
   getDmInbox,
@@ -38,8 +39,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Supabase is not configured.' }, { status: 503 })
   }
 
+  // Recover before loading so the operator can retry a stuck draft immediately.
+  // Failure must not hide the inbox; the daily sweep remains a second trigger.
+  let recoveryWarning: string | undefined
+  try {
+    const result = await recoverStaleDmDrafts()
+    if (!result.ok) recoveryWarning = 'Some stuck drafts could not be recovered.'
+  } catch { recoveryWarning = 'Stuck-draft recovery is temporarily unavailable.' }
   const { items, history } = await getDmInbox()
-  return NextResponse.json({ items, history })
+  return NextResponse.json({ items, history, recoveryWarning })
 }
 
 // ── POST ──────────────────────────────────────────────────────
