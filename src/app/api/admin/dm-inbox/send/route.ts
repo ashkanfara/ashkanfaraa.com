@@ -1,3 +1,4 @@
+import { isMetaWindowError } from '@/lib/dm-send-error'
 /**
  * POST /api/admin/dm-inbox/send
  *
@@ -56,24 +57,6 @@ import { requireAdminSession, validateSameOrigin } from '@/lib/adminSession'
 
 const IG_API        = 'https://graph.instagram.com/v25.0/me/messages'
 const IG_TIMEOUT_MS = 30_000                         // 30 s Instagram call timeout
-
-/**
- * Detect whether a Meta error response indicates the messaging window has closed.
- * Meta returns various error codes/messages for this; check the common ones.
- */
-function isMetaWindowError(responseBody: string | null): boolean {
-  if (!responseBody) return false
-  try {
-    const body = JSON.parse(responseBody) as Record<string, unknown>
-    const err  = body?.error as Record<string, unknown> | undefined
-    if (!err) return false
-    if (err.error_subcode === 2018141) return true   // documented window-expiry subcode
-    const msg = typeof err.message === 'string' ? err.message.toLowerCase() : ''
-    if (msg.includes('24 hour') || msg.includes('outside the window') ||
-        msg.includes('messaging window')) return true
-  } catch { /* not parseable */ }
-  return false
-}
 
 /**
  * Transition a row we own (already in SENDING) to REJECTED.

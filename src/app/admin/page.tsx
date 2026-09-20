@@ -39,6 +39,7 @@ interface DmStoryContext {
   caption: string | null; aiDescription: string | null; ocrText: string | null
 }
 interface DmItem {
+  sendFailure?: 'ig_messaging_window' | 'ig_send_failed' | null
   id: string; senderId: string; messageText: string | null; messageType: string
   createdAt: string; processingStartedAt: string | null
   isStoryReply: boolean; isStoryMention: boolean; storyId: string | null
@@ -522,6 +523,7 @@ function ConvWorkspace({ targetItem, pendingCount, onRefresh, effectiveCreatedAt
       else if (data.ok) { setSuccess('✓ Sent'); setTimeout(onRefresh, 1200) }
       else if (data.error === 'bundle_stale') { setErr('New message arrived since draft was generated — refresh to include it in the reply'); setTimeout(onRefresh, 1500) }
       else if (data.error === 'ig_messaging_window') { setErr('Instagram rejected — messaging window closed. Message was NOT sent.'); setTimeout(onRefresh, 1500) }
+      else if (data.error === 'ig_send_failed') { setErr('Instagram rejected this reply. Message was not sent.'); setTimeout(onRefresh, 1500) }
       else               { setErr(data.error ?? 'Send failed') }
     } catch { setErr('Network error') }
     finally { setBusy(null) }
@@ -838,18 +840,21 @@ function ConvWorkspace({ targetItem, pendingCount, onRefresh, effectiveCreatedAt
 
   // ── send_failed_open ─────────────────────────────────────────
   if (cardState === 'send_failed_open') {
+    const metaWindowClosed = targetItem.sendFailure === 'ig_messaging_window'
     const isWindowExpired = targetItem.failedReason === 'EXPIRED' || targetItem.failedReason === 'INSTAGRAM_24H_WINDOW_EXPIRED'
     return (
       <div style={wrapStyle}>
         {windowBar}
         <div style={{ padding: '10px 12px', background: isWindowExpired ? '#1a1200' : '#1c0a0a', border: `1px solid ${isWindowExpired ? '#5a4a10' : C.red}`, borderRadius: '6px', marginBottom: '10px' }}>
           <span style={{ fontSize: '11px', color: isWindowExpired ? '#c8a840' : C.red, fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-            {isWindowExpired ? 'HELD BY THE OLD TIMER — DRAFT SAVED' : 'SEND FAILED'}
+            {isWindowExpired ? 'HELD BY THE OLD TIMER — DRAFT SAVED' : metaWindowClosed ? 'INSTAGRAM REPLY WINDOW CLOSED — NOT SENT' : 'SEND FAILED'}
           </span>
           <p style={{ margin: 0, fontSize: '12px', color: '#bfb5a6', lineHeight: 1.5 }}>
             {isWindowExpired
               ? 'Our 24h local timer expired before this was sent. The draft is preserved. Click Retry Send to re-add to queue, then Approve & Send — Instagram will determine if the window is still open.'
-              : 'Instagram rejected this message. Message was NOT sent.'}
+              : metaWindowClosed
+                ? 'Instagram rejected this reply because its allowed messaging window has closed. Your draft is saved. Retrying here does not reopen the window; wait for a new message from this person, or review the conversation in Instagram.'
+                : 'Instagram rejected this message. Message was NOT sent.'}
           </p>
           {targetItem.responseText && <p style={{ margin: '6px 0 0', fontSize: '12px', color: '#bfb5a6', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right' }}>Draft: {targetItem.responseText}</p>}
         </div>
@@ -908,6 +913,11 @@ function SenderConvDetail({ group, onRefresh }: { group: ConversationGroup; onRe
         </div>
       )}
 
+      {group.items.some(i => i.id !== targetItem.id && i.sendFailure === 'ig_messaging_window') && (
+        <p role="status" style={{ margin: '8px 16px', color: C.red, fontSize: '12px' }}>
+          Instagram rejected an earlier reply in this conversation because its messaging window was closed. That reply was not sent. Retrying an older draft does not reopen the window.
+        </p>
+      )}
       {/* Response workspace — key resets all state on target change */}
       <ConvWorkspace key={targetItem.id} targetItem={targetItem} pendingCount={pendingItems.length} onRefresh={onRefresh}
         effectiveCreatedAt={pendingItems.length > 0

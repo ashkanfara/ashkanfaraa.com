@@ -1,3 +1,4 @@
+import { isMetaWindowError } from './dm-send-error'
 /**
  * Supabase REST API helpers — server-side only.
  * Never import from client components.
@@ -489,6 +490,7 @@ export interface DmBufferRow {
   responseSent:    boolean
   responseSentAt:  string | null
   finalResponseText: string | null
+  sendFailure?: 'ig_messaging_window' | 'ig_send_failed' | null
   // joined from instagram_users + optional IG API enrichment
   username:          string | null
   displayName:       string | null
@@ -637,7 +639,7 @@ export async function getDmInbox(): Promise<{
     const windowCutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
     const SELECT =
       `id,sender_id,message_text,message_type,created_at,processing_started_at,is_story_reply,is_story_mention,` +
-      `story_id,story_url,response_text,failed_reason,response_sent,response_sent_at,final_response_text,generation_id`
+      `story_id,story_url,response_text,failed_reason,response_sent,response_sent_at,final_response_text,generation_id,ig_response_body`
     // Main query: rows with explicit actionable failed_reason values
     const mainRes = await fetch(
       `${base()}/rest/v1/instagram_dm_buffer` +
@@ -817,6 +819,8 @@ export async function getDmInbox(): Promise<{
       responseSent:    r.response_sent    ?? false,
       responseSentAt:  r.response_sent_at ?? null,
       finalResponseText: r.final_response_text ?? null,
+      sendFailure: ['SEND_FAILED', 'IG_SEND_ERROR'].includes(r.failed_reason)
+        ? (isMetaWindowError(r.ig_response_body) ? 'ig_messaging_window' : 'ig_send_failed') : null,
       messageCount:    usersMap[r.sender_id]?.message_count ?? null,
       notes:           usersMap[r.sender_id]?.notes         ?? null,
       conversationOwner:   stateMap[r.sender_id]?.conversation_owner    ?? null,
@@ -1148,7 +1152,7 @@ export async function markDmSendFailed(
       }),
     }
   )
-  void writeForensicBufferMeta(id, { igHttpStatus, igResponseBody })
+  await writeForensicBufferMeta(id, { igHttpStatus, igResponseBody })
 }
 
 /**
@@ -1176,7 +1180,7 @@ export async function markDmStatusUnknown(
       }),
     }
   )
-  void writeForensicBufferMeta(id, { igHttpStatus, igResponseBody })
+  await writeForensicBufferMeta(id, { igHttpStatus, igResponseBody })
 }
 
 // States that are safe to ignore: definitively unsent, not in-flight, not already terminal.
