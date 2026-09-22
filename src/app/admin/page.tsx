@@ -59,7 +59,8 @@ interface FeedbackRow {
 }
 type CardState =
   | 'sending' | 'status_unknown' | 'needs_review' | 'needs_generation' | 'draft_failed'
-  | 'draft_generating' | 'send_failed_open' | 'window_closed' | 'superseded_by_inbound' | 'ai_suggested_ignore' | 'human_managed'
+  | 'draft_generating' | 'send_failed_open' | 'window_closed' | 'local_timer_expired'
+  | 'superseded_by_inbound' | 'ai_suggested_ignore' | 'human_managed'
   | 'story_mention' | 'regenerating'
 type Section = 'overview' | 'dm' | 'consultations' | 'access' | 'feedback' | 'bos'
 
@@ -187,8 +188,8 @@ function getCardState(item: DmItem): CardState {
   if (item.failedReason === 'SEND_STATUS_UNKNOWN') return 'status_unknown'
   if (item.failedReason === 'SEND_FAILED_WINDOW_CLOSED') return 'window_closed'
   if (item.failedReason === 'SUPERSEDED_BY_NEW_INBOUND') return 'superseded_by_inbound'
-  if (item.failedReason === 'SEND_FAILED' || item.failedReason === 'IG_SEND_ERROR' ||
-      item.failedReason === 'EXPIRED' || item.failedReason === 'INSTAGRAM_24H_WINDOW_EXPIRED') return 'send_failed_open'
+  if (item.failedReason === 'EXPIRED' || item.failedReason === 'INSTAGRAM_24H_WINDOW_EXPIRED') return 'local_timer_expired'
+  if (item.failedReason === 'SEND_FAILED' || item.failedReason === 'IG_SEND_ERROR') return 'send_failed_open'
   if (item.failedReason === 'AI_RECOMMENDED_IGNORE') return 'ai_suggested_ignore'
   if (item.failedReason === 'HUMAN_TEMP_SKIP')          return 'human_managed'
   if (item.failedReason === 'STORY_MENTION_HUMAN_HOLD') return 'story_mention'
@@ -814,6 +815,15 @@ function DmInboxItem({ item, onRefresh }: { item: DmItem; onRefresh: () => void 
               </>
             )}
 
+            {/* LOCAL_TIMER_EXPIRED — old local 24h timer blocked send before reaching Meta */}
+            {cardState === 'local_timer_expired' && (
+              <div style={{ padding: '10px 12px', background: '#111', border: `1px solid ${C.border}`, borderRadius: '6px', fontSize: '12px', color: C.muted, lineHeight: 1.6 }}>
+                <span style={{ fontWeight: 700, display: 'block', marginBottom: '3px', letterSpacing: '0.05em', fontSize: '10px' }}>DRAFT NEVER SENT — LOCAL TIMER EXPIRED</span>
+                This draft was blocked by the old local 24h timer before it reached Instagram. Draft preserved for history.
+                {item.responseText && <p style={{ margin: '6px 0 0', fontSize: '11px', color: '#6a6058', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right' }}>Draft: {item.responseText}</p>}
+              </div>
+            )}
+
             {/* SUPERSEDED_BY_NEW_INBOUND — window was closed; sender messaged again; archived for history */}
             {cardState === 'superseded_by_inbound' && (
               <div style={{ padding: '10px 12px', background: '#111', border: `1px solid ${C.border}`, borderRadius: '6px', fontSize: '12px', color: C.muted, lineHeight: 1.6 }}>
@@ -1383,6 +1393,24 @@ function ConvWorkspace({ targetItem, pendingCount, onRefresh, effectiveCreatedAt
     )
   }
 
+  // ── local_timer_expired — old local 24h timer blocked; never reached Meta ──────────────────
+  if (cardState === 'local_timer_expired') {
+    return (
+      <div style={wrapStyle}>
+        {windowBar}
+        <div style={{ padding: '10px 12px', background: '#111', border: `1px solid ${C.border}`, borderRadius: '6px' }}>
+          <span style={{ fontSize: '11px', color: C.muted, fontWeight: 700, display: 'block', marginBottom: '4px', letterSpacing: '0.05em' }}>
+            DRAFT NEVER SENT — LOCAL TIMER EXPIRED
+          </span>
+          <p style={{ margin: 0, fontSize: '12px', color: C.muted, lineHeight: 1.5 }}>
+            This draft was blocked by the old local 24h timer and never sent to Instagram. It was never rejected by Meta — the local gate prevented the send attempt. Draft is preserved for history. No action required.
+          </p>
+          {targetItem.responseText && <p style={{ margin: '6px 0 0', fontSize: '12px', color: '#6a6058', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right' }}>Draft: {targetItem.responseText}</p>}
+        </div>
+      </div>
+    )
+  }
+
   // ── superseded_by_inbound — historical record; window was closed then sender messaged again ──
   if (cardState === 'superseded_by_inbound') {
     return (
@@ -1512,9 +1540,12 @@ interface ConversationGroup {
 const STATE_PRIORITY: Record<CardState, number> = {
   // needs_review=0: a ready AI draft is more actionable than a failed generation.
   // When both exist for a sender, the ready draft shows first.
-  needs_review: 0, draft_failed: 1, needs_generation: 2, send_failed_open: 3, window_closed: 3,
+  needs_review: 0, draft_failed: 1, needs_generation: 2, send_failed_open: 3,
   status_unknown: 4, sending: 5, draft_generating: 6, regenerating: 7,
-  ai_suggested_ignore: 8, superseded_by_inbound: 9, story_mention: 10, human_managed: 11,
+  ai_suggested_ignore: 8,
+  // Non-actionable closed states — shown in collapsed "Closed" section, not active queue
+  window_closed: 20, local_timer_expired: 21, superseded_by_inbound: 22,
+  story_mention: 23, human_managed: 24,
 }
 
 function groupBySender(items: DmItem[]): ConversationGroup[] {
@@ -1569,12 +1600,12 @@ function groupBySender(items: DmItem[]): ConversationGroup[] {
 
 const STATE_COLOR: Record<CardState, string> = {
   draft_failed: C.red, needs_generation: C.red, needs_review: C.green, send_failed_open: C.red,
-  window_closed: '#c8a840', status_unknown: C.red, sending: C.gold, draft_generating: C.gold, regenerating: C.gold,
+  window_closed: '#c8a840', local_timer_expired: C.muted, status_unknown: C.red, sending: C.gold, draft_generating: C.gold, regenerating: C.gold,
   ai_suggested_ignore: C.muted, superseded_by_inbound: C.muted, story_mention: C.muted, human_managed: C.muted,
 }
 const STATE_LABEL: Record<CardState, string> = {
   draft_failed: 'Draft failed', needs_generation: 'Draft failed (legacy)', needs_review: 'Needs review', send_failed_open: 'Send failed',
-  window_closed: 'Window closed', status_unknown: 'Status unknown', sending: 'Sending', draft_generating: 'Generating draft…', regenerating: 'Regenerating',
+  window_closed: 'Window closed', local_timer_expired: 'Timer expired', status_unknown: 'Status unknown', sending: 'Sending', draft_generating: 'Generating draft…', regenerating: 'Regenerating',
   ai_suggested_ignore: 'AI ignore', superseded_by_inbound: 'Superseded', story_mention: 'Story mention', human_managed: 'Human managed',
 }
 
@@ -1686,22 +1717,27 @@ function DmInbox({ initialSenderId }: { initialSenderId?: string } = {}) {
     return () => clearInterval(t)
   }, [hasGenerating, load])
 
-  // Separate audit items (human_managed, story_mention) — show in a collapsed section
-  const activeGroups = groups.filter(g => g.worstState !== 'human_managed' && g.worstState !== 'story_mention')
-  const auditGroups  = groups.filter(g => g.worstState === 'human_managed' || g.worstState === 'story_mention')
+  // Closed states: Meta window rejection, local timer expiry, superseded — not actionable, shown collapsed
+  const CLOSED_STATES: CardState[] = ['window_closed', 'local_timer_expired', 'superseded_by_inbound']
+  // Audit states: human-managed / story mention — shown in collapsed audit section
+  const AUDIT_STATES: CardState[]  = ['human_managed', 'story_mention']
+  const activeGroups = groups.filter(g => !CLOSED_STATES.includes(g.worstState) && !AUDIT_STATES.includes(g.worstState))
+  const closedGroups = groups.filter(g => CLOSED_STATES.includes(g.worstState))
+  const auditGroups  = groups.filter(g => AUDIT_STATES.includes(g.worstState))
   const [showAudit, setShowAudit] = useState(false)
+  const [showClosed, setShowClosed] = useState(false)
 
   const urgentCount    = activeGroups.filter(g => g.mostUrgentMs < 2 * 3_600_000).length
   const needsDraftCount = activeGroups.filter(g => g.worstState === 'draft_failed' || g.worstState === 'needs_generation').length
   const needsReviewCount = activeGroups.filter(g => g.worstState === 'needs_review').length
-  const attentionCount = activeGroups.filter(g => ['sending','status_unknown','send_failed_open','window_closed'].includes(g.worstState)).length
+  const attentionCount = activeGroups.filter(g => ['sending','status_unknown','send_failed_open'].includes(g.worstState)).length
 
   // Apply search + filter to activeGroups
   const filteredGroups = activeGroups.filter(g => {
     if (dmFilter === 'needs_draft'  && g.worstState !== 'draft_failed' && g.worstState !== 'needs_generation') return false
     if (dmFilter === 'needs_review' && g.worstState !== 'needs_review')     return false
     if (dmFilter === 'urgent'       && g.mostUrgentMs >= 2 * 3_600_000)    return false
-    if (dmFilter === 'attention'    && !['sending','status_unknown','send_failed_open','window_closed'].includes(g.worstState)) return false
+    if (dmFilter === 'attention'    && !['sending','status_unknown','send_failed_open'].includes(g.worstState)) return false
     if (dmSearch.trim()) {
       const q = dmSearch.trim().toLowerCase()
       const nameMatch = (g.username ?? '').toLowerCase().includes(q) || (g.displayName ?? '').toLowerCase().includes(q)
@@ -1807,12 +1843,12 @@ function DmInbox({ initialSenderId }: { initialSenderId?: string } = {}) {
         </div>
       )}
 
-      {items !== null && activeGroups.length === 0 && auditGroups.length === 0 && (
+      {items !== null && activeGroups.length === 0 && auditGroups.length === 0 && closedGroups.length === 0 && (
         <p style={{ color: C.muted, fontSize: '12px' }}>Inbox clear.</p>
       )}
 
       {/* Master-detail layout */}
-      {items !== null && (activeGroups.length > 0 || auditGroups.length > 0) && (
+      {items !== null && (activeGroups.length > 0 || auditGroups.length > 0 || closedGroups.length > 0) && (
         <div style={{ display: 'flex', gap: 0, minHeight: 'calc(100vh - 180px)', border: `1px solid ${C.border}`, borderRadius: '8px', overflow: 'hidden' }}>
 
           {/* Left pane — sender list */}
@@ -1858,7 +1894,21 @@ function DmInbox({ initialSenderId }: { initialSenderId?: string } = {}) {
                     onCheck={checked => setBulkSelected(prev => { const s = new Set(prev); if (checked) s.add(g.senderId); else s.delete(g.senderId); return s })} />
                 ))}
 
-                {/* Audit section in left pane */}
+                {/* Closed section — window-closed Meta rejections, timer-expired, superseded */}
+                {closedGroups.length > 0 && (
+                  <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: `1px solid ${C.border2}` }}>
+                    <button onClick={() => setShowClosed(s => !s)}
+                      style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px', fontSize: '9px', color: '#5a4a10', fontWeight: 700, letterSpacing: '0.08em', fontFamily: 'system-ui, sans-serif' }}>
+                      CLOSED ({closedGroups.length}) {showClosed ? '▲' : '▼'}
+                    </button>
+                    {showClosed && closedGroups.map(g => (
+                      <ConvSenderRow key={g.senderId} group={g} selected={selected === g.senderId}
+                        onClick={() => selectGroup(g.senderId)} />
+                    ))}
+                  </div>
+                )}
+
+                {/* Audit section — human-managed, story mention */}
                 {auditGroups.length > 0 && (
                   <div style={{ marginTop: '8px', paddingTop: '8px', borderTop: `1px solid ${C.border2}` }}>
                     <button onClick={() => setShowAudit(s => !s)}
@@ -2789,19 +2839,20 @@ function Overview({ onNavigate }: { onNavigate: (section: Section, senderId?: st
 
   if (loading) return <p style={{ color: C.muted, fontSize: '12px' }}>Loading…</p>
 
+  const CLOSED_STATES_OV: CardState[] = ['window_closed', 'local_timer_expired', 'superseded_by_inbound']
   const dmItems    = dmData?.items ?? []
   const allGroups  = groupBySender(dmItems)
-  const activeGroups = allGroups.filter(g => g.worstState !== 'human_managed' && g.worstState !== 'story_mention')
+  const activeGroups = allGroups.filter(g => g.worstState !== 'human_managed' && g.worstState !== 'story_mention' && !CLOSED_STATES_OV.includes(g.worstState))
 
   // Actionable = needs_generation or needs_review
   const actionableGroups = activeGroups.filter(g => g.worstState === 'needs_generation' || g.worstState === 'needs_review')
   const urgentGroups     = actionableGroups.filter(g => g.mostUrgentMs < 2 * 3_600_000)
-  const attentionGroups  = activeGroups.filter(g => g.worstState === 'sending' || g.worstState === 'status_unknown' || g.worstState === 'send_failed_open' || g.worstState === 'window_closed')
+  const attentionGroups  = activeGroups.filter(g => g.worstState === 'sending' || g.worstState === 'status_unknown' || g.worstState === 'send_failed_open')
 
   // Flat item counts preserved for KPI
   const needsReview = dmItems.filter(i => { const s = getCardState(i); return s === 'needs_review' || s === 'needs_generation' })
   const urgent      = needsReview.filter(i => windowMsRemaining(i.createdAt) < 2 * 3_600_000)
-  const attention   = dmItems.filter(i => { const s = getCardState(i); return s === 'sending' || s === 'status_unknown' || s === 'send_failed_open' || s === 'window_closed' })
+  const attention   = dmItems.filter(i => { const s = getCardState(i); return s === 'sending' || s === 'status_unknown' || s === 'send_failed_open' })
   const totalNew    = (consData?.new.length ?? 0) + (consData?.underReview.length ?? 0)
   const paidCount   = consData?.paid.length ?? 0
 
