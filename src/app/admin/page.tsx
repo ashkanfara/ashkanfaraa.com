@@ -1682,6 +1682,46 @@ function DmInbox({ initialSenderId }: { initialSenderId?: string } = {}) {
   const [bulkBusy,     setBulkBusy]     = useState(false)
   const [bulkConfirm,  setBulkConfirm]  = useState(false)
 
+  type InboxTab = 'review' | 'sent' | 'failed'
+  const [inboxTab, setInboxTab] = useState<InboxTab>('review')
+
+  // History tabs state
+  interface SentRow { feedbackId: string; bufferId: string; senderId: string; finalSentResponse: string; wasEdited: boolean; igMessageId: string | null; sendAttemptTs: string | null; responseSentAt: string | null; username: string | null; displayName: string | null }
+  interface FailedRow { id: string; senderId: string; failedReason: string; createdAt: string; responseText: string | null; messageText: string | null; igHttpStatus: number | null; igSubcode: number | null; username: string | null; displayName: string | null }
+  const [sentRows,       setSentRows]       = useState<SentRow[] | null>(null)
+  const [sentLoading,    setSentLoading]    = useState(false)
+  const [sentOffset,     setSentOffset]     = useState(0)
+  const [failedRows,     setFailedRows]     = useState<FailedRow[] | null>(null)
+  const [failedLoading,  setFailedLoading]  = useState(false)
+  const [failedOffset,   setFailedOffset]   = useState(0)
+
+  const loadSent = useCallback(async (offset = 0) => {
+    setSentLoading(true)
+    try {
+      const res  = await fetch(`/api/admin/dm-outbound-history?tab=sent&limit=50&offset=${offset}`)
+      const data = await res.json() as { rows: SentRow[] }
+      setSentRows(prev => offset === 0 ? data.rows : [...(prev ?? []), ...data.rows])
+      setSentOffset(offset)
+    } catch { /* ignore */ }
+    finally { setSentLoading(false) }
+  }, [])
+
+  const loadFailed = useCallback(async (offset = 0) => {
+    setFailedLoading(true)
+    try {
+      const res  = await fetch(`/api/admin/dm-outbound-history?tab=failed&limit=50&offset=${offset}`)
+      const data = await res.json() as { rows: FailedRow[] }
+      setFailedRows(prev => offset === 0 ? data.rows : [...(prev ?? []), ...data.rows])
+      setFailedOffset(offset)
+    } catch { /* ignore */ }
+    finally { setFailedLoading(false) }
+  }, [])
+
+  useEffect(() => {
+    if (inboxTab === 'sent'   && sentRows   === null) void loadSent(0)
+    if (inboxTab === 'failed' && failedRows === null) void loadFailed(0)
+  }, [inboxTab, sentRows, failedRows, loadSent, loadFailed])
+
   const load = useCallback(async () => {
     setLoading(true); setErr(null)
     try {
@@ -1789,9 +1829,28 @@ function DmInbox({ initialSenderId }: { initialSenderId?: string } = {}) {
 
   const isMobileNarrow = typeof window !== 'undefined' && window.innerWidth < 640
 
+  const inboxTabBtn = (id: InboxTab, label: string) => (
+    <button key={id} onClick={() => setInboxTab(id)}
+      style={{ padding: '5px 14px', fontSize: '11px', fontWeight: inboxTab === id ? 700 : 400,
+        background: inboxTab === id ? C.gold + '20' : 'transparent',
+        color: inboxTab === id ? C.gold : C.dim,
+        border: 'none', borderBottom: `2px solid ${inboxTab === id ? C.gold : 'transparent'}`,
+        cursor: 'pointer', fontFamily: 'system-ui, sans-serif', whiteSpace: 'nowrap' }}>
+      {label}
+    </button>
+  )
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginTop: '-8px' }}>
-      {/* Toolbar */}
+      {/* Top-level tab bar */}
+      <div style={{ display: 'flex', borderBottom: `1px solid ${C.border}`, marginBottom: '10px', gap: 0 }}>
+        {inboxTabBtn('review', 'Review')}
+        {inboxTabBtn('sent',   'Sent')}
+        {inboxTabBtn('failed', 'Generated / Failed')}
+      </div>
+
+      {inboxTab === 'review' && (
+      <>{/* Toolbar */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '0 0 10px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <input
@@ -1954,6 +2013,136 @@ function DmInbox({ initialSenderId }: { initialSenderId?: string } = {}) {
                   {/* Conversation + workspace */}
                   <SenderConvDetail key={selectedGroup.senderId} group={selectedGroup} onRefresh={() => void load()} />
                 </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+      </>)}
+
+      {/* ── Sent tab ───────────────────────────────────────────── */}
+      {inboxTab === 'sent' && (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+            <span style={{ fontSize: '11px', color: C.muted }}>Confirmed outbound messages with a Meta message_id.</span>
+            <button onClick={() => void loadSent(0)} disabled={sentLoading}
+              style={{ ...btn('ghost'), fontSize: '10px', padding: '3px 10px', marginLeft: 'auto' }}>
+              {sentLoading ? '…' : 'Refresh'}
+            </button>
+          </div>
+          {sentLoading && sentRows === null && <p style={{ color: C.muted, fontSize: '12px' }}>Loading…</p>}
+          {sentRows !== null && sentRows.length === 0 && (
+            <p style={{ color: C.muted, fontSize: '12px' }}>No sent messages found.</p>
+          )}
+          {sentRows && sentRows.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {sentRows.map(r => {
+                const ts = r.sendAttemptTs ?? r.responseSentAt
+                const recipient = r.username ? `@${r.username}` : r.displayName ?? r.senderId
+                const readState = r.igMessageId ? 'Sent (confirmed)' : 'Sent'
+                return (
+                  <div key={r.feedbackId} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: '8px', padding: '10px 14px', fontSize: '11px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontWeight: 700, color: C.text }}>{recipient}</span>
+                      <span style={{ color: C.muted }}>{ts ? new Date(ts).toLocaleString() : '—'}</span>
+                    </div>
+                    <div style={{ color: C.text, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{r.finalSentResponse}</div>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '2px' }}>
+                      <span style={{ color: C.green, fontWeight: 600 }}>{readState}</span>
+                      {r.wasEdited && <span style={{ background: C.gold + '22', color: C.gold, borderRadius: '4px', padding: '0 6px' }}>Edited</span>}
+                      {r.igMessageId && (
+                        <span style={{ color: C.muted, fontFamily: 'monospace', fontSize: '10px' }} title={r.igMessageId}>
+                          msg: {r.igMessageId.slice(0, 14)}…
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+              {sentRows.length % 50 === 0 && (
+                <button onClick={() => void loadSent(sentOffset + 50)} disabled={sentLoading}
+                  style={{ ...btn('ghost'), fontSize: '11px', alignSelf: 'center', marginTop: '4px' }}>
+                  Load more
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Generated / Failed tab ─────────────────────────────── */}
+      {inboxTab === 'failed' && (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+            <span style={{ fontSize: '11px', color: C.muted }}>AI drafts that were not sent — ignored, generation failures, and send failures.</span>
+            <button onClick={() => void loadFailed(0)} disabled={failedLoading}
+              style={{ ...btn('ghost'), fontSize: '10px', padding: '3px 10px', marginLeft: 'auto' }}>
+              {failedLoading ? '…' : 'Refresh'}
+            </button>
+          </div>
+          {failedLoading && failedRows === null && <p style={{ color: C.muted, fontSize: '12px' }}>Loading…</p>}
+          {failedRows !== null && failedRows.length === 0 && (
+            <p style={{ color: C.muted, fontSize: '12px' }}>No records found.</p>
+          )}
+          {failedRows && failedRows.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {failedRows.map(r => {
+                const recipient = r.username ? `@${r.username}` : r.displayName ?? r.senderId
+                const draftText = r.responseText ?? r.messageText
+                const REASON_LABEL: Record<string, string> = {
+                  IGNORED_BY_HUMAN:       'Ignored',
+                  AI_RECOMMENDED_IGNORE:  'AI Suggested Ignore',
+                  DRAFT_FAILED:           'Draft Failed',
+                  SEND_FAILED:            'Send Failed',
+                  IG_SEND_ERROR:          'IG Send Error',
+                  SEND_STATUS_UNKNOWN:    'Status Unknown',
+                  SUPERSEDED:             'Superseded',
+                  REJECTED:               'Rejected',
+                  SEND_FAILED_WINDOW_CLOSED: 'Window Closed',
+                  SUPERSEDED_BY_NEW_INBOUND: 'Window Closed — superseded by new inbound',
+                }
+                const REASON_COLOR: Record<string, string> = {
+                  IGNORED_BY_HUMAN:       C.muted,
+                  AI_RECOMMENDED_IGNORE:  C.muted,
+                  DRAFT_FAILED:           C.red,
+                  SEND_FAILED:            '#f59e0b',
+                  IG_SEND_ERROR:          '#f59e0b',
+                  SEND_STATUS_UNKNOWN:    C.red,
+                  SUPERSEDED:             C.muted,
+                  REJECTED:               C.muted,
+                  SEND_FAILED_WINDOW_CLOSED: '#b45309',
+                  SUPERSEDED_BY_NEW_INBOUND: C.muted,
+                }
+                const label = REASON_LABEL[r.failedReason] ?? r.failedReason
+                const color = REASON_COLOR[r.failedReason] ?? C.muted
+                const isUnknown = r.failedReason === 'SEND_STATUS_UNKNOWN'
+                return (
+                  <div key={r.id} style={{ background: C.card, border: `1px solid ${isUnknown ? C.red : C.border}`, borderRadius: '8px', padding: '10px 14px', fontSize: '11px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontWeight: 700, color: C.text }}>{recipient}</span>
+                      <span style={{ color: C.muted }}>{new Date(r.createdAt).toLocaleString()}</span>
+                    </div>
+                    {isUnknown && (
+                      <div style={{ background: C.red + '20', border: `1px solid ${C.red}`, borderRadius: '4px', padding: '4px 8px', color: C.red, fontWeight: 600 }}>
+                        Outcome uncertain — check Instagram outbox before taking any action. Do not resend.
+                      </div>
+                    )}
+                    {draftText && (
+                      <div style={{ color: C.text, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{draftText}</div>
+                    )}
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '2px' }}>
+                      <span style={{ color, fontWeight: 600 }}>{label}</span>
+                      {r.igHttpStatus && <span style={{ color: C.muted }}>HTTP {r.igHttpStatus}</span>}
+                      {r.igSubcode && <span style={{ color: C.muted }}>subcode {r.igSubcode}</span>}
+                    </div>
+                  </div>
+                )
+              })}
+              {failedRows.length % 50 === 0 && (
+                <button onClick={() => void loadFailed(failedOffset + 50)} disabled={failedLoading}
+                  style={{ ...btn('ghost'), fontSize: '11px', alignSelf: 'center', marginTop: '4px' }}>
+                  Load more
+                </button>
               )}
             </div>
           )}

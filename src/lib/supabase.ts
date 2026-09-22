@@ -1504,3 +1504,130 @@ export async function upsertLeadDmMode(
     throw new Error(`upsertLeadDmMode failed: ${res.status} ${await res.text()}`)
   }
 }
+
+// ── DM Outbound History ───────────────────────────────────────────────────────
+
+export interface SentRecord {
+  feedbackId:        string
+  bufferId:          string
+  senderId:          string
+  finalSentResponse: string
+  originalDraft:     string | null
+  wasEdited:         boolean
+  draftSource:       string | null
+  igMessageId:       string | null
+  igHttpStatus:      number | null
+  sendAttemptTs:     string | null
+  sendState:         string | null
+  isFirstReply:      boolean | null
+  username:          string | null
+  displayName:       string | null
+  // join from buffer for pre-migration fallback
+  responseSentAt:    string | null
+  messageText:       string | null
+}
+
+export interface FailedRecord {
+  id:           string
+  senderId:     string
+  failedReason: string
+  createdAt:    string
+  responseText: string | null
+  messageText:  string | null
+  username:     string | null
+  displayName:  string | null
+  igHttpStatus: number | null
+  igSubcode:    number | null
+}
+
+/**
+ * Sent tab: confirmed outbound messages (Meta returned a message_id).
+ * Joins dm_response_feedback → instagram_dm_buffer → instagram_users.
+ * Falls back to buffer.response_sent_at when send_attempt_ts is not populated.
+ */
+export async function getOutboundSent(limit = 50, offset = 0): Promise<SentRecord[]> {
+  if (!supabaseConfigured()) return []
+  // dm_response_feedback joined with instagram_dm_buffer (for message_text fallback + response_sent_at)
+  const res = await fetch(
+    `${base()}/rest/v1/dm_response_feedback` +
+    `?select=id,buffer_id,sender_id,final_sent_response,original_draft,was_edited,draft_source,` +
+    `ig_message_id,ig_http_status,send_attempt_ts,send_state,is_first_reply,` +
+    `instagram_dm_buffer!buffer_id(message_text,response_sent_at),` +
+    `instagram_users!sender_id(username,display_name)` +
+    `&send_state=eq.SENT` +
+    `&order=send_attempt_ts.desc.nullslast,created_at.desc` +
+    `&limit=${limit}&offset=${offset}`,
+    { headers: headers(), cache: 'no-store' }
+  )
+  if (!res.ok) {
+    console.error('[supabase/getOutboundSent] failed:', res.status, await res.text())
+    return []
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rows = await res.json() as any[]
+  return rows.map(r => ({
+    feedbackId:        r.id,
+    bufferId:          r.buffer_id,
+    senderId:          r.sender_id,
+    finalSentResponse: r.final_sent_response,
+    originalDraft:     r.original_draft,
+    wasEdited:         r.was_edited,
+    draftSource:       r.draft_source,
+    igMessageId:       r.ig_message_id,
+    igHttpStatus:      r.ig_http_status,
+    sendAttemptTs:     r.send_attempt_ts,
+    sendState:         r.send_state,
+    isFirstReply:      r.is_first_reply,
+    responseSentAt:    r.instagram_dm_buffer?.response_sent_at ?? null,
+    messageText:       r.instagram_dm_buffer?.message_text ?? null,
+    username:          r.instagram_users?.username ?? null,
+    displayName:       r.instagram_users?.display_name ?? null,
+  }))
+}
+
+/**
+ * Generated / Failed tab: drafts that were generated but not sent.
+ * Includes: IGNORED_BY_HUMAN, AI_RECOMMENDED_IGNORE, DRAFT_FAILED,
+ *           SEND_FAILED, SEND_STATUS_UNKNOWN, SUPERSEDED, REJECTED,
+ *           SEND_FAILED_WINDOW_CLOSED, SUPERSEDED_BY_NEW_INBOUND.
+ */
+export async function getOutboundFailed(limit = 50, offset = 0): Promise<FailedRecord[]> {
+  if (!supabaseConfigured()) return []
+  const FAILED_STATES = [
+    'IGNORED_BY_HUMAN','AI_RECOMMENDED_IGNORE','DRAFT_FAILED',
+    'SEND_FAILED','IG_SEND_ERROR','SEND_STATUS_UNKNOWN','SUPERSEDED','REJECTED',
+    'SEND_FAILED_WINDOW_CLOSED','SUPERSEDED_BY_NEW_INBOUND',
+  ].join(',')
+  const res = await fetch(
+    `${base()}/rest/v1/instagram_dm_buffer` +
+    `?failed_reason=in.(${FAILED_STATES})` +
+    `&response_sent=eq.false` +
+    `&select=id,sender_id,failed_reason,created_at,response_text,message_text,ig_http_status,ig_response_body,` +
+    `instagram_users!sender_id(username,display_name)` +
+    `&order=created_at.desc` +
+    `&limit=${limit}&offset=${offset}`,
+    { headers: headers(), cache: 'no-store' }
+  )
+  if (!res.ok) {
+    console.error('[supabase/getOutboundFailed] failed:', res.status, await res.text())
+    return []
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rows = await res.json() as any[]
+  return rows.map(r => {
+    let subcode: number | null = null
+    try { subcode = JSON.parse(r.ig_response_body)?.error?.error_subcode ?? null } catch { /* */ }
+    return {
+      id:           r.id,
+      senderId:     r.sender_id,
+      failedReason: r.failed_reason,
+      createdAt:    r.created_at,
+      responseText: r.response_text,
+      messageText:  r.message_text,
+      igHttpStatus: r.ig_http_status,
+      igSubcode:    subcode,
+      username:     r.instagram_users?.username ?? null,
+      displayName:  r.instagram_users?.display_name ?? null,
+    }
+  })
+}
