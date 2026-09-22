@@ -59,7 +59,7 @@ interface FeedbackRow {
 }
 type CardState =
   | 'sending' | 'status_unknown' | 'needs_review' | 'needs_generation' | 'draft_failed'
-  | 'draft_generating' | 'send_failed_open' | 'window_closed' | 'ai_suggested_ignore' | 'human_managed'
+  | 'draft_generating' | 'send_failed_open' | 'window_closed' | 'superseded_by_inbound' | 'ai_suggested_ignore' | 'human_managed'
   | 'story_mention' | 'regenerating'
 type Section = 'overview' | 'dm' | 'consultations' | 'access' | 'feedback' | 'bos'
 
@@ -186,6 +186,7 @@ function getCardState(item: DmItem): CardState {
   if (item.failedReason === 'SENDING')             return 'sending'
   if (item.failedReason === 'SEND_STATUS_UNKNOWN') return 'status_unknown'
   if (item.failedReason === 'SEND_FAILED_WINDOW_CLOSED') return 'window_closed'
+  if (item.failedReason === 'SUPERSEDED_BY_NEW_INBOUND') return 'superseded_by_inbound'
   if (item.failedReason === 'SEND_FAILED' || item.failedReason === 'IG_SEND_ERROR' ||
       item.failedReason === 'EXPIRED' || item.failedReason === 'INSTAGRAM_24H_WINDOW_EXPIRED') return 'send_failed_open'
   if (item.failedReason === 'AI_RECOMMENDED_IGNORE') return 'ai_suggested_ignore'
@@ -813,6 +814,15 @@ function DmInboxItem({ item, onRefresh }: { item: DmItem; onRefresh: () => void 
               </>
             )}
 
+            {/* SUPERSEDED_BY_NEW_INBOUND — window was closed; sender messaged again; archived for history */}
+            {cardState === 'superseded_by_inbound' && (
+              <div style={{ padding: '10px 12px', background: '#111', border: `1px solid ${C.border}`, borderRadius: '6px', fontSize: '12px', color: C.muted, lineHeight: 1.6 }}>
+                <span style={{ fontWeight: 700, display: 'block', marginBottom: '3px', letterSpacing: '0.05em', fontSize: '10px' }}>WINDOW CLOSED — SUPERSEDED BY NEW INBOUND</span>
+                Meta rejected this reply because the messaging window had closed. The sender later sent a new message, which superseded this draft. History preserved for audit.
+                {item.responseText && <p style={{ margin: '6px 0 0', fontSize: '11px', color: '#6a6058', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right' }}>Draft: {item.responseText}</p>}
+              </div>
+            )}
+
             {/* SEND_FAILED — transient / retryable failure */}
             {cardState === 'send_failed_open' && (
               <>
@@ -1373,6 +1383,24 @@ function ConvWorkspace({ targetItem, pendingCount, onRefresh, effectiveCreatedAt
     )
   }
 
+  // ── superseded_by_inbound — historical record; window was closed then sender messaged again ──
+  if (cardState === 'superseded_by_inbound') {
+    return (
+      <div style={wrapStyle}>
+        {windowBar}
+        <div style={{ padding: '10px 12px', background: '#111', border: `1px solid ${C.border}`, borderRadius: '6px' }}>
+          <span style={{ fontSize: '11px', color: C.muted, fontWeight: 700, display: 'block', marginBottom: '4px', letterSpacing: '0.05em' }}>
+            WINDOW CLOSED — SUPERSEDED BY NEW INBOUND
+          </span>
+          <p style={{ margin: 0, fontSize: '12px', color: C.muted, lineHeight: 1.5 }}>
+            Meta rejected this reply because the 24h messaging window had closed (error 2534022). The sender later sent a new message, which superseded this draft. This record is preserved for audit and training data. No action required.
+          </p>
+          {targetItem.responseText && <p style={{ margin: '6px 0 0', fontSize: '12px', color: '#6a6058', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right' }}>Draft: {targetItem.responseText}</p>}
+        </div>
+      </div>
+    )
+  }
+
   // ── send_failed_open — transient / retryable failure ─────────────────────────
   if (cardState === 'send_failed_open') {
     const isLocalTimerExpired = targetItem.failedReason === 'EXPIRED' || targetItem.failedReason === 'INSTAGRAM_24H_WINDOW_EXPIRED'
@@ -1486,7 +1514,7 @@ const STATE_PRIORITY: Record<CardState, number> = {
   // When both exist for a sender, the ready draft shows first.
   needs_review: 0, draft_failed: 1, needs_generation: 2, send_failed_open: 3, window_closed: 3,
   status_unknown: 4, sending: 5, draft_generating: 6, regenerating: 7,
-  ai_suggested_ignore: 8, story_mention: 9, human_managed: 10,
+  ai_suggested_ignore: 8, superseded_by_inbound: 9, story_mention: 10, human_managed: 11,
 }
 
 function groupBySender(items: DmItem[]): ConversationGroup[] {
@@ -1542,12 +1570,12 @@ function groupBySender(items: DmItem[]): ConversationGroup[] {
 const STATE_COLOR: Record<CardState, string> = {
   draft_failed: C.red, needs_generation: C.red, needs_review: C.green, send_failed_open: C.red,
   window_closed: '#c8a840', status_unknown: C.red, sending: C.gold, draft_generating: C.gold, regenerating: C.gold,
-  ai_suggested_ignore: C.muted, story_mention: C.muted, human_managed: C.muted,
+  ai_suggested_ignore: C.muted, superseded_by_inbound: C.muted, story_mention: C.muted, human_managed: C.muted,
 }
 const STATE_LABEL: Record<CardState, string> = {
   draft_failed: 'Draft failed', needs_generation: 'Draft failed (legacy)', needs_review: 'Needs review', send_failed_open: 'Send failed',
   window_closed: 'Window closed', status_unknown: 'Status unknown', sending: 'Sending', draft_generating: 'Generating draft…', regenerating: 'Regenerating',
-  ai_suggested_ignore: 'AI ignore', story_mention: 'Story mention', human_managed: 'Human managed',
+  ai_suggested_ignore: 'AI ignore', superseded_by_inbound: 'Superseded', story_mention: 'Story mention', human_managed: 'Human managed',
 }
 
 function humanizeMessageText(text: string | null, messageType: string): string {

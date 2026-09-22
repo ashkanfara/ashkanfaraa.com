@@ -645,7 +645,7 @@ export async function getDmInbox(): Promise<{
     // Main query: rows with explicit actionable failed_reason values
     const mainRes = await fetch(
       `${base()}/rest/v1/instagram_dm_buffer` +
-      `?failed_reason=in.(PENDING_REVIEW,DRAFT_FAILED,DRAFT_GENERATING,SEND_FAILED,IG_SEND_ERROR,SEND_STATUS_UNKNOWN,SENDING,AI_RECOMMENDED_IGNORE,HUMAN_TEMP_SKIP,STORY_MENTION_HUMAN_HOLD,EXPIRED,INSTAGRAM_24H_WINDOW_EXPIRED,SEND_FAILED_WINDOW_CLOSED)` +
+      `?failed_reason=in.(PENDING_REVIEW,DRAFT_FAILED,DRAFT_GENERATING,SEND_FAILED,IG_SEND_ERROR,SEND_STATUS_UNKNOWN,SENDING,AI_RECOMMENDED_IGNORE,HUMAN_TEMP_SKIP,STORY_MENTION_HUMAN_HOLD,EXPIRED,INSTAGRAM_24H_WINDOW_EXPIRED,SEND_FAILED_WINDOW_CLOSED,SUPERSEDED_BY_NEW_INBOUND)` +
       `&created_at=gt.${encodeURIComponent(windowCutoff)}` +
       `&select=${SELECT}` +
       `&order=created_at.asc`,
@@ -1184,9 +1184,15 @@ export async function markDmWindowClosed(
 
 /**
  * When a new draft is saved for a sender (meaning they sent a new inbound message,
- * implying the messaging window has reopened), move any SEND_FAILED_WINDOW_CLOSED
- * sibling rows for that sender to AI_RECOMMENDED_IGNORE so they don't clutter the inbox.
- * The draft text is preserved in response_text for reference.
+ * implying the messaging window has reopened), mark any SEND_FAILED_WINDOW_CLOSED
+ * sibling rows as SUPERSEDED_BY_NEW_INBOUND.
+ *
+ * This preserves the truthful audit trail:
+ *   "Draft existed → send attempted → Meta rejected (window closed) → superseded by new inbound"
+ *
+ * The original failed_reason is NOT overwritten to AI_RECOMMENDED_IGNORE because that would
+ * misrepresent the send outcome and corrupt training/audit data.
+ *
  * Fire-and-forget — non-fatal if it fails.
  */
 export async function archiveWindowClosedSiblingsForSender(
@@ -1203,7 +1209,7 @@ export async function archiveWindowClosedSiblingsForSender(
     {
       method:  'PATCH',
       headers: { ...headers(), Prefer: 'return=representation' },
-      body:    JSON.stringify({ failed_reason: 'AI_RECOMMENDED_IGNORE' }),
+      body:    JSON.stringify({ failed_reason: 'SUPERSEDED_BY_NEW_INBOUND' }),
     }
   )
   if (!res.ok) {
@@ -1212,7 +1218,7 @@ export async function archiveWindowClosedSiblingsForSender(
   }
   const patched = await res.json() as { id: string }[]
   if (patched.length > 0)
-    console.log(`[supabase] Archived ${patched.length} window-closed sibling(s) for sender=${senderId} (new inbound received)`)
+    console.log(`[supabase] Marked ${patched.length} window-closed sibling(s) SUPERSEDED_BY_NEW_INBOUND for sender=${senderId}`)
   return patched.length
 }
 
@@ -1245,7 +1251,7 @@ export async function markDmStatusUnknown(
 }
 
 // States that are safe to ignore: definitively unsent, not in-flight, not already terminal.
-const IGNORABLE_STATES = 'PENDING_REVIEW,SEND_FAILED,IG_SEND_ERROR,AI_RECOMMENDED_IGNORE,DRAFT_FAILED,SEND_FAILED_WINDOW_CLOSED'
+const IGNORABLE_STATES = 'PENDING_REVIEW,SEND_FAILED,IG_SEND_ERROR,AI_RECOMMENDED_IGNORE,DRAFT_FAILED,SEND_FAILED_WINDOW_CLOSED,SUPERSEDED_BY_NEW_INBOUND'
 
 /**
  * Ignore a single unsent review item — human decided no response is needed.

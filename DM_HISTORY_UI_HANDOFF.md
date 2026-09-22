@@ -87,9 +87,11 @@ Two overlapping data sources must be merged:
 - `failed_reason = 'IGNORED_BY_HUMAN'` — human clicked Ignore
 - `failed_reason = 'AI_RECOMMENDED_IGNORE'` — AI suggested ignoring
 - `failed_reason = 'DRAFT_FAILED'` — AI generation failed
-- `failed_reason = 'SEND_FAILED'` — Meta definitively rejected
+- `failed_reason = 'SEND_FAILED'` — Meta definitively rejected (non-window reason; retryable)
+- `failed_reason = 'SEND_FAILED_WINDOW_CLOSED'` — Meta rejected with error 2534022 (window closed); NOT retryable; cleared to SUPERSEDED_BY_NEW_INBOUND when sender messages again
+- `failed_reason = 'SUPERSEDED_BY_NEW_INBOUND'` — was SEND_FAILED_WINDOW_CLOSED; sender later sent a new inbound message (window reopened); this row is the preserved forensic record; display as "Window closed — superseded by new inbound" in audit trail
 - `failed_reason = 'SEND_STATUS_UNKNOWN'` — outcome uncertain (potential double-send risk; flag clearly)
-- `failed_reason = 'SUPERSEDED'` — newer message arrived, draft voided
+- `failed_reason = 'SUPERSEDED'` — newer message arrived, draft voided (different from SUPERSEDED_BY_NEW_INBOUND — this is for non-window cases)
 - `failed_reason = 'REJECTED'` — blocked sender flow
 
 **2. `dm_response_feedback`** — has actual final text and full context for approved (sent + failed) rows.
@@ -100,7 +102,7 @@ Two overlapping data sources must be merged:
 |---|---|---|
 | Recipient | `sender_id` display name | |
 | Draft text | AI draft | `response_text` from buffer (or `original_draft` from feedback) |
-| Outcome | Reason badge | Color-coded: Ignored (grey), Send Failed (orange), Status Unknown (red), Superseded (grey), Draft Failed (red) |
+| Outcome | Reason badge | Color-coded: Ignored (grey), Send Failed (orange), Window Closed (amber), Superseded by inbound (grey), Status Unknown (red), Superseded (grey), Draft Failed (red) |
 | Time | `created_at` of buffer row | |
 | Source | `draft_source` | `ai` / `manual` |
 
@@ -146,15 +148,20 @@ export async function getOutboundFailed(limit = 50, offset = 0): Promise<FailedR
 ## State machine reference
 
 ```
-PENDING_REVIEW → SENDING → SENT            ← Confirmed send (message_id returned)
-                         → SEND_FAILED     ← Meta 4xx/5xx before acceptance
-                         → SEND_STATUS_UNKNOWN  ← Outcome uncertain; NON-RESENDABLE
+PENDING_REVIEW → SENDING → SENT                       ← Confirmed send (message_id returned)
+                         → SEND_FAILED                ← Meta 4xx/5xx non-window; retryable
+                         → SEND_FAILED_WINDOW_CLOSED  ← Meta error 2534022; NOT retryable
+                              └─ (new inbound arrives) → SUPERSEDED_BY_NEW_INBOUND  ← forensic archive; window reopened
+                         → SEND_STATUS_UNKNOWN         ← Outcome uncertain; NON-RESENDABLE
 PENDING_REVIEW → IGNORED_BY_HUMAN
 PENDING_REVIEW → AI_RECOMMENDED_IGNORE
 PENDING_REVIEW → DRAFT_GENERATING → PENDING_REVIEW (with draft)
                                   → DRAFT_FAILED
-PENDING_REVIEW → SUPERSEDED       (newer message arrived)
+PENDING_REVIEW → SUPERSEDED       (newer message arrived; distinct from SUPERSEDED_BY_NEW_INBOUND)
 ```
+
+**Audit trail for window-close scenario:**
+`Draft existed → human clicked Approve & Send → Meta rejected (error 2534022, window closed) → failed_reason = SEND_FAILED_WINDOW_CLOSED → sender later messages again → failed_reason = SUPERSEDED_BY_NEW_INBOUND (truthful terminal record preserved)`
 
 ---
 
