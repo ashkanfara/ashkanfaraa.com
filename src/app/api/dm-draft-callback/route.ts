@@ -32,7 +32,7 @@ import { DM_ROUTINE_PROMPT_VERSION } from '@/lib/dm-routine-contract'
 
 import { NextRequest, NextResponse } from 'next/server'
 import { timingSafeEqual } from 'crypto'
-import { supabaseConfigured } from '@/lib/supabase'
+import { supabaseConfigured, archiveWindowClosedSiblingsForSender } from '@/lib/supabase'
 
 const SUPABASE_BASE = () => (process.env.SUPABASE_URL ?? '').replace(/\/$/, '')
 const SUPABASE_HEADERS = () => ({
@@ -253,5 +253,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     `[dm-draft-callback] ✓ Draft accepted | buffer_id=${buffer_id} ` +
     `generation_id=${generation_id} source=${EXPECTED_DRAFT_SOURCE}`
   )
+
+  // A new inbound was received and a draft is ready — this implies the sender messaged again,
+  // which means the Instagram messaging window has reopened. Archive any window-closed siblings
+  // so they don't clutter the inbox. Fire-and-forget; non-fatal.
+  archiveWindowClosedSiblingsForSender(row.sender_id, buffer_id).catch(e =>
+    console.error('[dm-draft-callback] archive window-closed siblings failed (non-fatal):', e)
+  )
+
   return NextResponse.json({ ok: true })
 }

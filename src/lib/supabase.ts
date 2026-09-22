@@ -512,13 +512,15 @@ export interface DmBufferRow {
  *   → (atomic claim)      → SENDING
  *
  * SENDING                 — claimed; Instagram call in progress
- *   → (IG 4xx definitive) → SEND_FAILED          (admin can retry — IG never sent)
- *   → (IG success + DB ok)→ SENT
- *   → (IG success+DB fail)→ SEND_STATUS_UNKNOWN   (NON-RESENDABLE; manual reconciliation)
- *   → (timeout/unknown)   → SEND_STATUS_UNKNOWN   (NON-RESENDABLE)
- *   → (window expired)    → EXPIRED
- *   → (blocked)           → REJECTED
+ *   → (IG 4xx window closed)→ SEND_FAILED_WINDOW_CLOSED (NOT retryable — await new inbound)
+ *   → (IG 4xx other)       → SEND_FAILED              (admin can retry — IG never sent)
+ *   → (IG success + DB ok) → SENT
+ *   → (IG success+DB fail) → SEND_STATUS_UNKNOWN   (NON-RESENDABLE; manual reconciliation)
+ *   → (timeout/unknown)    → SEND_STATUS_UNKNOWN   (NON-RESENDABLE)
+ *   → (blocked)            → REJECTED
  *
+ * SEND_FAILED_WINDOW_CLOSED — Meta definitively rejected: messaging window closed.
+ *                             NOT retryable. Cleared automatically when sender messages again.
  * SEND_FAILED             — safe to retry (IG definitively rejected before sending)
  * SEND_STATUS_UNKNOWN     — NOT safe to retry; admin must check IG outbox manually
  * IG_SEND_ERROR           — legacy name for SEND_FAILED; treated identically
@@ -643,7 +645,7 @@ export async function getDmInbox(): Promise<{
     // Main query: rows with explicit actionable failed_reason values
     const mainRes = await fetch(
       `${base()}/rest/v1/instagram_dm_buffer` +
-      `?failed_reason=in.(PENDING_REVIEW,DRAFT_FAILED,DRAFT_GENERATING,SEND_FAILED,IG_SEND_ERROR,SEND_STATUS_UNKNOWN,SENDING,AI_RECOMMENDED_IGNORE,HUMAN_TEMP_SKIP,STORY_MENTION_HUMAN_HOLD,EXPIRED,INSTAGRAM_24H_WINDOW_EXPIRED)` +
+      `?failed_reason=in.(PENDING_REVIEW,DRAFT_FAILED,DRAFT_GENERATING,SEND_FAILED,IG_SEND_ERROR,SEND_STATUS_UNKNOWN,SENDING,AI_RECOMMENDED_IGNORE,HUMAN_TEMP_SKIP,STORY_MENTION_HUMAN_HOLD,EXPIRED,INSTAGRAM_24H_WINDOW_EXPIRED,SEND_FAILED_WINDOW_CLOSED)` +
       `&created_at=gt.${encodeURIComponent(windowCutoff)}` +
       `&select=${SELECT}` +
       `&order=created_at.asc`,
@@ -1156,6 +1158,65 @@ export async function markDmSendFailed(
 }
 
 /**
+ * Mark a row SEND_FAILED_WINDOW_CLOSED: Meta definitively rejected because the
+ * 24h messaging window has closed. This is NOT retryable — retrying the identical
+ * request will produce the same 403. The state clears automatically when the sender
+ * messages again (dm-draft-callback archives it via archiveWindowClosedSiblingsForSender).
+ */
+export async function markDmWindowClosed(
+  id: string,
+  igHttpStatus: number | null = null,
+  igResponseBody: string | null = null,
+): Promise<void> {
+  await fetch(
+    `${base()}/rest/v1/instagram_dm_buffer?id=eq.${encodeURIComponent(id)}`,
+    {
+      method: 'PATCH',
+      headers: headers(),
+      body: JSON.stringify({
+        failed_reason: 'SEND_FAILED_WINDOW_CLOSED',
+        processing:    false,
+      }),
+    }
+  )
+  void writeForensicBufferMeta(id, { igHttpStatus, igResponseBody })
+}
+
+/**
+ * When a new draft is saved for a sender (meaning they sent a new inbound message,
+ * implying the messaging window has reopened), move any SEND_FAILED_WINDOW_CLOSED
+ * sibling rows for that sender to AI_RECOMMENDED_IGNORE so they don't clutter the inbox.
+ * The draft text is preserved in response_text for reference.
+ * Fire-and-forget — non-fatal if it fails.
+ */
+export async function archiveWindowClosedSiblingsForSender(
+  senderId: string,
+  excludeBufferId: string,
+): Promise<number> {
+  const res = await fetch(
+    `${base()}/rest/v1/instagram_dm_buffer` +
+    `?sender_id=eq.${encodeURIComponent(senderId)}` +
+    `&id=neq.${encodeURIComponent(excludeBufferId)}` +
+    `&failed_reason=eq.SEND_FAILED_WINDOW_CLOSED` +
+    `&response_sent=eq.false` +
+    `&select=id`,
+    {
+      method:  'PATCH',
+      headers: { ...headers(), Prefer: 'return=representation' },
+      body:    JSON.stringify({ failed_reason: 'AI_RECOMMENDED_IGNORE' }),
+    }
+  )
+  if (!res.ok) {
+    console.error('[supabase/archiveWindowClosedSiblingsForSender] failed:', res.status, await res.text())
+    return 0
+  }
+  const patched = await res.json() as { id: string }[]
+  if (patched.length > 0)
+    console.log(`[supabase] Archived ${patched.length} window-closed sibling(s) for sender=${senderId} (new inbound received)`)
+  return patched.length
+}
+
+/**
  * Mark a row SEND_STATUS_UNKNOWN: Instagram call outcome is uncertain.
  *
  * This state means "we don't know if the message was sent."
@@ -1184,7 +1245,7 @@ export async function markDmStatusUnknown(
 }
 
 // States that are safe to ignore: definitively unsent, not in-flight, not already terminal.
-const IGNORABLE_STATES = 'PENDING_REVIEW,SEND_FAILED,IG_SEND_ERROR,AI_RECOMMENDED_IGNORE,DRAFT_FAILED'
+const IGNORABLE_STATES = 'PENDING_REVIEW,SEND_FAILED,IG_SEND_ERROR,AI_RECOMMENDED_IGNORE,DRAFT_FAILED,SEND_FAILED_WINDOW_CLOSED'
 
 /**
  * Ignore a single unsent review item — human decided no response is needed.

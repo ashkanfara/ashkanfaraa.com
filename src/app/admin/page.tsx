@@ -59,7 +59,7 @@ interface FeedbackRow {
 }
 type CardState =
   | 'sending' | 'status_unknown' | 'needs_review' | 'needs_generation' | 'draft_failed'
-  | 'draft_generating' | 'send_failed_open' | 'ai_suggested_ignore' | 'human_managed'
+  | 'draft_generating' | 'send_failed_open' | 'window_closed' | 'ai_suggested_ignore' | 'human_managed'
   | 'story_mention' | 'regenerating'
 type Section = 'overview' | 'dm' | 'consultations' | 'access' | 'feedback' | 'bos'
 
@@ -185,6 +185,7 @@ function getCardState(item: DmItem): CardState {
   }
   if (item.failedReason === 'SENDING')             return 'sending'
   if (item.failedReason === 'SEND_STATUS_UNKNOWN') return 'status_unknown'
+  if (item.failedReason === 'SEND_FAILED_WINDOW_CLOSED') return 'window_closed'
   if (item.failedReason === 'SEND_FAILED' || item.failedReason === 'IG_SEND_ERROR' ||
       item.failedReason === 'EXPIRED' || item.failedReason === 'INSTAGRAM_24H_WINDOW_EXPIRED') return 'send_failed_open'
   if (item.failedReason === 'AI_RECOMMENDED_IGNORE') return 'ai_suggested_ignore'
@@ -347,6 +348,513 @@ function FeedbackControls({ category, note, onCategory, onNote }: {
         <textarea value={note} onChange={e => onNote(e.target.value)} rows={2} maxLength={500}
           placeholder="Optional note…"
           style={{ ...S.textarea, marginTop: '6px', resize: 'vertical', fontSize: '11px', direction: 'rtl' }} />
+      )}
+    </div>
+  )
+}
+
+// ── GenerationFailedCard — shown only when n8n draft generation failed ──
+// Normal flow: n8n generates draft automatically → PENDING_REVIEW. This card
+// is only shown when that generation genuinely failed (failedReason=null, processed=false).
+// Provides: Retry Draft (one AI call, no send) + Write Reply (human, no AI).
+function GenerationFailedCard({ item, onRefresh }: { item: DmItem; onRefresh: () => void }) {
+  const [writeMode, setWriteMode] = useState<'write' | null>(null)
+  const [draftText, setDraftText] = useState('')
+  const [busy,      setBusy]      = useState<string | null>(null)
+  const [err,       setErr]       = useState<string | null>(null)
+
+  const msLeft       = windowMsRemaining(item.createdAt)
+  const primaryLabel = item.username ? `@${item.username}` : item.displayName ?? 'Instagram User'
+  const avatarLabel  = item.displayName || item.username || 'I'
+  const windowColor  = msLeft < 2 * 3_600_000 ? C.red : msLeft < 6 * 3_600_000 ? C.gold : C.green
+  const isBusy       = busy !== null
+
+  async function retryDraft() {
+    setBusy('retry'); setErr(null)
+    try {
+      const res  = await fetch('/api/admin/dm-inbox/retry-draft', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: item.id }),
+      })
+      const data = await res.json() as { ok: boolean; error?: string }
+      if (data.ok) { setTimeout(onRefresh, 600) }
+      else          { setErr(data.error ?? 'Failed to queue draft generation') }
+    } catch { setErr('Network error') }
+    finally { setBusy(null) }
+  }
+
+  async function saveHumanDraft() {
+    const text = draftText.trim()
+    if (!text) { setErr('Reply cannot be empty'); return }
+    setBusy('save'); setErr(null)
+    try {
+      const res  = await fetch('/api/admin/dm-inbox/save-draft', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: item.id, text, draftSource: 'HUMAN' }),
+      })
+      const data = await res.json() as { ok: boolean; error?: string }
+      if (data.ok) { setTimeout(onRefresh, 400) }
+      else          { setErr(data.error ?? 'Save failed') }
+    } catch { setErr('Network error') }
+    finally { setBusy(null) }
+  }
+
+  async function doIgnore() {
+    setBusy('ignore'); setErr(null)
+    try {
+      const res  = await fetch('/api/admin/dm-inbox', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'ignore', id: item.id, senderId: item.senderId }),
+      })
+      const data = await res.json() as { ok: boolean; error?: string }
+      if (data.ok) { setTimeout(onRefresh, 600) }
+      else          { setErr(data.error ?? 'Failed') }
+    } catch { setErr('Network error') }
+    finally { setBusy(null) }
+  }
+
+  return (
+    <div style={{ ...S.card, borderLeft: `3px solid ${C.red}` }}>
+      <div style={{ ...S.cardHeader, alignItems: 'center', cursor: 'default' }}>
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <SenderAvatar profilePictureUrl={item.profilePictureUrl} label={avatarLabel} />
+          <div style={{ minWidth: 0 }}>
+            <span style={{ fontWeight: 700, fontSize: '13px', color: C.text }}>{primaryLabel}</span>
+            <span style={{ marginLeft: '8px', fontSize: '10px', color: C.red, border: `1px solid ${C.red}`, borderRadius: '4px', padding: '1px 5px', fontWeight: 700 }}>
+              Draft failed
+            </span>
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+          <span style={{ fontSize: '11px', color: windowColor, fontWeight: msLeft < 2 * 3_600_000 ? 700 : 400 }}>⏱ {fmtWindowRemaining(msLeft)}</span>
+          <span style={{ fontSize: '11px', color: C.muted }}>{new Date(item.createdAt).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+        </div>
+      </div>
+      <div style={{ padding: '0 14px 14px' }}>
+        {item.messageText && (
+          <div style={{ background: '#141210', border: `1px solid ${C.border}`, borderRadius: '3px 14px 14px 14px', padding: '9px 13px', marginBottom: '12px', display: 'inline-block', maxWidth: '80%' }}>
+            <p style={{ margin: 0, fontSize: '13px', color: '#f0dfa8', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right', lineHeight: 1.6 }}>{item.messageText}</p>
+          </div>
+        )}
+        {writeMode === null ? (
+          <>
+            <p style={{ margin: '0 0 10px', color: C.red, fontSize: '11px' }}>
+              Automatic draft generation failed. Retry or write a reply manually.
+            </p>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              <button disabled={isBusy} onClick={() => void retryDraft()} style={{ ...btn('warn'), fontSize: '12px' }}>
+                {busy === 'retry' ? '…' : 'Retry Draft'}
+              </button>
+              <button disabled={isBusy} onClick={() => { setWriteMode('write'); setDraftText(''); setErr(null) }} style={{ ...btn('ghost'), fontSize: '12px' }}>
+                Write Reply
+              </button>
+              <button disabled={isBusy} onClick={() => void doIgnore()} style={{ ...btn('ghost'), fontSize: '12px' }}>
+                {busy === 'ignore' ? '…' : 'Ignore'}
+              </button>
+            </div>
+          </>
+        ) : (
+          <div>
+            <p style={{ fontSize: '10px', color: C.muted, margin: '0 0 4px', fontWeight: 700, letterSpacing: '0.06em' }}>WRITE YOUR REPLY</p>
+            <textarea value={draftText} onChange={e => setDraftText(e.target.value)} rows={4}
+              placeholder="Type your reply…" style={{ ...S.textarea, direction: 'rtl', lineHeight: 1.7 }} autoFocus />
+            {draftText.trim() && (
+              <div style={{ marginTop: '6px', padding: '8px 10px', background: '#071a0d', border: '1px solid #1e4228', borderRadius: '6px' }}>
+                <span style={{ fontSize: '10px', color: C.green, fontWeight: 700, letterSpacing: '0.06em', display: 'block', marginBottom: '4px' }}>WILL SAVE AS DRAFT:</span>
+                <p style={{ margin: 0, fontSize: '12px', color: '#9ee0b0', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right' }}>{draftText.trim()}</p>
+              </div>
+            )}
+            {err && <p style={{ color: C.red, fontSize: '11px', margin: '6px 0 0' }}>{err}</p>}
+            <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
+              <button disabled={isBusy || !draftText.trim()} onClick={() => void saveHumanDraft()}
+                style={{ ...btn('primary'), fontSize: '12px', opacity: !draftText.trim() ? 0.5 : 1 }}>
+                {busy === 'save' ? '…' : 'Save Draft'}
+              </button>
+              <button disabled={isBusy} onClick={() => { setWriteMode(null); setDraftText(''); setErr(null) }} style={{ ...btn('ghost'), fontSize: '12px' }}>Cancel</button>
+            </div>
+          </div>
+        )}
+        {writeMode === null && err && <p style={{ color: C.red, fontSize: '11px', margin: '6px 0 0' }}>{err}</p>}
+      </div>
+    </div>
+  )
+}
+
+// ── DmInboxItem ───────────────────────────────────────────────
+function DmInboxItem({ item, onRefresh }: { item: DmItem; onRefresh: () => void }) {
+  const [editText,     setEditText]     = useState(item.responseText ?? '')
+  const [busy,         setBusy]         = useState<string | null>(null)
+  const [err,          setErr]          = useState<string | null>(null)
+  const [success,      setSuccess]      = useState<string | null>(null)
+  const [expanded,     setExpanded]     = useState(true)
+  const [showComposer, setShowComposer] = useState(false)
+  const [fbCategory,   setFbCategory]   = useState<string | null>(null)
+  const [fbNote,       setFbNote]       = useState('')
+
+  const cardState   = getCardState(item)
+  const msLeft      = windowMsRemaining(item.createdAt)
+  const urgent      = msLeft < 2 * 3_600_000
+  const windowColor = msLeft < 2 * 3_600_000 ? C.red : msLeft < 6 * 3_600_000 ? C.gold : C.green
+
+  const primaryLabel  = item.username ? `@${item.username}` : item.displayName ?? 'Instagram User'
+  const avatarLabel   = item.displayName || item.username || 'I'
+  const igProfileHref = item.username ? `https://www.instagram.com/${encodeURIComponent(item.username)}/` : null
+  const displayName   = primaryLabel
+
+  // GenerationFailedCard handles draft_failed (canonical) and needs_generation (legacy)
+  if (cardState === 'draft_failed' || cardState === 'needs_generation') {
+    return <GenerationFailedCard item={item} onRefresh={onRefresh} />
+  }
+
+  async function call(path: string, body: Record<string, string | null | boolean>): Promise<{ ok: boolean; error?: string; alreadySent?: boolean }> {
+    const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    return res.json()
+  }
+
+  async function send() {
+    if (!editText.trim()) return
+    setBusy('send'); setErr(null); setSuccess(null)
+    try {
+      const data = await call('/api/admin/dm-inbox/send', { id: item.id, finalText: editText, feedbackCategory: fbCategory, feedbackNote: fbNote.trim() || null })
+      if (data.ok && data.alreadySent) { setErr('Already handled — refresh to see current state'); setTimeout(onRefresh, 1200) }
+      else if (data.ok) { setSuccess('✓ Sent'); setTimeout(onRefresh, 1200) }
+      else if (data.error === 'ig_messaging_window') { setErr('Instagram rejected — messaging window closed. Message was NOT sent.'); setTimeout(onRefresh, 1500) }
+      else               { setErr(data.error ?? 'Send failed') }
+    } catch { setErr('Network error') }
+    finally { setBusy(null) }
+  }
+
+  async function mutate(action: string, extra: Record<string, string> = {}) {
+    setBusy(action); setErr(null); setSuccess(null)
+    try {
+      const data = await call('/api/admin/dm-inbox', { action, id: item.id, senderId: item.senderId, ...extra })
+      if (data.ok) {
+        const msgs: Record<string, string> = { ignore: 'Ignored', requeue: 'Regeneration requested — refresh to see new draft', retry_send_failed: 'Reset — re-approve to send', takeover: 'Taken over — AI paused', release: 'Released to AI', block: 'Blocked' }
+        setSuccess(msgs[action] ?? 'Done')
+        setTimeout(onRefresh, 1000)
+      } else { setErr(data.error ?? 'Action failed') }
+    } catch { setErr('Network error') }
+    finally { setBusy(null) }
+  }
+
+  const isBusy = busy !== null
+
+  // Regenerating
+  if (cardState === 'regenerating') {
+    const regenOrigin    = item.processingStartedAt ?? item.createdAt
+    const regenElapsedMs = Date.now() - new Date(regenOrigin).getTime()
+    const regenTimedOut  = regenElapsedMs > 10 * 60 * 1000
+    const regenElapsedMin = Math.floor(regenElapsedMs / 60000)
+
+    async function cancelRegen() {
+      setBusy('cancel_regen'); setErr(null)
+      try {
+        const res = await fetch('/api/admin/dm-inbox', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'cancel_regen', id: item.id }) })
+        const data = await res.json() as { ok: boolean; error?: string }
+        if (data.ok) { setTimeout(onRefresh, 400) } else { setErr(data.error ?? 'Cancel failed') }
+      } catch { setErr('Network error') }
+      finally { setBusy(null) }
+    }
+
+    return (
+      <div style={{ ...S.card, borderLeft: `3px solid ${regenTimedOut ? C.red : C.gold}` }}>
+        <div style={{ ...S.cardHeader, alignItems: 'center', cursor: 'default' }}>
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <SenderAvatar profilePictureUrl={item.profilePictureUrl} label={avatarLabel} />
+            <div>
+              <span style={{ fontWeight: 700, fontSize: '13px', color: C.text }}>{primaryLabel}</span>
+              <span style={{ marginLeft: '8px', fontSize: '10px', color: regenTimedOut ? C.red : C.gold, border: `1px solid ${regenTimedOut ? C.red : C.gold}`, borderRadius: '4px', padding: '1px 5px', fontWeight: 700 }}>
+                {regenTimedOut ? `Regeneration delayed (${regenElapsedMin}m)` : 'Regenerating…'}
+              </span>
+            </div>
+          </div>
+        </div>
+        <div style={{ padding: '0 14px 12px', fontSize: '12px' }}>
+          {item.messageText && <p style={{ ...S.value, whiteSpace: 'pre-wrap', fontSize: '12px', color: C.dim, margin: '0 0 8px' }}>{item.messageText}</p>}
+          {item.responseText && (
+            <div style={{ marginBottom: '8px' }}>
+              <p style={{ fontSize: '10px', color: C.muted, margin: '0 0 4px', fontWeight: 600, letterSpacing: '0.06em' }}>PREVIOUS DRAFT — PRESERVED</p>
+              <p style={{ ...S.value, whiteSpace: 'pre-wrap', fontSize: '12px', color: C.dim, fontStyle: 'italic', margin: 0 }}>{item.responseText}</p>
+            </div>
+          )}
+          <p style={{ margin: '0 0 10px', color: regenTimedOut ? C.red : C.gold, fontSize: '11px' }}>
+            {regenTimedOut ? 'AI draft has not arrived yet. Cancel to keep the previous draft, or refresh to check again.' : 'AI is generating a new draft — refresh in a moment.'}
+          </p>
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <button onClick={onRefresh} style={{ ...btn('ghost'), fontSize: '11px' }}>Refresh</button>
+            <button disabled={busy !== null} onClick={() => void cancelRegen()} style={{ ...btn('warn'), fontSize: '11px' }}>
+              {busy === 'cancel_regen' ? '…' : 'Cancel Regeneration'}
+            </button>
+          </div>
+          {err && <p style={{ color: C.red, fontSize: '11px', marginTop: '6px' }}>{err}</p>}
+        </div>
+      </div>
+    )
+  }
+
+  // Draft generating via Claude Routine (async — callback arrives later)
+  if (cardState === 'draft_generating') {
+    const elapsedMs  = Date.now() - new Date(item.processingStartedAt ?? item.createdAt).getTime()
+    const timedOut   = elapsedMs > 5 * 60 * 1000
+    const elapsedMin = Math.floor(elapsedMs / 60000)
+    return (
+      <div style={{ ...S.card, borderLeft: `3px solid ${timedOut ? C.red : C.gold}` }}>
+        <div style={{ ...S.cardHeader, alignItems: 'center', cursor: 'default' }}>
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <SenderAvatar profilePictureUrl={item.profilePictureUrl} label={avatarLabel} />
+            <div>
+              <span style={{ fontWeight: 700, fontSize: '13px', color: C.text }}>{primaryLabel}</span>
+              <span style={{ marginLeft: '8px', fontSize: '10px', color: timedOut ? C.red : C.gold, border: `1px solid ${timedOut ? C.red : C.gold}`, borderRadius: '4px', padding: '1px 5px', fontWeight: 700 }}>
+                {timedOut ? `Generating (${elapsedMin}m — delayed)` : 'Generating draft…'}
+              </span>
+            </div>
+          </div>
+        </div>
+        <div style={{ padding: '0 14px 12px', fontSize: '12px' }}>
+          {item.messageText && <p style={{ ...S.value, whiteSpace: 'pre-wrap', fontSize: '12px', color: C.dim, margin: '0 0 8px' }}>{item.messageText}</p>}
+          <p style={{ margin: '0 0 10px', color: timedOut ? C.red : C.gold, fontSize: '11px' }}>
+            {timedOut ? 'Claude Routine has not responded. Write a reply manually or retry.' : 'Claude Routine is generating a draft — refreshing automatically.'}
+          </p>
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <button onClick={onRefresh} style={{ ...btn('ghost'), fontSize: '11px' }}>Refresh</button>
+          </div>
+          {err && <p style={{ color: C.red, fontSize: '11px', marginTop: '6px' }}>{err}</p>}
+        </div>
+      </div>
+    )
+  }
+
+  // Audit-only states
+  if (cardState === 'human_managed' || cardState === 'story_mention') {
+    const stateLabel = cardState === 'human_managed' ? 'HUMAN-MANAGED' : 'STORY MENTION'
+    return (
+      <div style={{ ...S.card, borderLeft: `3px solid ${C.border}`, opacity: 0.8 }}>
+        <div style={{ ...S.cardHeader, alignItems: 'center', cursor: 'default' }}>
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <SenderAvatar profilePictureUrl={item.profilePictureUrl} label={avatarLabel} />
+            <div>
+              <span style={{ fontWeight: 700, fontSize: '13px', color: C.text }}>{primaryLabel}</span>
+              <span style={{ marginLeft: '8px', fontSize: '10px', color: C.muted, border: `1px solid ${C.muted}`, borderRadius: '4px', padding: '1px 5px' }}>{stateLabel}</span>
+            </div>
+          </div>
+          <span style={{ fontSize: '11px', color: C.muted }}>{new Date(item.createdAt).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+        </div>
+        {item.messageText && (
+          <div style={{ padding: '0 14px 10px' }}>
+            <p style={{ ...S.value, whiteSpace: 'pre-wrap', fontSize: '12px', color: C.dim, margin: 0 }}>{item.messageText}</p>
+            {cardState === 'human_managed' && (
+              <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
+                {item.conversationOwner !== 'human_temp' ? (
+                  <button disabled={isBusy} onClick={() => mutate('takeover')} style={btn('ghost')}>{busy === 'takeover' ? '…' : 'Take Over'}</button>
+                ) : (
+                  <button disabled={isBusy} onClick={() => mutate('release')} style={{ ...btn('ghost'), color: C.green, borderColor: C.green }}>{busy === 'release' ? '…' : 'Release to AI'}</button>
+                )}
+                {err     && <span style={{ color: C.red,   fontSize: '11px' }}>{err}</span>}
+                {success && <span style={{ color: C.green, fontSize: '11px' }}>{success}</span>}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  const stateDesc =
+    cardState === 'needs_review'        ? 'Needs reply'
+    : cardState === 'send_failed_open'  ? 'Send failed'
+    : cardState === 'window_closed'     ? 'Window closed'
+    : cardState === 'sending'           ? 'Sending…'
+    : cardState === 'status_unknown'    ? '⚠ Send outcome unknown'
+    : cardState === 'ai_suggested_ignore' ? 'AI suggests no reply'
+    : 'Needs reply'
+
+  const accentColor = (cardState === 'send_failed_open' || cardState === 'status_unknown') ? C.red
+    : cardState === 'window_closed' ? '#5a4a10' : C.border
+
+  return (
+    <div style={{ ...S.card, borderLeft: `3px solid ${accentColor}` }}>
+      {/* Header */}
+      <div style={{ ...S.cardHeader, alignItems: 'center' }} onClick={() => setExpanded(o => !o)}>
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div onClick={e => e.stopPropagation()}><SenderAvatar profilePictureUrl={item.profilePictureUrl} label={avatarLabel} /></div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              {igProfileHref ? (
+                <a href={igProfileHref} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+                  style={{ fontWeight: 700, fontSize: '14px', color: C.text, textDecoration: 'none' }}
+                  onMouseOver={e => (e.currentTarget.style.textDecoration = 'underline')}
+                  onMouseOut={e => (e.currentTarget.style.textDecoration = 'none')}>{primaryLabel}</a>
+              ) : (
+                <span style={{ fontWeight: 700, fontSize: '14px', color: C.text }}>{primaryLabel}</span>
+              )}
+              {item.isStoryReply && <span style={{ fontSize: '10px', color: '#fff', background: C.gold, borderRadius: '4px', padding: '1px 6px', fontWeight: 700 }}>STORY REPLY</span>}
+              {item.conversationOwner === 'human_temp' && <span style={{ fontSize: '10px', color: C.green, border: `1px solid ${C.green}`, borderRadius: '4px', padding: '1px 5px' }}>Human Hold</span>}
+            </div>
+            <div style={{ fontSize: '11px', color: windowColor, marginTop: '2px', fontWeight: urgent ? 700 : 400 }}>
+              {stateDesc} · ⏱ {fmtWindowRemaining(msLeft)} remaining
+            </div>
+          </div>
+        </div>
+        <span style={{ color: C.muted, fontSize: '11px', flexShrink: 0, marginLeft: '8px' }}>{expanded ? '▲' : '▼'}</span>
+      </div>
+
+      {expanded && (
+        <div style={{ ...S.cardBody, paddingTop: '14px' }}>
+          {/* Story context */}
+          {item.isStoryReply && (
+            <div style={{ margin: '14px 0 4px', borderRadius: '8px', border: `1px solid #3a3020`, background: '#1a1508', overflow: 'hidden' }}>
+              {item.storyContext?.mediaUrl ? (
+                <StoryThumbnail mediaUrl={item.storyContext.mediaUrl} mediaType={item.storyContext.mediaType} fallbackText={item.storyContext.aiDescription || item.storyContext.caption || item.storyContext.ocrText} />
+              ) : (item.storyContext?.aiDescription || item.storyContext?.caption || item.storyContext?.ocrText) ? (
+                <StoryTextFallback text={item.storyContext.aiDescription || item.storyContext.caption || item.storyContext.ocrText} />
+              ) : null}
+              {(item.storyContext?.caption || item.storyContext?.ocrText) && (
+                <div style={{ padding: '8px 10px', borderTop: item.storyContext?.mediaUrl ? `1px solid #3a3020` : undefined }}>
+                  <span style={{ fontSize: '10px', color: C.gold, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', display: 'block', marginBottom: '3px' }}>Story Caption</span>
+                  <p style={{ margin: 0, fontSize: '12px', color: '#c8b88a', direction: 'rtl', textAlign: 'right', whiteSpace: 'pre-wrap' }}>{item.storyContext.caption || item.storyContext.ocrText}</p>
+                </div>
+              )}
+              {!item.storyContext && <div style={{ padding: '8px 10px' }}><span style={{ fontSize: '11px', color: C.muted }}>Story context not available</span></div>}
+            </div>
+          )}
+
+          {/* Composer */}
+          <div style={{ marginTop: '16px', paddingTop: '14px', borderTop: `1px solid ${C.border2}` }}>
+
+            {/* PENDING_REVIEW */}
+            {cardState === 'needs_review' && (
+              <>
+                <span style={{ ...S.label, color: '#c8b070', fontWeight: 700, letterSpacing: '0.08em' }}>AI SUGGESTED REPLY — NOT SENT</span>
+                <textarea value={editText} onChange={e => setEditText(e.target.value)} rows={4}
+                  style={{ ...S.textarea, direction: 'rtl', lineHeight: 1.7, marginTop: '6px' }} placeholder="AI suggested reply…" />
+                {editText.trim() && (
+                  <div style={{ marginTop: '8px', padding: '8px 10px', background: '#071a0d', border: '1px solid #1e4228', borderRadius: '6px' }}>
+                    <span style={{ fontSize: '10px', color: C.green, fontWeight: 700, letterSpacing: '0.06em', display: 'block', marginBottom: '4px' }}>WILL SEND:</span>
+                    <p style={{ margin: 0, fontSize: '13px', color: '#9ee0b0', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right', lineHeight: 1.6 }}>{editText.trim()}</p>
+                  </div>
+                )}
+                {err     && <p style={{ color: C.red,   fontSize: '11px', margin: '8px 0 0' }}>{err}</p>}
+                {success && <p style={{ color: C.green, fontSize: '11px', margin: '8px 0 0' }}>{success}</p>}
+                <FeedbackControls category={fbCategory} note={fbNote} onCategory={setFbCategory} onNote={setFbNote} />
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '10px' }}>
+                  <button disabled={isBusy || !editText.trim()} onClick={() => { void send() }}
+                    style={{ ...btn('primary'), opacity: (isBusy || !editText.trim()) ? 0.5 : 1, fontSize: '12px' }}>
+                    {busy === 'send' ? '…' : 'Approve & Send'}
+                  </button>
+                  <button disabled={isBusy} onClick={() => void mutate('ignore')} style={{ ...btn('ghost'), fontSize: '12px' }}>{busy === 'ignore' ? '…' : 'Ignore'}</button>
+                  {item.conversationOwner !== 'human_temp' ? (
+                    <button disabled={isBusy} onClick={() => mutate('takeover')} style={{ ...btn('ghost'), fontSize: '12px' }}>{busy === 'takeover' ? '…' : 'Take Over'}</button>
+                  ) : (
+                    <button disabled={isBusy} onClick={() => mutate('release')} style={{ ...btn('ghost'), fontSize: '12px', color: C.green, borderColor: C.green }}>{busy === 'release' ? '…' : 'Release to AI'}</button>
+                  )}
+                  <button disabled={isBusy} onClick={() => { if (!window.confirm(`Block ${displayName}? AI will never reply to them again.`)) return; void mutate('block', { displayName: item.displayName || item.senderId }) }} style={{ ...btn('danger'), fontSize: '12px' }}>
+                    {busy === 'block' ? '…' : 'Block'}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* AI_RECOMMENDED_IGNORE */}
+            {cardState === 'ai_suggested_ignore' && (
+              <>
+                <div style={{ padding: '10px 12px', background: '#1a1508', border: `1px solid #3a3020`, borderRadius: '6px', fontSize: '12px', color: '#c8b88a', lineHeight: 1.6, marginBottom: '10px' }}>
+                  AI recommends no reply. Nothing has been sent.
+                </div>
+                {!showComposer ? (
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    <button onClick={() => setShowComposer(true)} style={{ ...btn('warn'), fontSize: '12px' }}>Write Reply</button>
+                    <button disabled={isBusy} onClick={() => void mutate('ignore')} style={{ ...btn('ghost'), fontSize: '12px' }}>{busy === 'ignore' ? '…' : 'Ignore'}</button>
+                    {item.conversationOwner !== 'human_temp' ? (
+                      <button disabled={isBusy} onClick={() => mutate('takeover')} style={{ ...btn('ghost'), fontSize: '12px' }}>{busy === 'takeover' ? '…' : 'Take Over'}</button>
+                    ) : (
+                      <button disabled={isBusy} onClick={() => mutate('release')} style={{ ...btn('ghost'), fontSize: '12px', color: C.green, borderColor: C.green }}>{busy === 'release' ? '…' : 'Release to AI'}</button>
+                    )}
+                    <button disabled={isBusy} onClick={() => { if (!window.confirm(`Block ${displayName}? AI will never reply to them again.`)) return; void mutate('block', { displayName: item.displayName || item.senderId }) }} style={{ ...btn('danger'), fontSize: '12px' }}>{busy === 'block' ? '…' : 'Block'}</button>
+                  </div>
+                ) : (
+                  <>
+                    <span style={{ ...S.label, color: '#c8b070', fontWeight: 700, letterSpacing: '0.08em' }}>YOUR REPLY — NOT SENT</span>
+                    <textarea value={editText} onChange={e => setEditText(e.target.value)} rows={4}
+                      style={{ ...S.textarea, direction: 'rtl', lineHeight: 1.7, marginTop: '6px' }} placeholder="Type your reply…" />
+                    {editText.trim() && (
+                      <div style={{ marginTop: '8px', padding: '8px 10px', background: '#071a0d', border: '1px solid #1e4228', borderRadius: '6px' }}>
+                        <span style={{ fontSize: '10px', color: C.green, fontWeight: 700, letterSpacing: '0.06em', display: 'block', marginBottom: '4px' }}>WILL SEND:</span>
+                        <p style={{ margin: 0, fontSize: '13px', color: '#9ee0b0', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right', lineHeight: 1.6 }}>{editText.trim()}</p>
+                      </div>
+                    )}
+                    {err     && <p style={{ color: C.red,   fontSize: '11px', margin: '8px 0 0' }}>{err}</p>}
+                    {success && <p style={{ color: C.green, fontSize: '11px', margin: '8px 0 0' }}>{success}</p>}
+                    <FeedbackControls category={fbCategory} note={fbNote} onCategory={setFbCategory} onNote={setFbNote} />
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '10px' }}>
+                      <button disabled={isBusy || !editText.trim()} onClick={() => { void send() }} style={{ ...btn('primary'), opacity: (isBusy || !editText.trim()) ? 0.5 : 1, fontSize: '12px' }}>
+                        {busy === 'send' ? '…' : 'Approve & Send'}
+                      </button>
+                      <button disabled={isBusy} onClick={() => void mutate('ignore')} style={{ ...btn('ghost'), fontSize: '12px' }}>{busy === 'ignore' ? '…' : 'Ignore'}</button>
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+
+            {/* WINDOW_CLOSED — Meta definitively rejected: 24h window closed. Not retryable. */}
+            {cardState === 'window_closed' && (
+              <>
+                <div style={{ padding: '10px 12px', background: '#1a1200', border: '1px solid #5a4a10', borderRadius: '6px', marginBottom: '10px' }}>
+                  <span style={{ fontSize: '11px', color: '#c8a840', fontWeight: 700, display: 'block', marginBottom: '4px' }}>WINDOW CLOSED — NOT SENT</span>
+                  {item.responseText && <p style={{ margin: 0, fontSize: '12px', color: '#bfb5a6', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right' }}>Draft: {item.responseText}</p>}
+                </div>
+                {err     && <p style={{ color: C.red,   fontSize: '11px', margin: '0 0 8px' }}>{err}</p>}
+                {success && <p style={{ color: C.green, fontSize: '11px', margin: '0 0 8px' }}>{success}</p>}
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  <button disabled style={{ ...btn('ghost'), fontSize: '12px', opacity: 0.45, cursor: 'not-allowed', color: '#c8a840', borderColor: '#5a4a10' }}>Waiting for new message</button>
+                  <button disabled={isBusy} onClick={() => void mutate('ignore')} style={{ ...btn('ghost'), fontSize: '12px' }}>{busy === 'ignore' ? '…' : 'Ignore'}</button>
+                  <button disabled={isBusy} onClick={() => { if (!window.confirm(`Block ${displayName}? AI will never reply to them again.`)) return; void mutate('block', { displayName: item.displayName || item.senderId }) }} style={{ ...btn('danger'), fontSize: '12px' }}>{busy === 'block' ? '…' : 'Block Sender'}</button>
+                </div>
+              </>
+            )}
+
+            {/* SEND_FAILED — transient / retryable failure */}
+            {cardState === 'send_failed_open' && (
+              <>
+                <div style={{ padding: '10px 12px', background: '#1c0a0a', border: `1px solid ${C.red}`, borderRadius: '6px', marginBottom: '10px' }}>
+                  <span style={{ fontSize: '11px', color: C.red, fontWeight: 700, display: 'block', marginBottom: '4px' }}>SEND FAILED</span>
+                  {item.responseText && <p style={{ margin: 0, fontSize: '12px', color: '#bfb5a6', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right' }}>Attempted: {item.responseText}</p>}
+                </div>
+                {err     && <p style={{ color: C.red,   fontSize: '11px', margin: '0 0 8px' }}>{err}</p>}
+                {success && <p style={{ color: C.green, fontSize: '11px', margin: '0 0 8px' }}>{success}</p>}
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  <button disabled={isBusy} onClick={() => { if (!window.confirm('Reset this failed send attempt? You will need to re-approve before it sends.')) return; void mutate('retry_send_failed') }} style={{ ...btn('warn'), fontSize: '12px' }}>
+                    {busy === 'retry_send_failed' ? '…' : 'Retry Send'}
+                  </button>
+                  <button disabled={isBusy} onClick={() => void mutate('ignore')} style={{ ...btn('ghost'), fontSize: '12px' }}>{busy === 'ignore' ? '…' : 'Ignore'}</button>
+                  {item.conversationOwner !== 'human_temp' ? (
+                    <button disabled={isBusy} onClick={() => mutate('takeover')} style={{ ...btn('ghost'), fontSize: '12px' }}>{busy === 'takeover' ? '…' : 'Take Over'}</button>
+                  ) : (
+                    <button disabled={isBusy} onClick={() => mutate('release')} style={{ ...btn('ghost'), fontSize: '12px', color: C.green, borderColor: C.green }}>{busy === 'release' ? '…' : 'Release to AI'}</button>
+                  )}
+                  <button disabled={isBusy} onClick={() => { if (!window.confirm(`Block ${displayName}? AI will never reply to them again.`)) return; void mutate('block', { displayName: item.displayName || item.senderId }) }} style={{ ...btn('danger'), fontSize: '12px' }}>
+                    {busy === 'block' ? '…' : 'Block'}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {cardState === 'sending'        && <span style={{ fontSize: '12px', color: C.gold }}>Send in progress…</span>}
+            {cardState === 'status_unknown' && (
+              <div style={{ background: '#1c100a', border: `1px solid ${C.red}`, borderRadius: '6px', padding: '10px 12px', fontSize: '12px', color: C.red, lineHeight: 1.6 }}>
+                <strong>⚠ Send outcome unknown.</strong> Instagram may or may not have delivered this message.
+                Check your <strong>Instagram outbox</strong> before taking any action. Do <strong>not</strong> retry via this UI — resolve manually in Supabase after confirming.
+              </div>
+            )}
+          </div>
+
+          {/* Metadata footer */}
+          <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', marginTop: '10px', paddingTop: '8px', borderTop: `1px solid #141210`, fontSize: '10px', color: '#3a3530' }}>
+            {item.conversationOwner && <span>Owner: {item.conversationOwner}{item.humanTakeoverReason ? ` (${item.humanTakeoverReason})` : ''}</span>}
+            <span>ID: {item.senderId}</span>
+            {item.messageCount !== null && <span>{item.messageCount} messages</span>}
+          </div>
+        </div>
       )}
     </div>
   )
@@ -838,23 +1346,47 @@ function ConvWorkspace({ targetItem, pendingCount, onRefresh, effectiveCreatedAt
     )
   }
 
-  // ── send_failed_open ─────────────────────────────────────────
-  if (cardState === 'send_failed_open') {
-    const metaWindowClosed = targetItem.sendFailure === 'ig_messaging_window'
-    const isWindowExpired = targetItem.failedReason === 'EXPIRED' || targetItem.failedReason === 'INSTAGRAM_24H_WINDOW_EXPIRED'
+  // ── window_closed — Meta definitively rejected: 24h window closed, NOT retryable ──
+  if (cardState === 'window_closed') {
     return (
       <div style={wrapStyle}>
         {windowBar}
-        <div style={{ padding: '10px 12px', background: isWindowExpired ? '#1a1200' : '#1c0a0a', border: `1px solid ${isWindowExpired ? '#5a4a10' : C.red}`, borderRadius: '6px', marginBottom: '10px' }}>
-          <span style={{ fontSize: '11px', color: isWindowExpired ? '#c8a840' : C.red, fontWeight: 700, display: 'block', marginBottom: '4px' }}>
-            {isWindowExpired ? 'HELD BY THE OLD TIMER — DRAFT SAVED' : metaWindowClosed ? 'INSTAGRAM REPLY WINDOW CLOSED — NOT SENT' : 'SEND FAILED'}
+        <div style={{ padding: '10px 12px', background: '#1a1200', border: '1px solid #5a4a10', borderRadius: '6px', marginBottom: '10px' }}>
+          <span style={{ fontSize: '11px', color: '#c8a840', fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+            WINDOW CLOSED — NOT SENT
           </span>
           <p style={{ margin: 0, fontSize: '12px', color: '#bfb5a6', lineHeight: 1.5 }}>
-            {isWindowExpired
+            Instagram definitively rejected because the 24h reply window has closed (error 2534022). The draft is preserved below. Retrying the same message will fail again — this conversation will automatically become active when they send a new message.
+          </p>
+          {targetItem.responseText && <p style={{ margin: '6px 0 0', fontSize: '12px', color: '#bfb5a6', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right' }}>Draft: {targetItem.responseText}</p>}
+        </div>
+        {err     && <p style={{ color: C.red,   fontSize: '11px', margin: '0 0 8px' }}>{err}</p>}
+        {success && <p style={{ color: C.green, fontSize: '11px', margin: '0 0 8px' }}>{success}</p>}
+        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+          <button disabled style={{ ...btn('ghost'), fontSize: '12px', opacity: 0.45, cursor: 'not-allowed', color: '#c8a840', borderColor: '#5a4a10' }}>Waiting for new message</button>
+          <button disabled={isBusy} onClick={() => void mutate('ignore')} style={{ ...btn('ghost'), fontSize: '12px' }}>{busy === 'ignore' ? '…' : 'Ignore'}</button>
+        </div>
+        <div style={{ display: 'flex', gap: '6px', paddingTop: '6px', borderTop: `1px solid ${C.border2}`, flexWrap: 'wrap' }}>
+          {takeOverOrRelease}{blockBtn}
+        </div>
+      </div>
+    )
+  }
+
+  // ── send_failed_open — transient / retryable failure ─────────────────────────
+  if (cardState === 'send_failed_open') {
+    const isLocalTimerExpired = targetItem.failedReason === 'EXPIRED' || targetItem.failedReason === 'INSTAGRAM_24H_WINDOW_EXPIRED'
+    return (
+      <div style={wrapStyle}>
+        {windowBar}
+        <div style={{ padding: '10px 12px', background: isLocalTimerExpired ? '#1a1200' : '#1c0a0a', border: `1px solid ${isLocalTimerExpired ? '#5a4a10' : C.red}`, borderRadius: '6px', marginBottom: '10px' }}>
+          <span style={{ fontSize: '11px', color: isLocalTimerExpired ? '#c8a840' : C.red, fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+            {isLocalTimerExpired ? 'LOCAL TIMER EXPIRED — NOT SENT' : 'SEND FAILED'}
+          </span>
+          <p style={{ margin: 0, fontSize: '12px', color: '#bfb5a6', lineHeight: 1.5 }}>
+            {isLocalTimerExpired
               ? 'Our 24h local timer expired before this was sent. The draft is preserved. Click Retry Send to re-add to queue, then Approve & Send — Instagram will determine if the window is still open.'
-              : metaWindowClosed
-                ? 'Instagram rejected this reply because its allowed messaging window has closed. Your draft is saved. Retrying here does not reopen the window; wait for a new message from this person, or review the conversation in Instagram.'
-                : 'Instagram rejected this message. Message was NOT sent.'}
+              : 'Instagram rejected this message. Message was NOT sent.'}
           </p>
           {targetItem.responseText && <p style={{ margin: '6px 0 0', fontSize: '12px', color: '#bfb5a6', whiteSpace: 'pre-wrap', direction: 'rtl', textAlign: 'right' }}>Draft: {targetItem.responseText}</p>}
         </div>
@@ -952,7 +1484,7 @@ interface ConversationGroup {
 const STATE_PRIORITY: Record<CardState, number> = {
   // needs_review=0: a ready AI draft is more actionable than a failed generation.
   // When both exist for a sender, the ready draft shows first.
-  needs_review: 0, draft_failed: 1, needs_generation: 2, send_failed_open: 3,
+  needs_review: 0, draft_failed: 1, needs_generation: 2, send_failed_open: 3, window_closed: 3,
   status_unknown: 4, sending: 5, draft_generating: 6, regenerating: 7,
   ai_suggested_ignore: 8, story_mention: 9, human_managed: 10,
 }
@@ -1009,12 +1541,12 @@ function groupBySender(items: DmItem[]): ConversationGroup[] {
 
 const STATE_COLOR: Record<CardState, string> = {
   draft_failed: C.red, needs_generation: C.red, needs_review: C.green, send_failed_open: C.red,
-  status_unknown: C.red, sending: C.gold, draft_generating: C.gold, regenerating: C.gold,
+  window_closed: '#c8a840', status_unknown: C.red, sending: C.gold, draft_generating: C.gold, regenerating: C.gold,
   ai_suggested_ignore: C.muted, story_mention: C.muted, human_managed: C.muted,
 }
 const STATE_LABEL: Record<CardState, string> = {
   draft_failed: 'Draft failed', needs_generation: 'Draft failed (legacy)', needs_review: 'Needs review', send_failed_open: 'Send failed',
-  status_unknown: 'Status unknown', sending: 'Sending', draft_generating: 'Generating draft…', regenerating: 'Regenerating',
+  window_closed: 'Window closed', status_unknown: 'Status unknown', sending: 'Sending', draft_generating: 'Generating draft…', regenerating: 'Regenerating',
   ai_suggested_ignore: 'AI ignore', story_mention: 'Story mention', human_managed: 'Human managed',
 }
 
@@ -1134,14 +1666,14 @@ function DmInbox({ initialSenderId }: { initialSenderId?: string } = {}) {
   const urgentCount    = activeGroups.filter(g => g.mostUrgentMs < 2 * 3_600_000).length
   const needsDraftCount = activeGroups.filter(g => g.worstState === 'draft_failed' || g.worstState === 'needs_generation').length
   const needsReviewCount = activeGroups.filter(g => g.worstState === 'needs_review').length
-  const attentionCount = activeGroups.filter(g => ['sending','status_unknown','send_failed_open'].includes(g.worstState)).length
+  const attentionCount = activeGroups.filter(g => ['sending','status_unknown','send_failed_open','window_closed'].includes(g.worstState)).length
 
   // Apply search + filter to activeGroups
   const filteredGroups = activeGroups.filter(g => {
     if (dmFilter === 'needs_draft'  && g.worstState !== 'draft_failed' && g.worstState !== 'needs_generation') return false
     if (dmFilter === 'needs_review' && g.worstState !== 'needs_review')     return false
     if (dmFilter === 'urgent'       && g.mostUrgentMs >= 2 * 3_600_000)    return false
-    if (dmFilter === 'attention'    && !['sending','status_unknown','send_failed_open'].includes(g.worstState)) return false
+    if (dmFilter === 'attention'    && !['sending','status_unknown','send_failed_open','window_closed'].includes(g.worstState)) return false
     if (dmSearch.trim()) {
       const q = dmSearch.trim().toLowerCase()
       const nameMatch = (g.username ?? '').toLowerCase().includes(q) || (g.displayName ?? '').toLowerCase().includes(q)
@@ -2236,12 +2768,12 @@ function Overview({ onNavigate }: { onNavigate: (section: Section, senderId?: st
   // Actionable = needs_generation or needs_review
   const actionableGroups = activeGroups.filter(g => g.worstState === 'needs_generation' || g.worstState === 'needs_review')
   const urgentGroups     = actionableGroups.filter(g => g.mostUrgentMs < 2 * 3_600_000)
-  const attentionGroups  = activeGroups.filter(g => g.worstState === 'sending' || g.worstState === 'status_unknown' || g.worstState === 'send_failed_open')
+  const attentionGroups  = activeGroups.filter(g => g.worstState === 'sending' || g.worstState === 'status_unknown' || g.worstState === 'send_failed_open' || g.worstState === 'window_closed')
 
   // Flat item counts preserved for KPI
   const needsReview = dmItems.filter(i => { const s = getCardState(i); return s === 'needs_review' || s === 'needs_generation' })
   const urgent      = needsReview.filter(i => windowMsRemaining(i.createdAt) < 2 * 3_600_000)
-  const attention   = dmItems.filter(i => { const s = getCardState(i); return s === 'sending' || s === 'status_unknown' || s === 'send_failed_open' })
+  const attention   = dmItems.filter(i => { const s = getCardState(i); return s === 'sending' || s === 'status_unknown' || s === 'send_failed_open' || s === 'window_closed' })
   const totalNew    = (consData?.new.length ?? 0) + (consData?.underReview.length ?? 0)
   const paidCount   = consData?.paid.length ?? 0
 

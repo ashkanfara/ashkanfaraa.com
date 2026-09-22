@@ -9,15 +9,16 @@ import { isMetaWindowError } from '@/lib/dm-send-error'
  *
  * State machine:
  *   PENDING_REVIEW → (atomic claim) → SENDING
- *   SENDING        → (IG 4xx definitive) → SEND_FAILED        (admin can retry — IG never sent)
+ *   SENDING        → (IG 4xx window closed)  → SEND_FAILED_WINDOW_CLOSED (NOT retryable)
+ *   SENDING        → (IG 4xx other)          → SEND_FAILED        (admin can retry — IG never sent)
  *   SENDING        → (IG success + DB ok) → SENT
  *   SENDING        → (IG success + DB fail) → SEND_STATUS_UNKNOWN (NON-RESENDABLE)
  *   SENDING        → (timeout/unknown)      → SEND_STATUS_UNKNOWN (NON-RESENDABLE)
  *   SENDING        → (blocked)              → REJECTED
  *
  * Messaging window: Meta is the sole authority. The local 24h timer is NOT enforced here.
- * If Meta rejects because the window closed, the outcome is SEND_FAILED (retryable) and
- * the specific error 'ig_messaging_window' is returned to the UI.
+ * If Meta rejects because the window closed (HTTP 403, subcode 2534022), the outcome is
+ * SEND_FAILED_WINDOW_CLOSED — NOT retryable. Cleared when the sender messages again.
  *
  * Security:
  *   - Admin session cookie verified before any action
@@ -48,6 +49,7 @@ import {
   claimDmForSend,
   markDmSent,
   markDmSendFailed,
+  markDmWindowClosed,
   markDmStatusUnknown,
   getBlockedSenderIds,
   saveDmFeedback,
@@ -318,7 +320,29 @@ export async function POST(req: NextRequest) {
   }
 
   if (igOutcome === 'definitive_failure') {
-    // IG rejected before accepting — message NOT sent. Safe to retry after admin decision.
+    const windowClosed = isMetaWindowError(igResponseBody)
+    if (windowClosed) {
+      // Meta definitively rejected: messaging window closed. NOT retryable.
+      // Retrying the identical request will produce the same 403/2534022.
+      // State clears when the sender messages again (dm-draft-callback auto-archives it).
+      await markDmWindowClosed(id, igHttpStatus, igResponseBody)
+      try {
+        await saveDmFeedback({
+          bufferId: id, senderId, inboundContext: messageText,
+          originalDraft: originalDraft ?? null, finalSentResponse: finalText,
+          draftSource: draftSource ?? null, wasEdited: originalDraft !== null && finalText !== originalDraft,
+          feedbackRating: null, feedbackCategory: null, feedbackNote: null,
+          igMessageId: null, igHttpStatus, approvalTs: claimed.sendingStartedAt,
+          sendAttemptTs, sendState: 'SEND_FAILED_WINDOW_CLOSED', isFirstReply,
+        })
+      } catch { /* non-fatal */ }
+      return NextResponse.json({
+        ok: false,
+        error: 'ig_messaging_window',
+        hint: 'Instagram rejected this reply because the messaging window has closed.',
+      })
+    }
+    // Non-window definitive failure — IG rejected but may be retryable.
     await markDmSendFailed(id, igHttpStatus, igResponseBody)
     try {
       await saveDmFeedback({
@@ -330,13 +354,6 @@ export async function POST(req: NextRequest) {
         sendAttemptTs, sendState: 'SEND_FAILED', isFirstReply,
       })
     } catch { /* non-fatal */ }
-    if (isMetaWindowError(igResponseBody)) {
-      return NextResponse.json({
-        ok: false,
-        error: 'ig_messaging_window',
-        hint: 'Instagram rejected this reply because the messaging window has closed.',
-      })
-    }
     return NextResponse.json({ ok: false, error: 'ig_send_failed' })
   }
 
