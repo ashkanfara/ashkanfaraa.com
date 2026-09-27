@@ -36,6 +36,7 @@ import {
   supabaseConfigured,
   archiveWindowClosedSiblingsForSender,
   isAutoModeActive,
+  upsertAutoModeEnrollment,
   claimDmForSend,
 } from '@/lib/supabase'
 import { sendViaEngine } from '@/lib/dm-send-engine'
@@ -148,9 +149,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const draft_text     = typeof body.draft_text     === 'string' ? body.draft_text.trim()     : ''
   const prompt_version = typeof body.prompt_version === 'string' ? body.prompt_version.trim() : ''
   const draft_source   = typeof body.draft_source   === 'string' ? body.draft_source.trim()   : ''
-  // Optional: Routine signals that this sender is enrolled in auto-mode.
-  // We verify enrollment independently via DB — never trust this flag alone.
-  const routine_auto_approved = body.auto_approved === true
+  // Optional: Routine signals that this sender qualifies for auto-mode.
+  // auto_approved: the Routine's LLM classification verdict
+  // enrolled_reason: MIGRATION_LEAD | COURSE_LEAD | CONSULTATION_LEAD (only present when auto_approved=true)
+  // We verify and record enrollment independently via DB — never trust these fields alone.
+  const routine_auto_approved  = body.auto_approved === true
+  const routine_enrolled_reason = typeof body.enrolled_reason === 'string' ? body.enrolled_reason.trim() : ''
 
   if (!buffer_id)
     return NextResponse.json({ ok: false, error: 'buffer_id is required' }, { status: 422 })
@@ -278,6 +282,24 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // outcome write completes. This prevents the serverless function from being torn down
   // before markDmSent / markDmWindowClosed / markDmStatusUnknown finishes.
   if (routine_auto_approved) {
+    // If Routine provided a classification reason, enroll (or renew) this sender.
+    // This is the ONLY enrollment path for new senders: the Routine's LLM output is
+    // the approved classifier. Intake renewals happen at intake time; initial enrollment
+    // happens here, using the DB row's created_at as the inbound timestamp (authoritative
+    // inbound event time, not the callback clock). buffer_id is the dedup key.
+    if (routine_enrolled_reason) {
+      await upsertAutoModeEnrollment({
+        senderId:          row.sender_id,
+        igAccountId:       'default',
+        enrolledReason:    routine_enrolled_reason,
+        inboundMessageId:  buffer_id,
+        inboundTs:         row.created_at,
+        conversationScore: 0,
+      }).catch(e =>
+        console.error('[dm-draft-callback] enrollment upsert failed (non-fatal, will not auto-send):', e)
+      )
+    }
+
     const enrolled = await isAutoModeActive(row.sender_id, 'default').catch(() => false)
     if (enrolled) {
       console.log(
