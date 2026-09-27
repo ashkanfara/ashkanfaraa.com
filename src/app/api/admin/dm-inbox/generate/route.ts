@@ -211,9 +211,6 @@ function classifyRow(row: DmRow): { valid: true; rowClass: RowClass } | { valid:
   return { valid: true, rowClass }
 }
 
-/** Build the Anthropic Messages API messages array. */
-type AnthropicMessage = { role: 'user' | 'assistant'; content: string }
-
 function formatPendingText(p: PendingInboundRow, storyCtx: StoryCtx | null): string {
   const parts: string[] = []
   if (p.is_story_reply) parts.push('[پاسخ به استوری]')
@@ -224,42 +221,6 @@ function formatPendingText(p: PendingInboundRow, storyCtx: StoryCtx | null): str
   if (storyCtx?.ai_description) parts.push(`[توضیح هوش مصنوعی: ${storyCtx.ai_description}]`)
   if (storyCtx?.ocr_text)       parts.push(`[متن تصویر: ${storyCtx.ocr_text}]`)
   return parts.join(' ')
-}
-
-function buildMessages(
-  row: DmRow,
-  histRows: { message_text: string | null; final_response_text: string | null }[],
-  storyCtx: StoryCtx | null,
-  pendingRows: PendingInboundRow[] = [],
-  pendingStoryCtxMap: Record<string, StoryCtx> = {}
-): AnthropicMessage[] {
-  const messages: AnthropicMessage[] = []
-
-  for (const h of [...histRows].reverse()) {
-    if (h.message_text)         messages.push({ role: 'user',      content: h.message_text })
-    if (h.final_response_text)  messages.push({ role: 'assistant', content: h.final_response_text })
-  }
-
-  // Inject earlier pending inbound messages before the target — each as a standalone user turn
-  for (const p of pendingRows) {
-    const pCtx = p.story_id ? (pendingStoryCtxMap[p.story_id] ?? null) : null
-    messages.push({ role: 'user', content: formatPendingText(p, pCtx) })
-  }
-
-  const parts: string[] = []
-  if (row.is_story_reply) parts.push('[پاسخ به استوری]')
-  if (row.message_text)   parts.push(row.message_text)
-  else if (row.message_type !== 'TEXT') parts.push(`[پیام ${row.message_type}]`)
-  else parts.push('[پیام بدون متن]')
-
-  if (storyCtx) {
-    if (storyCtx.caption)        parts.push(`\n[کپشن استوری: ${storyCtx.caption}]`)
-    if (storyCtx.ai_description) parts.push(`[توضیح هوش مصنوعی: ${storyCtx.ai_description}]`)
-    if (storyCtx.ocr_text)       parts.push(`[متن تصویر: ${storyCtx.ocr_text}]`)
-  }
-
-  messages.push({ role: 'user', content: parts.join(' ') })
-  return messages
 }
 
 /** Build the human-readable prompt package for copy-paste into Claude.ai. */
@@ -358,16 +319,12 @@ export async function POST(req: NextRequest) {
   const id   = typeof body.id   === 'string' ? body.id.trim()   : ''
   const mode = typeof body.mode === 'string' ? body.mode.trim() : 'claude'
 
-  if (!id)                              return NextResponse.json({ ok: false, error: 'id is required' }, { status: 422 })
-  if (mode !== 'claude' && mode !== 'api') return NextResponse.json({ ok: false, error: 'mode must be claude or api' }, { status: 422 })
+  if (!id)           return NextResponse.json({ ok: false, error: 'id is required' }, { status: 422 })
+  if (mode !== 'claude') return NextResponse.json({ ok: false, error: 'mode must be claude (API mode is disabled — use Generate with Claude)' }, { status: 422 })
 
   if (!supabaseConfigured())
     return NextResponse.json({ ok: false, error: 'Supabase not configured' }, { status: 503 })
 
-  // mode='api' is the only path that requires ANTHROPIC_API_KEY
-  const anthropicKey = process.env.ANTHROPIC_API_KEY
-  if (mode === 'api' && !anthropicKey)
-    return NextResponse.json({ ok: false, error: 'ANTHROPIC_API_KEY is not configured — use Generate with Claude instead' }, { status: 503 })
 
   // ── Read + validate row ──────────────────────────────────────
   const row = await fetchRow(id)
@@ -400,90 +357,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, promptPackage })
   }
 
-  // ════════════════════════════════════════════════════════════
-  // MODE: 'api' — call Anthropic API (haiku), save draft to DB.
-  // Exactly one API call per click.
-  // ════════════════════════════════════════════════════════════
-  const messages = buildMessages(row, histRows, storyCtx, pendingRows, pendingStoryCtxMap)
-
-  let generatedDraft = ''
-  try {
-    const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
-      method:  'POST',
-      headers: {
-        'x-api-key':         anthropicKey!,
-        'anthropic-version': '2023-06-01',
-        'content-type':      'application/json',
-      },
-      body: JSON.stringify({
-        model:      'claude-haiku-4-5-20251001',
-        max_tokens: 400,
-        system:     SYSTEM_PROMPT,
-        messages,
-      }),
-      signal: AbortSignal.timeout(25_000),
-    })
-
-    if (!anthropicRes.ok) {
-      const errBody = await anthropicRes.json() as { error?: { message?: string } }
-      console.error('[dm-generate] Anthropic error:', anthropicRes.status, errBody)
-      return NextResponse.json({
-        ok:    false,
-        error: `Anthropic API error: ${errBody.error?.message ?? anthropicRes.status}`,
-      }, { status: 502 })
-    }
-
-    const anthropicBody = await anthropicRes.json() as { content?: { type: string; text: string }[] }
-    generatedDraft = anthropicBody.content?.find(b => b.type === 'text')?.text?.trim() ?? ''
-
-    if (!generatedDraft)
-      return NextResponse.json({ ok: false, error: 'API returned an empty response' }, { status: 502 })
-
-  } catch (err) {
-    const isTimeout = err instanceof Error && err.name === 'TimeoutError'
-    console.error('[dm-generate] API call failed:', isTimeout ? 'timeout(25s)' : err)
-    return NextResponse.json({
-      ok:    false,
-      error: isTimeout ? 'API generation timed out (25s)' : 'API call failed',
-    }, { status: 502 })
-  }
-
-  // Save draft + transition to PENDING_REVIEW
-  const base = SUPABASE_BASE()
-  const hdrs = SUPABASE_HEADERS()
-  const draftSource = `ANTHROPIC_API_${DM_PROMPT_VERSION}`
-
-  const patchRes = await fetch(
-    `${base}/rest/v1/instagram_dm_buffer?id=eq.${encodeURIComponent(id)}` +
-    `&response_sent=eq.false` +
-    (rowClass === 'fresh_inbound'
-      ? `&failed_reason=is.null&processed=eq.false&processing_started_at=is.null`
-      : rowClass === 'draft_failed'
-        ? `&failed_reason=eq.DRAFT_FAILED`
-        : `&failed_reason=eq.PENDING_REVIEW`),
-    {
-      method:  'PATCH',
-      headers: { ...hdrs, Prefer: 'return=representation' },
-      body:    JSON.stringify({
-        failed_reason:         'PENDING_REVIEW',
-        processed:             true,
-        processing:            false,
-        processing_started_at: new Date().toISOString(),
-        response_text:         generatedDraft,
-        draft_source:          draftSource,
-      }),
-    }
-  )
-
-  if (!patchRes.ok) {
-    console.error('[dm-generate] PATCH failed:', patchRes.status, await patchRes.text())
-    return NextResponse.json({ ok: false, error: 'Failed to save draft to database' }, { status: 502 })
-  }
-
-  const patched = await patchRes.json() as { id: string }[]
-  if (patched.length === 0)
-    return NextResponse.json({ ok: false, error: 'Row state changed before draft could be saved — refresh and try again' }, { status: 409 })
-
-  console.log(`[dm-generate] ✓ API draft saved | model=haiku id=${id} source=${draftSource}`)
-  return NextResponse.json({ ok: true, draft: generatedDraft })
+  // mode='api' was removed. This line is unreachable but satisfies the TS return checker.
+  return NextResponse.json({ ok: false, error: 'Unknown mode' }, { status: 400 })
 }
