@@ -37,9 +37,6 @@ import {
   archiveWindowClosedSiblingsForSender,
   isAutoModeActive,
   claimDmForSend,
-  scoreConversationForEnrollment,
-  upsertAutoModeEnrollment,
-  AUTO_MODE_ENROLL_THRESHOLD,
 } from '@/lib/supabase'
 import { sendViaEngine } from '@/lib/dm-send-engine'
 
@@ -271,33 +268,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     console.error('[dm-draft-callback] archive window-closed siblings failed (non-fatal):', e)
   )
 
-  // ── Enrollment evaluation ─────────────────────────────────────────────────
-  // Every callback represents receipt of an authentic inbound DM (the Routine fires per inbound).
-  // Score conversation history and renew/create enrollment if threshold met.
-  // Uses buffer_id as inboundMessageId for idempotent deduplication (one row = one inbound).
-  // Uses row.created_at as the inbound timestamp (nearest available; never trusts callback clock).
-  let enrolledReason: string | null = null
-  try {
-    const { score, reason } = await scoreConversationForEnrollment(row.sender_id, 15)
-    if (score >= AUTO_MODE_ENROLL_THRESHOLD && reason) {
-      enrolledReason = reason
-      await upsertAutoModeEnrollment({
-        senderId:          row.sender_id,
-        igAccountId:       'default',
-        enrolledReason:    reason,
-        inboundMessageId:  buffer_id,
-        inboundTs:         row.created_at,
-        conversationScore: score,
-      })
-      console.log(
-        `[dm-draft-callback] Enrollment upserted | sender=${row.sender_id}` +
-        ` reason=${reason} score=${score}`
-      )
-    }
-  } catch (e) {
-    console.error('[dm-draft-callback] Enrollment evaluation failed (non-fatal):', e)
-  }
-
   // ── Auto-mode send ────────────────────────────────────────────────────────
   // Conditions (ALL must hold):
   //   1. Routine signalled auto_approved=true in the callback payload
@@ -337,7 +307,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           ok:          true,
           auto_sent:   true,
           send_outcome: result?.outcome ?? 'error',
-          enrolled_reason: enrolledReason,
         })
       } else {
         console.warn(
@@ -352,5 +321,5 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
   }
 
-  return NextResponse.json({ ok: true, enrolled_reason: enrolledReason })
+  return NextResponse.json({ ok: true })
 }

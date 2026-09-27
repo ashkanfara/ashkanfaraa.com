@@ -1,4 +1,3 @@
-import { isMetaWindowError } from '@/lib/dm-send-error'
 /**
  * POST /api/admin/dm-inbox/send
  *
@@ -24,11 +23,10 @@ import { isMetaWindowError } from '@/lib/dm-send-error'
  *   - Admin session cookie verified before any action
  *   - Same-Origin header validated (CSRF defence-in-depth)
  *   - Atomic PATCH claim prevents double-send
- *   - 24h messaging window re-checked server-side
  *   - Blocklist re-checked server-side
  *   - sender_id, created_at, status all loaded from Supabase — never trusted from browser
  *   - Instagram access token is a server-side env var only
- *   - final_response_text persisted at claim time — not lost if markDmSent fails
+ *   - final_response_text persisted at claim time — not lost if DB write fails after IG send
  *
  * Browser may submit ONLY: { id, finalText }
  *   id        — instagram_dm_buffer UUID
@@ -47,18 +45,12 @@ import {
   fetchDmRowMeta,
   countFreshInboundAfter,
   claimDmForSend,
-  markDmSent,
-  markDmSendFailed,
-  markDmWindowClosed,
-  markDmStatusUnknown,
   getBlockedSenderIds,
   saveDmFeedback,
   supersedeBundleSiblings,
 } from '@/lib/supabase'
 import { requireAdminSession, validateSameOrigin } from '@/lib/adminSession'
-
-const IG_API        = 'https://graph.instagram.com/v25.0/me/messages'
-const IG_TIMEOUT_MS = 30_000                         // 30 s Instagram call timeout
+import { sendViaEngine } from '@/lib/dm-send-engine'
 
 /**
  * Transition a row we own (already in SENDING) to REJECTED.
@@ -154,8 +146,6 @@ export async function POST(req: NextRequest) {
   }
 
   // ── 7. Detect whether this is a first-ever reply to this sender ──────────────
-  // Used as a Message Request indicator: if we've never sent to this sender before,
-  // this conversation was likely in Instagram's "Message Requests" state.
   // Stored for forensic audit — does NOT change send behavior.
   let isFirstReply = false
   try {
@@ -172,208 +162,99 @@ export async function POST(req: NextRequest) {
     }
   } catch { /* non-fatal */ }
 
-  // ── 8. Call Instagram Graph API ──────────────────────────────
-  // Outcome classification:
-  //   'success'            — HTTP 2xx AND response contains a non-empty message_id
-  //   'definitive_failure' — HTTP 4xx rejection from IG
-  //   'ambiguous_200'      — HTTP 2xx but NO message_id in response body (unexpected; treat as unknown)
-  //   'unknown'            — HTTP 5xx, timeout, network error, or thrown exception
-  type IgOutcome = 'success' | 'definitive_failure' | 'ambiguous_200' | 'unknown'
-  let igOutcome: IgOutcome = 'unknown'
-  let igMessageId: string | null = null
-  let igHttpStatus: number | null = null
-  let igResponseBody: string | null = null
-
+  // ── 8. Send via shared engine ────────────────────────────────
+  // Engine handles: IG API call, outcome classification, all DB state transitions,
+  // and link-sent flag updates. Caller (here) is responsible for: auth, blocklist,
+  // claim (PENDING_REVIEW → SENDING), supersede, and feedback.
   const sendAttemptTs = new Date().toISOString()
-
-  try {
-    const igRes = await fetch(`${IG_API}?access_token=${encodeURIComponent(token)}`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({
-        recipient: { id: senderId },
-        message:   { text: finalText },
-      }),
-      signal: AbortSignal.timeout(IG_TIMEOUT_MS),
-    })
-
-    igHttpStatus = igRes.status
-    const igBody = await igRes.json() as Record<string, unknown>
-
-    // Capture truncated response body for forensic storage (≤2KB)
-    igResponseBody = JSON.stringify(igBody).slice(0, 2048)
-
-    if (igRes.ok) {
-      const rawId = igBody.message_id
-      igMessageId = typeof rawId === 'string' && rawId.length > 0 ? rawId : null
-
-      if (igMessageId) {
-        // ✅ Verified success: HTTP 2xx + non-empty message_id
-        igOutcome = 'success'
-        console.log(
-          `[dm-inbox/send] IG accepted | review=${id} sender=${senderId}` +
-          ` ig_msg=${igMessageId} http=${igHttpStatus} first_reply=${isFirstReply}` +
-          ` recipient_id=${igBody.recipient_id ?? 'absent'}`
-        )
-      } else {
-        // ⚠️ HTTP 2xx but no message_id — Meta accepted the HTTP call but response is unexpected.
-        // Cannot confirm delivery. Treat as ambiguous to prevent a false SENT label.
-        igOutcome = 'ambiguous_200'
-        console.error(
-          `[dm-inbox/send] IG HTTP 2xx but NO message_id! review=${id} sender=${senderId}` +
-          ` http=${igHttpStatus} body=${igResponseBody} first_reply=${isFirstReply}`
-        )
-      }
-    } else {
-      // A server failure can occur after acceptance; do not make it resendable.
-      igOutcome = igRes.status >= 500 ? 'unknown' : 'definitive_failure'
-      console.error(
-        `[dm-inbox/send] IG error response | review=${id} sender=${senderId}` +
-        ` http=${igHttpStatus} body=${igResponseBody} first_reply=${isFirstReply}`
-      )
-    }
-
-  } catch (err) {
-    // Timeout, network error, or thrown exception — outcome is unknown
-    igOutcome = 'unknown'
-    const isTimeout = err instanceof Error && err.name === 'TimeoutError'
-    console.error(
-      `[dm-inbox/send] IG call threw | review=${id} sender=${senderId}` +
-      ` error=${isTimeout ? 'TimeoutError(30s)' : String(err)} first_reply=${isFirstReply}`
-    )
-  }
+  const result = await sendViaEngine({
+    dmId:            id,
+    senderId,
+    finalText,
+    isFirstReply,
+    sendingStartedAt: claimed.sendingStartedAt,
+  })
 
   // ── 9. Resolve outcome ───────────────────────────────────────
 
-  if (igOutcome === 'success') {
-    // Try to mark SENT in the database.
-    // CRITICAL: if this DB write fails, the message was sent but we cannot record it.
-    // Transition to SEND_STATUS_UNKNOWN — NON-RESENDABLE until manual reconciliation.
-    const markOk = await markDmSent(id, finalText, igMessageId, igHttpStatus, igResponseBody, isFirstReply)
-    if (!markOk) {
-      // Instagram sent the message. The DB is now inconsistent.
-      // The admin must check their Instagram outbox and manually resolve in Supabase.
-      await markDmStatusUnknown(id)
-      console.error(
-        `[dm-inbox/send] CRITICAL: IG sent (msg_id=${igMessageId}) but DB persistence failed.` +
-        ` review_id=${id} → SEND_STATUS_UNKNOWN. Manual reconciliation required.`
-      )
-      return NextResponse.json({
-        ok:    false,
-        error: 'send_status_unknown',
-        hint:  'Instagram sent the message but the database could not be updated. Check your Instagram outbox. Do not retry.',
-      })
-    }
-
-    // Complete cleanup before the serverless response; preserve newer arrivals.
-    await supersedeBundleSiblings(senderId, id, createdAt).then(count => {
-      if (count > 0) console.log(`[dm-inbox/send] Superseded ${count} bundle siblings for sender=${senderId}`)
-    }).catch(e => console.error('[dm-inbox/send] supersedeBundleSiblings failed (non-fatal):', e))
-
-    // Write feedback record — fire-and-forget, never blocks or fails the send response
+  if (result.outcome === 'sent') {
+    await supersedeBundleSiblings(senderId, id, createdAt).catch(e =>
+      console.error('[dm-inbox/send] supersedeBundleSiblings failed (non-fatal):', e)
+    )
     try {
       await saveDmFeedback({
-        bufferId:          id,
-        senderId:          senderId,
-        inboundContext:    messageText,
-        originalDraft:     originalDraft ?? null,
-        finalSentResponse: finalText,
-        draftSource:       draftSource ?? null,
-        wasEdited:         originalDraft !== null && finalText !== originalDraft,
-        feedbackRating:    feedbackRating,
-        feedbackCategory:  feedbackCategory,
-        feedbackNote:      feedbackNote,
-        igMessageId:       igMessageId,
-        igHttpStatus:      igHttpStatus,
-        approvalTs:        claimed.sendingStartedAt,
-        sendAttemptTs:     sendAttemptTs,
-        sendState:         'SENT',
-        isFirstReply:      isFirstReply,
+        bufferId: id, senderId, inboundContext: messageText,
+        originalDraft: originalDraft ?? null, finalSentResponse: finalText,
+        draftSource: draftSource ?? null, wasEdited: originalDraft !== null && finalText !== originalDraft,
+        feedbackRating, feedbackCategory, feedbackNote,
+        igMessageId: result.igMessageId ?? null, igHttpStatus: result.igHttpStatus ?? null,
+        approvalTs: claimed.sendingStartedAt, sendAttemptTs, sendState: 'SENT', isFirstReply,
       })
-    } catch (fbErr) {
-      console.error('[dm-inbox/send] feedback save failed (non-fatal):', fbErr)
-    }
-
-    console.log(`[dm-inbox/send] ✓ SENT | review=${id} sender=${senderId} ig_msg=${igMessageId} first_reply=${isFirstReply}`)
-    return NextResponse.json({ ok: true, sent: true, messageId: igMessageId })
+    } catch { /* non-fatal */ }
+    return NextResponse.json({ ok: true, sent: true, messageId: result.igMessageId })
   }
 
-  if (igOutcome === 'ambiguous_200') {
-    // HTTP 200 but no message_id — cannot prove delivery. SEND_STATUS_UNKNOWN is the truthful state.
-    await markDmStatusUnknown(id, igHttpStatus, igResponseBody)
-    console.error(`[dm-inbox/send] ambiguous_200 → SEND_STATUS_UNKNOWN | review=${id} sender=${senderId}`)
+  if (result.outcome === 'ambiguous') {
     try {
       await saveDmFeedback({
         bufferId: id, senderId, inboundContext: messageText,
         originalDraft: originalDraft ?? null, finalSentResponse: finalText,
         draftSource: draftSource ?? null, wasEdited: originalDraft !== null && finalText !== originalDraft,
         feedbackRating: null, feedbackCategory: null, feedbackNote: null,
-        igMessageId: null, igHttpStatus, approvalTs: claimed.sendingStartedAt,
-        sendAttemptTs, sendState: 'SEND_STATUS_UNKNOWN', isFirstReply,
+        igMessageId: null, igHttpStatus: result.igHttpStatus ?? null,
+        approvalTs: claimed.sendingStartedAt, sendAttemptTs, sendState: 'SEND_STATUS_UNKNOWN', isFirstReply,
       })
     } catch { /* non-fatal */ }
     return NextResponse.json({
-      ok:    false,
-      error: 'send_status_unknown',
-      hint:  'Instagram returned HTTP 200 but no message identifier. The send outcome is ambiguous — check your Instagram outbox before any action. Do not retry.',
+      ok: false, error: 'send_status_unknown',
+      hint: 'Instagram returned HTTP 200 but no message identifier. The send outcome is ambiguous — check your Instagram outbox before any action. Do not retry.',
     })
   }
 
-  if (igOutcome === 'definitive_failure') {
-    const windowClosed = isMetaWindowError(igResponseBody)
-    if (windowClosed) {
-      // Meta definitively rejected: messaging window closed. NOT retryable.
-      // Retrying the identical request will produce the same 403/2534022.
-      // State clears when the sender messages again (dm-draft-callback auto-archives it).
-      await markDmWindowClosed(id, igHttpStatus, igResponseBody)
-      try {
-        await saveDmFeedback({
-          bufferId: id, senderId, inboundContext: messageText,
-          originalDraft: originalDraft ?? null, finalSentResponse: finalText,
-          draftSource: draftSource ?? null, wasEdited: originalDraft !== null && finalText !== originalDraft,
-          feedbackRating: null, feedbackCategory: null, feedbackNote: null,
-          igMessageId: null, igHttpStatus, approvalTs: claimed.sendingStartedAt,
-          sendAttemptTs, sendState: 'SEND_FAILED_WINDOW_CLOSED', isFirstReply,
-        })
-      } catch { /* non-fatal */ }
-      return NextResponse.json({
-        ok: false,
-        error: 'ig_messaging_window',
-        hint: 'Instagram rejected this reply because the messaging window has closed.',
-      })
-    }
-    // Non-window definitive failure — IG rejected but may be retryable.
-    await markDmSendFailed(id, igHttpStatus, igResponseBody)
+  if (result.outcome === 'window_closed') {
     try {
       await saveDmFeedback({
         bufferId: id, senderId, inboundContext: messageText,
         originalDraft: originalDraft ?? null, finalSentResponse: finalText,
         draftSource: draftSource ?? null, wasEdited: originalDraft !== null && finalText !== originalDraft,
         feedbackRating: null, feedbackCategory: null, feedbackNote: null,
-        igMessageId: null, igHttpStatus, approvalTs: claimed.sendingStartedAt,
-        sendAttemptTs, sendState: 'SEND_FAILED', isFirstReply,
+        igMessageId: null, igHttpStatus: result.igHttpStatus ?? null,
+        approvalTs: claimed.sendingStartedAt, sendAttemptTs, sendState: 'SEND_FAILED_WINDOW_CLOSED', isFirstReply,
+      })
+    } catch { /* non-fatal */ }
+    return NextResponse.json({
+      ok: false, error: 'ig_messaging_window',
+      hint: 'Instagram rejected this reply because the messaging window has closed.',
+    })
+  }
+
+  if (result.outcome === 'definitive_failure') {
+    try {
+      await saveDmFeedback({
+        bufferId: id, senderId, inboundContext: messageText,
+        originalDraft: originalDraft ?? null, finalSentResponse: finalText,
+        draftSource: draftSource ?? null, wasEdited: originalDraft !== null && finalText !== originalDraft,
+        feedbackRating: null, feedbackCategory: null, feedbackNote: null,
+        igMessageId: null, igHttpStatus: result.igHttpStatus ?? null,
+        approvalTs: claimed.sendingStartedAt, sendAttemptTs, sendState: 'SEND_FAILED', isFirstReply,
       })
     } catch { /* non-fatal */ }
     return NextResponse.json({ ok: false, error: 'ig_send_failed' })
   }
 
-  // Unknown outcome (timeout/error) — cannot confirm whether IG sent.
-  // Transition to SEND_STATUS_UNKNOWN — NON-RESENDABLE.
-  await markDmStatusUnknown(id, igHttpStatus, igResponseBody)
+  // unknown outcome
   try {
     await saveDmFeedback({
       bufferId: id, senderId, inboundContext: messageText,
       originalDraft: originalDraft ?? null, finalSentResponse: finalText,
       draftSource: draftSource ?? null, wasEdited: originalDraft !== null && finalText !== originalDraft,
       feedbackRating: null, feedbackCategory: null, feedbackNote: null,
-      igMessageId: null, igHttpStatus, approvalTs: claimed.sendingStartedAt,
-      sendAttemptTs, sendState: 'SEND_STATUS_UNKNOWN', isFirstReply,
+      igMessageId: null, igHttpStatus: result.igHttpStatus ?? null,
+      approvalTs: claimed.sendingStartedAt, sendAttemptTs, sendState: 'SEND_STATUS_UNKNOWN', isFirstReply,
     })
   } catch { /* non-fatal */ }
-  console.error(`[dm-inbox/send] Unknown IG outcome → SEND_STATUS_UNKNOWN | review=${id}`)
   return NextResponse.json({
-    ok:    false,
-    error: 'send_status_unknown',
-    hint:  'Instagram send outcome is unknown (timeout or network error). Check your Instagram outbox before taking any action.',
+    ok: false, error: 'send_status_unknown',
+    hint: 'Instagram send outcome is unknown (timeout or network error). Check your Instagram outbox before taking any action.',
   })
 }
