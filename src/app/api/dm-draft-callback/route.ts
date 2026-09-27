@@ -32,7 +32,13 @@ import { DM_ROUTINE_PROMPT_VERSION } from '@/lib/dm-routine-contract'
 
 import { NextRequest, NextResponse } from 'next/server'
 import { timingSafeEqual } from 'crypto'
-import { supabaseConfigured, archiveWindowClosedSiblingsForSender } from '@/lib/supabase'
+import {
+  supabaseConfigured,
+  archiveWindowClosedSiblingsForSender,
+  isAutoModeActive,
+  claimDmForSend,
+} from '@/lib/supabase'
+import { sendViaEngine } from '@/lib/dm-send-engine'
 
 const SUPABASE_BASE = () => (process.env.SUPABASE_URL ?? '').replace(/\/$/, '')
 const SUPABASE_HEADERS = () => ({
@@ -136,12 +142,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   catch { return NextResponse.json({ ok: false, error: 'Invalid JSON' }, { status: 400 }) }
 
   // ── 3. Field validation ───────────────────────────────────────
-  const buffer_id     = typeof body.buffer_id     === 'string' ? body.buffer_id.trim()     : ''
-  const sender_id     = typeof body.sender_id     === 'string' ? body.sender_id.trim()     : ''
-  const generation_id = typeof body.generation_id === 'string' ? body.generation_id.trim() : ''
-  const draft_text    = typeof body.draft_text    === 'string' ? body.draft_text.trim()    : ''
+  const buffer_id      = typeof body.buffer_id      === 'string' ? body.buffer_id.trim()      : ''
+  const sender_id      = typeof body.sender_id      === 'string' ? body.sender_id.trim()      : ''
+  const generation_id  = typeof body.generation_id  === 'string' ? body.generation_id.trim()  : ''
+  const draft_text     = typeof body.draft_text     === 'string' ? body.draft_text.trim()     : ''
   const prompt_version = typeof body.prompt_version === 'string' ? body.prompt_version.trim() : ''
-  const draft_source  = typeof body.draft_source  === 'string' ? body.draft_source.trim()  : ''
+  const draft_source   = typeof body.draft_source   === 'string' ? body.draft_source.trim()   : ''
+  // Optional: Routine signals that this sender is enrolled in auto-mode.
+  // We verify enrollment independently via DB — never trust this flag alone.
+  const routine_auto_approved = body.auto_approved === true
 
   if (!buffer_id)
     return NextResponse.json({ ok: false, error: 'buffer_id is required' }, { status: 422 })
@@ -254,12 +263,57 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     `generation_id=${generation_id} source=${EXPECTED_DRAFT_SOURCE}`
   )
 
-  // A new inbound was received and a draft is ready — this implies the sender messaged again,
-  // which means the Instagram messaging window has reopened. Archive any window-closed siblings
-  // so they don't clutter the inbox. Fire-and-forget; non-fatal.
+  // Archive any window-closed siblings. Fire-and-forget; non-fatal.
   archiveWindowClosedSiblingsForSender(row.sender_id, buffer_id).catch(e =>
     console.error('[dm-draft-callback] archive window-closed siblings failed (non-fatal):', e)
   )
+
+  // ── Auto-mode send ────────────────────────────────────────────────────────
+  // Conditions (ALL must hold):
+  //   1. Routine signalled auto_approved=true in the callback payload
+  //   2. DB independently confirms sender is enrolled and enrollment has not expired
+  //   3. Sender is not blocked and not under human_temp takeover (already checked above)
+  //
+  // The PENDING_REVIEW state was written atomically above. We now attempt to claim and send.
+  // If claim fails (another process already handled it), we treat it as a race and skip.
+  // All outcomes are recorded truthfully; SEND_STATUS_UNKNOWN is never retried.
+  if (routine_auto_approved) {
+    const enrolled = await isAutoModeActive(row.sender_id, 'default').catch(() => false)
+    if (enrolled) {
+      console.log(
+        `[dm-draft-callback] Auto-mode send | buffer_id=${buffer_id} sender=${row.sender_id}`
+      )
+      // Claim: PENDING_REVIEW → SENDING
+      const claimed = await claimDmForSend(buffer_id, draft_text).catch(() => null)
+      if (claimed) {
+        // Fire-and-forget: do not block the callback response.
+        // The outcome is persisted in instagram_dm_buffer by sendViaEngine.
+        sendViaEngine({
+          dmId:            buffer_id,
+          senderId:        row.sender_id,
+          finalText:       draft_text,
+          isFirstReply:    false,
+          sendingStartedAt: claimed.sendingStartedAt,
+        }).then(result => {
+          console.log(
+            `[dm-draft-callback] Auto-send result | buffer_id=${buffer_id}` +
+            ` outcome=${result.outcome} http=${result.igHttpStatus ?? 'n/a'}`
+          )
+        }).catch(e => {
+          console.error('[dm-draft-callback] Auto-send threw (non-fatal, outcome persisted):', e)
+        })
+      } else {
+        console.warn(
+          `[dm-draft-callback] Auto-mode claim failed — row already handled | buffer_id=${buffer_id}`
+        )
+      }
+    } else {
+      console.log(
+        `[dm-draft-callback] Auto-mode: routine said auto_approved but DB enrollment inactive | ` +
+        `sender=${row.sender_id} — leaving in PENDING_REVIEW for human review`
+      )
+    }
+  }
 
   return NextResponse.json({ ok: true })
 }

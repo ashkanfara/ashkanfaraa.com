@@ -1631,3 +1631,253 @@ export async function getOutboundFailed(limit = 50, offset = 0): Promise<FailedR
     }
   })
 }
+
+
+// ── DM Auto-Mode Enrollment ───────────────────────────────────────────────────
+//
+// Tracks conversation-level automatic-response enrollment per sender.
+// Table: dm_auto_mode  (see DM_AUTO_MODE_MIGRATION.sql)
+//
+// Enrollment lasts 48h from the latest AUTHENTIC inbound message timestamp.
+// Out-of-order events cannot move expires_at backward.
+// Scoped to (sender_id, ig_account_id) for multi-account isolation.
+
+export interface AutoModeRecord {
+  senderId:          string
+  igAccountId:       string
+  enrolledReason:    string        // MIGRATION_INTEREST | COURSE_INQUIRY | CONSULTATION_INQUIRY
+  enrolledAt:        string
+  expiresAt:         string
+  lastInboundId:     string
+  lastInboundTs:     string
+  conversationScore: number
+}
+
+/** Returns null if table does not exist yet (migration not applied). */
+export async function getAutoModeRecord(senderId: string, igAccountId: string): Promise<AutoModeRecord | null> {
+  if (!supabaseConfigured()) return null
+  try {
+    const res = await fetch(
+      `${base()}/rest/v1/dm_auto_mode` +
+      `?sender_id=eq.${encodeURIComponent(senderId)}` +
+      `&ig_account_id=eq.${encodeURIComponent(igAccountId)}` +
+      `&select=sender_id,ig_account_id,enrolled_reason,enrolled_at,expires_at,last_inbound_id,last_inbound_ts,conversation_score` +
+      `&limit=1`,
+      { headers: headers() }
+    )
+    if (!res.ok) return null
+    const rows = await res.json() as {
+      sender_id: string; ig_account_id: string; enrolled_reason: string
+      enrolled_at: string; expires_at: string; last_inbound_id: string
+      last_inbound_ts: string; conversation_score: number
+    }[]
+    if (rows.length === 0) return null
+    const r = rows[0]
+    return {
+      senderId:          r.sender_id,
+      igAccountId:       r.ig_account_id,
+      enrolledReason:    r.enrolled_reason,
+      enrolledAt:        r.enrolled_at,
+      expiresAt:         r.expires_at,
+      lastInboundId:     r.last_inbound_id,
+      lastInboundTs:     r.last_inbound_ts,
+      conversationScore: r.conversation_score,
+    }
+  } catch { return null }
+}
+
+/** True if sender is currently enrolled and enrollment has not expired. */
+export async function isAutoModeActive(senderId: string, igAccountId: string): Promise<boolean> {
+  const record = await getAutoModeRecord(senderId, igAccountId)
+  if (!record) return false
+  return new Date(record.expiresAt) > new Date()
+}
+
+export interface EnrollmentUpdate {
+  senderId:          string
+  igAccountId:       string
+  enrolledReason:    string
+  inboundMessageId:  string
+  inboundTs:         string        // ISO timestamp of the INBOUND message (not server clock)
+  conversationScore: number
+}
+
+/**
+ * Upsert enrollment state for a sender.
+ *
+ * Safety:
+ *   - expires_at = max(existing_expires_at, inbound_ts + 48h)  — never moved backward
+ *   - last_inbound_ts updated only if inbound_ts >= existing (out-of-order guard)
+ *   - Skips silently if this inbound_message_id was already processed (dedup)
+ */
+export async function upsertAutoModeEnrollment(update: EnrollmentUpdate): Promise<boolean> {
+  if (!supabaseConfigured()) return false
+  try {
+    const inboundDate = new Date(update.inboundTs)
+    const newExpiry   = new Date(inboundDate.getTime() + 48 * 3600 * 1000).toISOString()
+
+    // Fetch current record to apply out-of-order and backward-movement guards
+    const current = await getAutoModeRecord(update.senderId, update.igAccountId)
+
+    // Deduplicate: if this inbound_id was already processed, skip
+    if (current?.lastInboundId === update.inboundMessageId) return true
+
+    // Out-of-order guard: if this event is older than last processed, do not update timestamps
+    const isOutOfOrder = current?.lastInboundTs
+      ? new Date(update.inboundTs) < new Date(current.lastInboundTs)
+      : false
+
+    const finalExpiry = isOutOfOrder
+      ? (current?.expiresAt ?? newExpiry)
+      : newExpiry > (current?.expiresAt ?? '')
+        ? newExpiry
+        : (current?.expiresAt ?? newExpiry)
+
+    const finalInboundTs = isOutOfOrder ? (current?.lastInboundTs ?? update.inboundTs) : update.inboundTs
+
+    const body: Record<string, unknown> = {
+      sender_id:          update.senderId,
+      ig_account_id:      update.igAccountId,
+      enrolled_reason:    update.enrolledReason,
+      expires_at:         finalExpiry,
+      last_inbound_id:    update.inboundMessageId,
+      last_inbound_ts:    finalInboundTs,
+      conversation_score: update.conversationScore,
+      updated_at:         new Date().toISOString(),
+    }
+    if (!current) {
+      body.enrolled_at = new Date().toISOString()
+    }
+
+    const res = await fetch(
+      `${base()}/rest/v1/dm_auto_mode`,
+      {
+        method:  'POST',
+        headers: { ...headers(), Prefer: 'resolution=merge-duplicates,return=minimal' },
+        body:    JSON.stringify(body),
+      }
+    )
+    return res.ok || res.status === 201
+  } catch { return false }
+}
+
+/** Remove enrollment immediately (manual takeover or block override). */
+export async function clearAutoModeEnrollment(senderId: string, igAccountId: string): Promise<void> {
+  if (!supabaseConfigured()) return
+  try {
+    await fetch(
+      `${base()}/rest/v1/dm_auto_mode` +
+      `?sender_id=eq.${encodeURIComponent(senderId)}` +
+      `&ig_account_id=eq.${encodeURIComponent(igAccountId)}`,
+      { method: 'DELETE', headers: headers() }
+    )
+  } catch { /* non-fatal */ }
+}
+
+// ── Conversation scoring for enrollment eligibility ───────────────────────────
+//
+// Looks at the last N messages (inbound + outbound) from the buffer to detect
+// conversation-level topic signals. Returns a score 0-100 and the dominant reason.
+// Threshold: score >= 35 -> eligible for enrollment.
+//
+// Conservative by design: false positives route to PENDING_REVIEW.
+
+/** The enrollment score threshold to qualify for automatic mode. */
+export const AUTO_MODE_ENROLL_THRESHOLD = 35
+
+export async function scoreConversationForEnrollment(
+  senderId: string,
+  limit = 15,
+): Promise<{ score: number; reason: string | null }> {
+  if (!supabaseConfigured()) return { score: 0, reason: null }
+  try {
+    const res = await fetch(
+      `${base()}/rest/v1/instagram_dm_buffer` +
+      `?sender_id=eq.${encodeURIComponent(senderId)}` +
+      `&select=message_text,response_sent,final_response_text` +
+      `&order=created_at.desc&limit=${limit}`,
+      { headers: headers() }
+    )
+    if (!res.ok) return { score: 0, reason: null }
+    const rows = await res.json() as {
+      message_text: string | null
+      response_sent: boolean
+      final_response_text: string | null
+    }[]
+
+    const inbound  = rows.filter(r => !r.response_sent).map(r => r.message_text ?? '')
+    const outbound = rows.filter(r =>  r.response_sent).map(r => r.final_response_text ?? '')
+
+    let migrationScore = 0
+    let courseScore    = 0
+    let consultScore   = 0
+
+    const MIGRATION_KW = [
+      /مهاجرت|migration|migrate|migrating/i,
+      /استرالیا|australia/i,
+      /ویزا|visa/i,
+      /skilled|ماهر|متخصص/i,
+      /\b(welder|carpenter|plumber|electrician|mechanic|nurse|engineer|chef|builder|painter|tiler|glazier|bricklayer|concreter|fitter|fabricator|rigger)\b/i,
+      /جوشکار|نجار|لوله‌?کش|برقکار|مکانیک|پرستار|مهندس|آشپز/i,
+      /امتیاز|points test|ielts/i,
+    ]
+    for (const p of MIGRATION_KW) {
+      migrationScore += inbound.filter(t  => p.test(t)).length * 12
+      migrationScore += outbound.filter(t => p.test(t)).length * 5
+    }
+
+    const COURSE_KW = [
+      /دوره|course|آموزش|training/i,
+      /ثبت‌?نام|enroll|register/i,
+      /تله‌?های\s*پنهان/i,
+    ]
+    for (const p of COURSE_KW) {
+      courseScore += inbound.filter(t  => p.test(t)).length * 15
+      courseScore += outbound.filter(t => p.test(t)).length * 5
+    }
+
+    const CONSULT_KW = [
+      /مشاوره|consultation|consult/i,
+      /یک‌?به‌?یک|one.on.one/i,
+    ]
+    for (const p of CONSULT_KW) {
+      consultScore += inbound.filter(t  => p.test(t)).length * 15
+      consultScore += outbound.filter(t => p.test(t)).length * 5
+    }
+
+    migrationScore = Math.min(migrationScore, 100)
+    courseScore    = Math.min(courseScore, 100)
+    consultScore   = Math.min(consultScore, 100)
+
+    const maxScore = Math.max(migrationScore, courseScore, consultScore)
+    if (maxScore === 0) return { score: 0, reason: null }
+
+    let reason: string
+    if (migrationScore >= courseScore && migrationScore >= consultScore) reason = 'MIGRATION_INTEREST'
+    else if (courseScore >= consultScore)                                 reason = 'COURSE_INQUIRY'
+    else                                                                  reason = 'CONSULTATION_INQUIRY'
+
+    return { score: maxScore, reason }
+  } catch { return { score: 0, reason: null } }
+}
+
+/**
+ * Link-sent flag update — call after every confirmed auto-send.
+ * Updates migration_assistance_link_sent, course_link_sent, consultation_link_sent
+ * in instagram_users based on which links appear in the sent text.
+ */
+export async function updateLinkSentFlags(senderId: string, sentText: string): Promise<void> {
+  if (!supabaseConfigured()) return
+  try {
+    const updates: Record<string, boolean> = {}
+    if (sentText.includes('ashkanfaraa.com/migration-assistance')) updates.migration_assistance_link_sent = true
+    if (sentText.includes('ashkanfaraa.com/course'))              updates.course_link_sent               = true
+    if (sentText.includes('ashkanfaraa.com/consultation'))        updates.consultation_link_sent          = true
+    if (Object.keys(updates).length === 0) return
+    await fetch(
+      `${base()}/rest/v1/instagram_users?sender_id=eq.${encodeURIComponent(senderId)}`,
+      { method: 'PATCH', headers: headers(), body: JSON.stringify(updates) }
+    )
+  } catch { /* non-fatal */ }
+}
+
