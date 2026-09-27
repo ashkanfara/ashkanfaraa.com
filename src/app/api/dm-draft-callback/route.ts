@@ -36,6 +36,7 @@ import {
   supabaseConfigured,
   archiveWindowClosedSiblingsForSender,
   isAutoModeActive,
+  getAutoModeRecord,
   upsertAutoModeEnrollment,
   claimDmForSend,
 } from '@/lib/supabase'
@@ -271,6 +272,32 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   archiveWindowClosedSiblingsForSender(row.sender_id, buffer_id).catch(e =>
     console.error('[dm-draft-callback] archive window-closed siblings failed (non-fatal):', e)
   )
+
+  // ── Enrollment renewal for already-enrolled senders ───────────────────────
+  // Per spec: every authentic inbound message from an enrolled sender renews the
+  // 48h window, regardless of what the Routine classifies this conversation as.
+  // This uses row.created_at (the DB row's creation time) as the inbound timestamp
+  // and buffer_id as the dedup key — the same values used for initial enrollment.
+  // Non-fatal: if renewal fails, the existing enrollment continues to its current expiry.
+  try {
+    const existingRecord = await getAutoModeRecord(row.sender_id, 'default')
+    if (existingRecord) {
+      await upsertAutoModeEnrollment({
+        senderId:          row.sender_id,
+        igAccountId:       'default',
+        enrolledReason:    existingRecord.enrolledReason,
+        inboundMessageId:  buffer_id,
+        inboundTs:         row.created_at,
+        conversationScore: existingRecord.conversationScore,
+      })
+      console.log(
+        `[dm-draft-callback] Enrollment renewed | sender=${row.sender_id}` +
+        ` reason=${existingRecord.enrolledReason}`
+      )
+    }
+  } catch (e) {
+    console.error('[dm-draft-callback] Enrollment renewal failed (non-fatal):', e)
+  }
 
   // ── Auto-mode send ────────────────────────────────────────────────────────
   // Conditions (ALL must hold):
