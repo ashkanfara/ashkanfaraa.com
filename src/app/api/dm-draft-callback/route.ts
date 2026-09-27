@@ -37,6 +37,9 @@ import {
   archiveWindowClosedSiblingsForSender,
   isAutoModeActive,
   claimDmForSend,
+  scoreConversationForEnrollment,
+  upsertAutoModeEnrollment,
+  AUTO_MODE_ENROLL_THRESHOLD,
 } from '@/lib/supabase'
 import { sendViaEngine } from '@/lib/dm-send-engine'
 
@@ -268,39 +271,73 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     console.error('[dm-draft-callback] archive window-closed siblings failed (non-fatal):', e)
   )
 
+  // ── Enrollment evaluation ─────────────────────────────────────────────────
+  // Every callback represents receipt of an authentic inbound DM (the Routine fires per inbound).
+  // Score conversation history and renew/create enrollment if threshold met.
+  // Uses buffer_id as inboundMessageId for idempotent deduplication (one row = one inbound).
+  // Uses row.created_at as the inbound timestamp (nearest available; never trusts callback clock).
+  let enrolledReason: string | null = null
+  try {
+    const { score, reason } = await scoreConversationForEnrollment(row.sender_id, 15)
+    if (score >= AUTO_MODE_ENROLL_THRESHOLD && reason) {
+      enrolledReason = reason
+      await upsertAutoModeEnrollment({
+        senderId:          row.sender_id,
+        igAccountId:       'default',
+        enrolledReason:    reason,
+        inboundMessageId:  buffer_id,
+        inboundTs:         row.created_at,
+        conversationScore: score,
+      })
+      console.log(
+        `[dm-draft-callback] Enrollment upserted | sender=${row.sender_id}` +
+        ` reason=${reason} score=${score}`
+      )
+    }
+  } catch (e) {
+    console.error('[dm-draft-callback] Enrollment evaluation failed (non-fatal):', e)
+  }
+
   // ── Auto-mode send ────────────────────────────────────────────────────────
   // Conditions (ALL must hold):
   //   1. Routine signalled auto_approved=true in the callback payload
   //   2. DB independently confirms sender is enrolled and enrollment has not expired
   //   3. Sender is not blocked and not under human_temp takeover (already checked above)
   //
-  // The PENDING_REVIEW state was written atomically above. We now attempt to claim and send.
-  // If claim fails (another process already handled it), we treat it as a race and skip.
-  // All outcomes are recorded truthfully; SEND_STATUS_UNKNOWN is never retried.
+  // Awaited — not fire-and-forget — so the HTTP response is not returned before the
+  // outcome write completes. This prevents the serverless function from being torn down
+  // before markDmSent / markDmWindowClosed / markDmStatusUnknown finishes.
   if (routine_auto_approved) {
     const enrolled = await isAutoModeActive(row.sender_id, 'default').catch(() => false)
     if (enrolled) {
       console.log(
         `[dm-draft-callback] Auto-mode send | buffer_id=${buffer_id} sender=${row.sender_id}`
       )
-      // Claim: PENDING_REVIEW → SENDING
+      // Claim: PENDING_REVIEW → SENDING (atomic)
       const claimed = await claimDmForSend(buffer_id, draft_text).catch(() => null)
       if (claimed) {
-        // Fire-and-forget: do not block the callback response.
-        // The outcome is persisted in instagram_dm_buffer by sendViaEngine.
-        sendViaEngine({
-          dmId:            buffer_id,
-          senderId:        row.sender_id,
-          finalText:       draft_text,
-          isFirstReply:    false,
+        // Awaited: IG send + outcome DB write must complete before we return.
+        // The Routine receives ok:true only after we know the outcome is persisted.
+        const result = await sendViaEngine({
+          dmId:             buffer_id,
+          senderId:         row.sender_id,
+          finalText:        draft_text,
+          isFirstReply:     false,
           sendingStartedAt: claimed.sendingStartedAt,
-        }).then(result => {
-          console.log(
-            `[dm-draft-callback] Auto-send result | buffer_id=${buffer_id}` +
-            ` outcome=${result.outcome} http=${result.igHttpStatus ?? 'n/a'}`
-          )
         }).catch(e => {
-          console.error('[dm-draft-callback] Auto-send threw (non-fatal, outcome persisted):', e)
+          console.error('[dm-draft-callback] sendViaEngine threw:', e)
+          return null
+        })
+        console.log(
+          `[dm-draft-callback] Auto-send result | buffer_id=${buffer_id}` +
+          ` outcome=${result?.outcome ?? 'error'} http=${result?.igHttpStatus ?? 'n/a'}`
+        )
+        // Return the send outcome to the Routine for observability (non-essential)
+        return NextResponse.json({
+          ok:          true,
+          auto_sent:   true,
+          send_outcome: result?.outcome ?? 'error',
+          enrolled_reason: enrolledReason,
         })
       } else {
         console.warn(
@@ -315,5 +352,5 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
   }
 
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({ ok: true, enrolled_reason: enrolledReason })
 }
