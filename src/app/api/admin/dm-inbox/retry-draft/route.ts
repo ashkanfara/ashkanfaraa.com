@@ -168,11 +168,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
 
   // ── 2. Parse body ────────────────────────────────────────────────────────────
-  let body: { id?: unknown }
+  let body: { id?: unknown; contact_notes?: unknown; feedback?: unknown }
   try { body = await req.json() }
   catch { return NextResponse.json({ ok: false, error: 'Invalid JSON' }, { status: 400 }) }
 
-  const id = typeof body.id === 'string' ? body.id.trim() : ''
+  const id            = typeof body.id            === 'string' ? body.id.trim()            : ''
+  // contact_notes: saved facts about this contact (do not re-ask questions answered here)
+  const contactNotes  = typeof body.contact_notes === 'string' ? body.contact_notes.trim() : ''
+  // feedback: one-time guidance for this regeneration only, not stored
+  const feedback      = typeof body.feedback      === 'string' ? body.feedback.trim()      : ''
   if (!id) return NextResponse.json({ ok: false, error: 'id is required' }, { status: 422 })
 
   // ── 3. Env check ─────────────────────────────────────────────────────────────
@@ -285,14 +289,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const combinedMessage = bundleNote + allTexts.join('\n')
 
   // ── 7. Fire Claude Routine trigger ────────────────────────────────────────────
-  const triggerPayload = {
+  const triggerPayload: Record<string, unknown> = {
     buffer_id:            id,
     sender_id:            row.sender_id,
     generation_id:        generationId,
     prompt_version:       DM_PROMPT_VERSION,
     message_text:         row.message_text ?? '',
     combined_message:     combinedMessage,
-    bundle_size:          allTexts.length, // number of messages in this conversation bundle
+    bundle_size:          allTexts.length,
     is_story_reply:       row.is_story_reply ?? false,
     is_story_mention:     false,
     story_context:        storyCtx,
@@ -303,6 +307,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       consultation_link_sent:         false,
     },
   }
+  // Include contact_notes and feedback only when non-empty, so the Routine
+  // ignores absent fields and existing prompts remain unchanged.
+  if (contactNotes) triggerPayload.contact_notes = contactNotes
+  if (feedback)     triggerPayload.feedback       = feedback
 
   let triggerOk = false
   try {

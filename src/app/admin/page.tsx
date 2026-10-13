@@ -1017,6 +1017,15 @@ function ConvWorkspace({ targetItem, pendingCount, onRefresh, effectiveCreatedAt
   const [success,       setSuccess]       = useState<string | null>(null)
   const [fbCategory,    setFbCategory]    = useState<string | null>(null)
   const [fbNote,        setFbNote]        = useState('')
+  // Contact notes: persisted per-contact facts; loaded from getDmInbox item.notes
+  const [contactNotes,   setContactNotes]   = useState(targetItem.notes ?? '')
+  const [notesEditMode,  setNotesEditMode]  = useState(false)
+  const [notesDraft,     setNotesDraft]     = useState(targetItem.notes ?? '')
+  const [notesBusy,      setNotesBusy]      = useState(false)
+  const [notesErr,       setNotesErr]       = useState<string | null>(null)
+  // Feedback: one-time guidance for next regeneration only; not persisted
+  const [feedback,       setFeedback]       = useState('')
+  const [showFeedback,   setShowFeedback]   = useState(false)
 
   const cardState   = getCardState(targetItem)
   const msLeft      = windowMsRemaining(effectiveCreatedAt ?? targetItem.createdAt)
@@ -1025,10 +1034,102 @@ function ConvWorkspace({ targetItem, pendingCount, onRefresh, effectiveCreatedAt
   const displayName = targetItem.username ? `@${targetItem.username}` : targetItem.displayName ?? 'Instagram User'
   const isBusy      = busy !== null
 
-  async function callApi(path: string, body: Record<string, string | null | boolean>): Promise<{ ok: boolean; error?: string; promptPackage?: string; alreadySent?: boolean }> {
+  async function callApi(path: string, body: Record<string, string | null | boolean | undefined>): Promise<{ ok: boolean; error?: string; promptPackage?: string; alreadySent?: boolean }> {
     const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     return res.json()
   }
+
+  async function saveNotes() {
+    setNotesBusy(true); setNotesErr(null)
+    try {
+      const res = await fetch('/api/admin/dm-inbox/contact-notes', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ senderId: targetItem.senderId, notes: notesDraft }),
+      })
+      const data = await res.json() as { ok: boolean; error?: string }
+      if (data.ok) { setContactNotes(notesDraft); setNotesEditMode(false) }
+      else          { setNotesErr(data.error ?? 'Save failed') }
+    } catch { setNotesErr('Network error') }
+    finally { setNotesBusy(false) }
+  }
+
+  async function clearNotes() {
+    if (!window.confirm('Clear saved notes for this contact?')) return
+    setNotesBusy(true); setNotesErr(null)
+    try {
+      const res = await fetch('/api/admin/dm-inbox/contact-notes', {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ senderId: targetItem.senderId }),
+      })
+      const data = await res.json() as { ok: boolean; error?: string }
+      if (data.ok) { setContactNotes(''); setNotesDraft(''); setNotesEditMode(false) }
+      else          { setNotesErr(data.error ?? 'Clear failed') }
+    } catch { setNotesErr('Network error') }
+    finally { setNotesBusy(false) }
+  }
+
+  // Contact notes panel — compact, shown in all actionable states
+  const notesPanel = (
+    <div style={{ marginBottom: '10px', padding: '8px 10px', background: '#0e0d0b', border: `1px solid ${C.border2}`, borderRadius: '6px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: notesEditMode ? '6px' : 0 }}>
+        <span style={{ fontSize: '9px', color: C.muted, fontWeight: 700, letterSpacing: '0.08em', flex: 1 }}>CONTACT NOTES</span>
+        {!notesEditMode && contactNotes && (
+          <button onClick={() => { setNotesDraft(contactNotes); setNotesEditMode(true); setNotesErr(null) }}
+            style={{ ...btn('ghost'), fontSize: '10px', padding: '2px 7px' }}>Edit</button>
+        )}
+        {!notesEditMode && contactNotes && (
+          <button onClick={() => void clearNotes()} disabled={notesBusy}
+            style={{ ...btn('ghost'), fontSize: '10px', padding: '2px 7px', color: C.muted }}>Clear</button>
+        )}
+        {!notesEditMode && !contactNotes && (
+          <button onClick={() => { setNotesDraft(''); setNotesEditMode(true); setNotesErr(null) }}
+            style={{ ...btn('ghost'), fontSize: '10px', padding: '2px 7px' }}>+ Add notes</button>
+        )}
+      </div>
+      {notesEditMode ? (
+        <>
+          <textarea
+            value={notesDraft}
+            onChange={e => setNotesDraft(e.target.value)}
+            rows={3}
+            placeholder="e.g. Lives in Australia already. Had a prior consultation. Do not ask about location again."
+            style={{ ...S.textarea, fontSize: '11px', resize: 'vertical' }}
+            autoFocus
+          />
+          {notesErr && <p style={{ color: C.red, fontSize: '10px', margin: '4px 0 0' }}>{notesErr}</p>}
+          <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
+            <button onClick={() => void saveNotes()} disabled={notesBusy}
+              style={{ ...btn('primary'), fontSize: '11px', padding: '4px 10px' }}>
+              {notesBusy ? '…' : 'Save notes'}
+            </button>
+            <button onClick={() => { setNotesEditMode(false); setNotesDraft(contactNotes); setNotesErr(null) }}
+              style={{ ...btn('ghost'), fontSize: '11px', padding: '4px 10px' }}>Cancel</button>
+          </div>
+        </>
+      ) : contactNotes ? (
+        <p style={{ margin: 0, fontSize: '11px', color: C.dim, whiteSpace: 'pre-wrap', lineHeight: 1.5, marginTop: '4px' }}>{contactNotes}</p>
+      ) : (
+        <p style={{ margin: 0, fontSize: '10px', color: '#3a3530', fontStyle: 'italic' }}>No notes saved for this contact</p>
+      )}
+    </div>
+  )
+
+  // Feedback panel — shown on demand above regeneration triggers
+  const feedbackPanel = showFeedback && (
+    <div style={{ marginBottom: '8px', padding: '8px 10px', background: '#0e0d0b', border: `1px solid ${C.goldDim}`, borderRadius: '6px' }}>
+      <span style={{ fontSize: '9px', color: C.goldDim, fontWeight: 700, letterSpacing: '0.08em', display: 'block', marginBottom: '4px' }}>
+        ONE-TIME REGENERATION GUIDANCE — NOT SAVED
+      </span>
+      <textarea
+        value={feedback}
+        onChange={e => setFeedback(e.target.value)}
+        rows={2}
+        placeholder="e.g. Address their WhatsApp question. Acknowledge their CV offer. Lead toward consultation."
+        style={{ ...S.textarea, fontSize: '11px', borderColor: C.goldDim }}
+        autoFocus
+      />
+    </div>
+  )
 
   async function saveDraft(draftSource: 'HUMAN') {
     const text = pasteText.trim()
@@ -1123,14 +1224,16 @@ function ConvWorkspace({ targetItem, pendingCount, onRefresh, effectiveCreatedAt
             ? `Claude Routine has not responded (${elapsedMin}m). Write a reply manually, or retry to fire a new generation.`
             : 'Claude Routine is generating a draft. Refreshing automatically — this usually takes under a minute.'}
         </div>
+        {notesPanel}
+        {feedbackPanel}
         <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '10px' }}>
           <button onClick={onRefresh} style={{ ...btn('ghost'), fontSize: '11px' }}>Refresh</button>
           {timedOut && (
             <button disabled={isBusy} onClick={async () => {
               setBusy('retry'); setErr(null)
               try {
-                const data = await callApi('/api/admin/dm-inbox/retry-draft', { id: targetItem.id })
-                if (data.ok) { setTimeout(onRefresh, 600) }
+                const data = await callApi('/api/admin/dm-inbox/retry-draft', { id: targetItem.id, contact_notes: contactNotes || undefined, feedback: feedback || undefined })
+                if (data.ok) { setFeedback(''); setShowFeedback(false); setTimeout(onRefresh, 600) }
                 else          { setErr(data.error ?? 'Failed to queue draft generation') }
               } catch { setErr('Network error') }
               finally { setBusy(null) }
@@ -1231,14 +1334,16 @@ function ConvWorkspace({ targetItem, pendingCount, onRefresh, effectiveCreatedAt
           Automatic draft generation failed. Retry to trigger one new AI draft, or write a reply manually.
         </div>
 
+        {notesPanel}
+        {feedbackPanel}
         {writeMode === null ? (
           <>
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '10px' }}>
               <button disabled={isBusy} onClick={async () => {
                 setBusy('retry'); setErr(null)
                 try {
-                  const data = await callApi('/api/admin/dm-inbox/retry-draft', { id: targetItem.id })
-                  if (data.ok) { setTimeout(onRefresh, 600) }
+                  const data = await callApi('/api/admin/dm-inbox/retry-draft', { id: targetItem.id, contact_notes: contactNotes || undefined, feedback: feedback || undefined })
+                  if (data.ok) { setFeedback(''); setShowFeedback(false); setTimeout(onRefresh, 600) }
                   else          { setErr(data.error ?? 'Failed to queue draft generation') }
                 } catch { setErr('Network error') }
                 finally { setBusy(null) }
@@ -1288,6 +1393,8 @@ function ConvWorkspace({ targetItem, pendingCount, onRefresh, effectiveCreatedAt
     return (
       <div style={wrapStyle}>
         {windowBar}
+        {notesPanel}
+        {feedbackPanel}
         <span style={{ ...S.label, color: '#c8b070', fontWeight: 700, letterSpacing: '0.08em' }}>AI SUGGESTED REPLY — NOT SENT</span>
         <textarea value={editText} onChange={e => setEditText(e.target.value)} rows={4}
           style={{ ...S.textarea, direction: 'rtl', lineHeight: 1.7, marginTop: '6px' }} placeholder="AI draft will appear here…" />
@@ -1313,6 +1420,21 @@ function ConvWorkspace({ targetItem, pendingCount, onRefresh, effectiveCreatedAt
           <button disabled={isBusy} onClick={() => void mutate('ignore')} style={{ ...btn('ghost'), fontSize: '12px' }}>
             {busy === 'ignore' ? '…' : pendingCount > 1 ? 'Ignore this message' : 'Ignore'}
           </button>
+          <button disabled={isBusy} onClick={async () => {
+            setBusy('regen'); setErr(null)
+            try {
+              await callApi('/api/admin/dm-inbox', { action: 'requeue', id: targetItem.id })
+              const data = await callApi('/api/admin/dm-inbox/retry-draft', { id: targetItem.id, contact_notes: contactNotes || undefined, feedback: feedback || undefined })
+              if (data.ok) { setFeedback(''); setShowFeedback(false); setTimeout(onRefresh, 600) }
+              else          { setErr(data.error ?? 'Failed to regenerate') }
+            } catch { setErr('Network error') }
+            finally { setBusy(null) }
+          }} style={{ ...btn('ghost'), fontSize: '12px', color: C.goldDim, borderColor: C.goldDim }}>
+            {busy === 'regen' ? '…' : showFeedback ? 'Regenerate with feedback' : 'Regenerate'}
+          </button>
+          {!showFeedback && (
+            <button onClick={() => setShowFeedback(true)} style={{ ...btn('ghost'), fontSize: '11px', color: C.muted }}>+ guidance</button>
+          )}
         </div>
         <div style={{ display: 'flex', gap: '6px', paddingTop: '8px', marginTop: '4px', borderTop: `1px solid ${C.border2}`, flexWrap: 'wrap' }}>
           {takeOverOrRelease}{blockBtn}

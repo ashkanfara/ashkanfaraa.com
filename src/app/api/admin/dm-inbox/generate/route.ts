@@ -229,7 +229,9 @@ function buildPromptPackage(
   histRows: { message_text: string | null; final_response_text: string | null; created_at: string }[],
   storyCtx: StoryCtx | null,
   pendingRows: PendingInboundRow[] = [],
-  pendingStoryCtxMap: Record<string, StoryCtx> = {}
+  pendingStoryCtxMap: Record<string, StoryCtx> = {},
+  contactNotes = '',
+  feedback = ''
 ): string {
   const lines: string[] = []
 
@@ -237,6 +239,21 @@ function buildPromptPackage(
   lines.push('')
   lines.push(SYSTEM_PROMPT)
   lines.push('')
+
+  if (contactNotes) {
+    lines.push('━━━ CONTACT NOTES (saved facts — do not re-ask questions answered here) ━━━')
+    lines.push('')
+    lines.push(contactNotes)
+    lines.push('')
+  }
+
+  if (feedback) {
+    lines.push('━━━ REGENERATION GUIDANCE (one-time instruction for this draft only) ━━━')
+    lines.push('')
+    lines.push(feedback)
+    lines.push('')
+  }
+
   lines.push('━━━ CONVERSATION HISTORY (oldest → newest, sent exchanges only) ━━━')
   lines.push('')
 
@@ -312,12 +329,14 @@ export async function POST(req: NextRequest) {
   if (!validateSameOrigin(req))
     return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
 
-  let body: { id?: unknown; mode?: unknown }
+  let body: { id?: unknown; mode?: unknown; contact_notes?: unknown; feedback?: unknown }
   try { body = await req.json() }
   catch { return NextResponse.json({ ok: false, error: 'Invalid JSON' }, { status: 400 }) }
 
-  const id   = typeof body.id   === 'string' ? body.id.trim()   : ''
-  const mode = typeof body.mode === 'string' ? body.mode.trim() : 'claude'
+  const id           = typeof body.id           === 'string' ? body.id.trim()           : ''
+  const mode         = typeof body.mode         === 'string' ? body.mode.trim()         : 'claude'
+  const contactNotes = typeof body.contact_notes === 'string' ? body.contact_notes.trim() : ''
+  const feedback     = typeof body.feedback      === 'string' ? body.feedback.trim()     : ''
 
   if (!id)           return NextResponse.json({ ok: false, error: 'id is required' }, { status: 422 })
   if (mode !== 'claude') return NextResponse.json({ ok: false, error: 'mode must be claude (API mode is disabled — use Generate with Claude)' }, { status: 422 })
@@ -352,8 +371,8 @@ export async function POST(req: NextRequest) {
   // MODE: 'claude' — build prompt package, return it. ZERO API call.
   // ════════════════════════════════════════════════════════════
   if (mode === 'claude') {
-    const promptPackage = buildPromptPackage(row, histRows, storyCtx, pendingRows, pendingStoryCtxMap)
-    console.log(`[dm-generate] ✓ Prompt package built | mode=claude id=${id} pending=${pendingRows.length}`)
+    const promptPackage = buildPromptPackage(row, histRows, storyCtx, pendingRows, pendingStoryCtxMap, contactNotes, feedback)
+    console.log(`[dm-generate] ✓ Prompt package built | mode=claude id=${id} pending=${pendingRows.length} notes=${contactNotes.length > 0} feedback=${feedback.length > 0}`)
     return NextResponse.json({ ok: true, promptPackage })
   }
 

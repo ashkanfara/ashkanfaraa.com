@@ -695,7 +695,7 @@ export async function getDmInbox(): Promise<{
       ? `(${storyIds.map(id => encodeURIComponent(id)).join(',')})`
       : null
 
-    const [usersRes, stateRes, storyRes, histRes] = await Promise.all([
+    const [usersRes, stateRes, storyRes, histRes, contactNotesRes] = await Promise.all([
       fetch(
         `${base()}/rest/v1/instagram_users` +
         `?sender_id=in.${idList}` +
@@ -723,6 +723,13 @@ export async function getDmInbox(): Promise<{
         `&select=id,sender_id,created_at,message_text,message_type,is_story_reply,story_id,` +
         `response_text,final_response_text,response_sent,response_sent_at,failed_reason` +
         `&order=created_at.desc&limit=150`,
+        { headers: headers(), cache: 'no-store' }
+      ),
+      // Per-contact private notes (dm_contact_notes) — admin-only, service role
+      fetch(
+        `${base()}/rest/v1/dm_contact_notes` +
+        `?sender_id=in.${idList}&ig_account_id=eq.default` +
+        `&select=sender_id,notes`,
         { headers: headers(), cache: 'no-store' }
       ),
     ])
@@ -793,6 +800,13 @@ export async function getDmInbox(): Promise<{
       }
     }
 
+    // Per-contact notes from dm_contact_notes (overrides instagram_users.notes for the workspace)
+    const contactNotesMap: Record<string, string> = {}
+    if (contactNotesRes.ok) {
+      const cnRows = await contactNotesRes.json() as { sender_id: string; notes: string }[]
+      for (const r of cnRows) if (r.notes) contactNotesMap[r.sender_id] = r.notes
+    }
+
     // Enrich identity if any field is still missing.
     // Staleness policy: skip if all three (display_name, username, profile_picture_url) are populated.
     // username is rarely returned by the IG Messaging API so we only require display_name + profile_picture_url
@@ -824,7 +838,7 @@ export async function getDmInbox(): Promise<{
       sendFailure: ['SEND_FAILED', 'IG_SEND_ERROR'].includes(r.failed_reason)
         ? (isMetaWindowError(r.ig_response_body) ? 'ig_messaging_window' : 'ig_send_failed') : null,
       messageCount:    usersMap[r.sender_id]?.message_count ?? null,
-      notes:           usersMap[r.sender_id]?.notes         ?? null,
+      notes:           contactNotesMap[r.sender_id] ?? usersMap[r.sender_id]?.notes ?? null,
       conversationOwner:   stateMap[r.sender_id]?.conversation_owner    ?? null,
       humanTakeoverReason: stateMap[r.sender_id]?.human_takeover_reason ?? null,
       humanTakeoverUntil:  stateMap[r.sender_id]?.human_takeover_until  ?? null,
