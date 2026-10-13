@@ -156,13 +156,25 @@ describe('PUT /contact-notes', () => {
 })
 
 // ── DELETE tests ───────────────────────────────────────────────────────────
+// DELETE upserts notes='' (tombstone) rather than removing the row.
+// This prevents getDmInbox from resurrecting instagram_users.notes after clear.
 
 describe('DELETE /contact-notes', () => {
-  it('deletes notes successfully', async () => {
+  it('clears notes successfully (upsert tombstone)', async () => {
     mockDbWrite(true)
     const res = await DELETE(makeDeleteReq({ senderId: 'sender_a' }))
     expect(res.status).toBe(200)
     expect((await res.json()).ok).toBe(true)
+  })
+
+  it('uses POST (upsert) not DELETE so tombstone row survives — prevents instagram_users.notes fallback', async () => {
+    mockDbWrite(true)
+    await DELETE(makeDeleteReq({ senderId: 'sender_a' }))
+    const [, opts] = mockFetch.mock.calls[0] as [string, RequestInit]
+    expect(opts.method).toBe('POST')
+    const reqBody = JSON.parse(opts.body as string) as Record<string, unknown>
+    expect(reqBody.notes).toBe('')
+    expect(reqBody.sender_id).toBe('sender_a')
   })
 
   it('requires senderId', async () => {
@@ -180,12 +192,13 @@ describe('DELETE /contact-notes', () => {
     expect(res.status).toBe(403)
   })
 
-  it('passes ig_account_id to Supabase DELETE query for isolation', async () => {
+  it('passes ig_account_id in tombstone body for isolation', async () => {
     mockDbWrite(true)
     await DELETE(makeDeleteReq({ senderId: 'sender_a', igAccountId: 'account_2' }))
-    const calledUrl = (mockFetch.mock.calls[0] as [string])[0]
-    expect(calledUrl).toContain('ig_account_id=eq.account_2')
-    expect(calledUrl).toContain('sender_id=eq.sender_a')
+    const reqBody = JSON.parse((mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string)
+    expect(reqBody.ig_account_id).toBe('account_2')
+    expect(reqBody.sender_id).toBe('sender_a')
+    expect(reqBody.notes).toBe('')
   })
 })
 

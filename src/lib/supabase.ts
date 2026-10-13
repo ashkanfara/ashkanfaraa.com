@@ -805,10 +805,11 @@ export async function getDmInbox(): Promise<{
     }
 
     // Per-contact notes from dm_contact_notes (overrides instagram_users.notes for the workspace)
-    const contactNotesMap: Record<string, string> = {}
+    // Map value null = explicitly cleared (empty row). Key presence alone suppresses instagram_users fallback.
+    const contactNotesMap: Record<string, string | null> = {}
     if (contactNotesRes.ok) {
       const cnRows = await contactNotesRes.json() as { sender_id: string; notes: string }[]
-      for (const r of cnRows) if (r.notes) contactNotesMap[r.sender_id] = r.notes
+      for (const r of cnRows) contactNotesMap[r.sender_id] = r.notes || null
     }
 
     // Enrich identity if any field is still missing.
@@ -842,7 +843,11 @@ export async function getDmInbox(): Promise<{
       sendFailure: ['SEND_FAILED', 'IG_SEND_ERROR'].includes(r.failed_reason)
         ? (isMetaWindowError(r.ig_response_body) ? 'ig_messaging_window' : 'ig_send_failed') : null,
       messageCount:    usersMap[r.sender_id]?.message_count ?? null,
-      notes:           contactNotesMap[r.sender_id] ?? usersMap[r.sender_id]?.notes ?? null,
+      // dm_contact_notes takes precedence; only fall back to instagram_users.notes if no
+      // dm_contact_notes row exists for this sender (key absence = never saved/cleared there).
+      notes:           Object.hasOwn(contactNotesMap, r.sender_id)
+                         ? contactNotesMap[r.sender_id]
+                         : (usersMap[r.sender_id]?.notes ?? null),
       conversationOwner:   stateMap[r.sender_id]?.conversation_owner    ?? null,
       humanTakeoverReason: stateMap[r.sender_id]?.human_takeover_reason ?? null,
       humanTakeoverUntil:  stateMap[r.sender_id]?.human_takeover_until  ?? null,

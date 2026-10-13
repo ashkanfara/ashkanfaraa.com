@@ -96,11 +96,21 @@ export async function DELETE(req: NextRequest) {
 
   if (!senderId) return NextResponse.json({ ok: false, error: 'senderId required' }, { status: 422 })
 
+  // Upsert notes='' (tombstone) rather than deleting the row.
+  // getDmInbox checks key presence in contactNotesMap to suppress instagram_users.notes fallback;
+  // a deleted row would make the key absent and resurrect the legacy value on next load.
   const res = await fetch(
-    `${BASE()}/rest/v1/dm_contact_notes` +
-    `?sender_id=eq.${encodeURIComponent(senderId)}` +
-    `&ig_account_id=eq.${encodeURIComponent(igAccountId)}`,
-    { method: 'DELETE', headers: { ...HEADERS(), Prefer: '' } }
+    `${BASE()}/rest/v1/dm_contact_notes`,
+    {
+      method:  'POST',
+      headers: HEADERS(),
+      body: JSON.stringify({
+        sender_id:     senderId,
+        ig_account_id: igAccountId,
+        notes:         '',
+        updated_at:    new Date().toISOString(),
+      }),
+    }
   )
   if (!res.ok) {
     console.error('[contact-notes DELETE]', res.status)
