@@ -308,6 +308,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // Awaited — not fire-and-forget — so the HTTP response is not returned before the
   // outcome write completes. This prevents the serverless function from being torn down
   // before markDmSent / markDmWindowClosed / markDmStatusUnknown finishes.
+  // Admin-initiated regeneration: generation_id is prefixed 'admin_' by retry-draft.
+  // Never auto-send regardless of Routine classification — leave in PENDING_REVIEW for review.
+  if (generation_id.startsWith('admin_'))
+    return NextResponse.json({ ok: true })
+
   if (routine_auto_approved) {
     // If Routine provided a classification reason, enroll (or renew) this sender.
     // This is the ONLY enrollment path for new senders: the Routine's LLM output is

@@ -198,8 +198,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const isFreshInbound     = row.failed_reason === null && row.processed === false && row.processing_started_at === null
   const isDraftFailed      = row.failed_reason === 'DRAFT_FAILED'
   const isDraftGenerating  = row.failed_reason === 'DRAFT_GENERATING'
+  // Admin regeneration from PENDING_REVIEW goes directly PENDING_REVIEW → DRAFT_GENERATING
+  // without touching processed=false, so n8n can never claim it as fresh inbound.
+  const isPendingReview    = row.failed_reason === 'PENDING_REVIEW'
 
-  if (!isFreshInbound && !isDraftFailed && !isDraftGenerating)
+  if (!isFreshInbound && !isDraftFailed && !isDraftGenerating && !isPendingReview)
     return NextResponse.json({ ok: false, error: `Row is not in a retryable state (failed_reason=${row.failed_reason})` }, { status: 409 })
 
   // ── 4b. Idempotency guard: if a sibling for this sender is already generating, return noop ──
@@ -215,13 +218,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   // ── 5. Generate new UUID + atomically claim DRAFT_GENERATING ──
-  const generationId = randomUUID()
+  // Prefix admin_ so the callback route knows not to auto-send regardless of
+  // what the Routine's LLM classifies; human review is always required for admin regen.
+  const generationId = 'admin_' + randomUUID()
 
   const claimWhere = isFreshInbound
     ? `&failed_reason=is.null&processed=eq.false&processing_started_at=is.null`
     : isDraftFailed
       ? `&failed_reason=eq.DRAFT_FAILED`
-      : `&failed_reason=eq.DRAFT_GENERATING` // re-retry: supersedes old generation_id
+      : isPendingReview
+        ? `&failed_reason=eq.PENDING_REVIEW`
+        : `&failed_reason=eq.DRAFT_GENERATING` // re-retry: supersedes old generation_id
 
   const claimRes = await fetch(
     `${SUPABASE_BASE()}/rest/v1/instagram_dm_buffer` +
@@ -337,7 +344,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   // ── 8. Rollback on trigger failure ────────────────────────────────────────────
+  // If we started from PENDING_REVIEW, roll back there so the existing draft remains
+  // visible and actionable. Other starting states roll back to DRAFT_FAILED.
   if (!triggerOk) {
+    const rollbackReason = isPendingReview ? 'PENDING_REVIEW' : 'DRAFT_FAILED'
     await fetch(
       `${SUPABASE_BASE()}/rest/v1/instagram_dm_buffer` +
       `?id=eq.${encodeURIComponent(id)}&generation_id=eq.${encodeURIComponent(generationId)}`,
@@ -345,7 +355,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         method:  'PATCH',
         headers: SUPABASE_HEADERS(),
         body:    JSON.stringify({
-          failed_reason:         'DRAFT_FAILED',
+          failed_reason:         rollbackReason,
           generation_id:         null,
           processed:             true,
           processing:            false,
@@ -353,7 +363,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         }),
       }
     ).catch(e => console.error('[retry-draft] Rollback failed:', e))
-    return NextResponse.json({ ok: false, error: 'Failed to reach Claude Routine — row reverted to DRAFT_FAILED' }, { status: 502 })
+    return NextResponse.json({ ok: false, error: `Failed to reach Claude Routine — row reverted to ${rollbackReason}` }, { status: 502 })
   }
 
   console.log(`[retry-draft] ✓ Routine triggered | id=${id} generation_id=${generationId}`)

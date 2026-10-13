@@ -1423,7 +1423,6 @@ function ConvWorkspace({ targetItem, pendingCount, onRefresh, effectiveCreatedAt
           <button disabled={isBusy} onClick={async () => {
             setBusy('regen'); setErr(null)
             try {
-              await callApi('/api/admin/dm-inbox', { action: 'requeue', id: targetItem.id })
               const data = await callApi('/api/admin/dm-inbox/retry-draft', { id: targetItem.id, contact_notes: contactNotes || undefined, feedback: feedback || undefined })
               if (data.ok) { setFeedback(''); setShowFeedback(false); setTimeout(onRefresh, 600) }
               else          { setErr(data.error ?? 'Failed to regenerate') }
