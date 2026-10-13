@@ -485,15 +485,18 @@ function GenerationFailedCard({ item, onRefresh }: { item: DmItem; onRefresh: ()
 // ── DmInboxItem ───────────────────────────────────────────────
 function DmInboxItem({ item, onRefresh }: { item: DmItem; onRefresh: () => void }) {
   const [editText,     setEditText]     = useState(item.responseText ?? '')
-  const lastSeenGenId = useRef(item.generationId)
-  // When a new generation arrives (generationId changed), replace the displayed draft.
-  // When generationId is unchanged the user may have manually edited editText — leave it.
+  // Track the last responseText value we applied so inbox polling never overwrites
+  // a manual edit — only a genuinely new server value (callback arriving) should update.
+  // generationId changes at CLAIM time (responseText still old); responseText changes at
+  // CALLBACK time. Depending on generationId would fire early with the old text and then
+  // miss the real update because the ID is already current when the callback lands.
+  const lastAppliedText = useRef(item.responseText)
   useEffect(() => {
-    if (item.generationId !== null && item.generationId !== lastSeenGenId.current) {
-      lastSeenGenId.current = item.generationId
+    if (item.responseText !== lastAppliedText.current) {
+      lastAppliedText.current = item.responseText
       setEditText(item.responseText ?? '')
     }
-  }, [item.generationId, item.responseText])
+  }, [item.responseText])
   const [busy,         setBusy]         = useState<string | null>(null)
   const [err,          setErr]          = useState<string | null>(null)
   const [success,      setSuccess]      = useState<string | null>(null)
