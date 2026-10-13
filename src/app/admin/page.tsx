@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, FormEvent } from 'react'
+import { useState, useEffect, useRef, useCallback, FormEvent } from 'react'
 
 // ── Types ─────────────────────────────────────────────────────
 interface App {
@@ -485,6 +485,15 @@ function GenerationFailedCard({ item, onRefresh }: { item: DmItem; onRefresh: ()
 // ── DmInboxItem ───────────────────────────────────────────────
 function DmInboxItem({ item, onRefresh }: { item: DmItem; onRefresh: () => void }) {
   const [editText,     setEditText]     = useState(item.responseText ?? '')
+  const lastSeenGenId = useRef(item.generationId)
+  // When a new generation arrives (generationId changed), replace the displayed draft.
+  // When generationId is unchanged the user may have manually edited editText — leave it.
+  useEffect(() => {
+    if (item.generationId !== null && item.generationId !== lastSeenGenId.current) {
+      lastSeenGenId.current = item.generationId
+      setEditText(item.responseText ?? '')
+    }
+  }, [item.generationId, item.responseText])
   const [busy,         setBusy]         = useState<string | null>(null)
   const [err,          setErr]          = useState<string | null>(null)
   const [success,      setSuccess]      = useState<string | null>(null)
