@@ -89,7 +89,7 @@ function validBody(overrides: Record<string, unknown> = {}) {
 type PartialRow = Partial<{
   id: string; sender_id: string; created_at: string; failed_reason: string | null;
   processed: boolean; response_sent: boolean; response_text: string | null;
-  draft_source: string | null; generation_id: string | null;
+  draft_source: string | null; generation_id: string | null; admin_regen: boolean;
 }>
 
 function mockDbRow(row: PartialRow = {}) {
@@ -105,6 +105,7 @@ function mockDbRow(row: PartialRow = {}) {
       response_text: null,
       draft_source:  null,
       generation_id: GENERATION_ID,
+      admin_regen:   false,
       ...row,
     }],
   } as Response)
@@ -237,39 +238,49 @@ describe('Auto-send guard', () => {
   })
 })
 
-// ── admin_ prefix: never auto-send ────────────────────────────────────────
+// ── admin_regen flag: never auto-send ─────────────────────────────────────
 
-describe('admin_ generation_id: auto-send always blocked', () => {
-  it('returns ok:true without calling sendViaEngine even when enrolled and auto_approved=true', async () => {
-    const ADMIN_GEN = 'admin_' + GENERATION_ID
-    mockDbRow({ generation_id: ADMIN_GEN, failed_reason: 'DRAFT_GENERATING' })
+describe('admin_regen=true: auto-send always blocked', () => {
+  it('skips auto-send when row.admin_regen=true, even when enrolled and auto_approved=true', async () => {
+    // admin_regen=true is set by retry-draft on the DB row; callback reads it from DB.
+    // generation_id is a valid UUID (uuid column type — no prefix allowed).
+    mockDbRow({ admin_regen: true, failed_reason: 'DRAFT_GENERATING' })
     mockNotBlocked(); mockConvNormal(); mockPatchSuccess()
     mIsAutoModeActive.mockResolvedValue(true)
     mClaimDm.mockResolvedValue({ sendingStartedAt: new Date().toISOString() } as any)
-    const res = await POST(makeReq(validBody({ generation_id: ADMIN_GEN, auto_approved: true, enrolled_reason: 'CONSULTATION_LEAD' })))
+    const res = await POST(makeReq(validBody({ auto_approved: true, enrolled_reason: 'CONSULTATION_LEAD' })))
     expect(res.status).toBe(200)
     expect((await res.json()).auto_sent).toBeUndefined()
     expect(mSendVia).not.toHaveBeenCalled()
-    // Should not even check enrollment for admin-initiated generations
     expect(mIsAutoModeActive).not.toHaveBeenCalled()
   })
 
-  it('poller completes before admin retry-draft — no auto-send because row stays processed=true throughout', () => {
-    // Proof: retry-draft (with admin_ gen_id) claims PENDING_REVIEW → DRAFT_GENERATING without
-    // ever touching processed=false, so n8n's poller (which requires processed=false AND processing=false)
-    // can never claim the row. If n8n somehow had an older generation for the same sender,
-    // its callback generation_id won't match the admin_ gen_id → 409 stale.
-    // This test verifies the admin_ prefix guard for any callback that does arrive.
-    const ADMIN_GEN = 'admin_' + GENERATION_ID
-    mockDbRow({ generation_id: ADMIN_GEN, failed_reason: 'DRAFT_GENERATING' })
+  it('race-proof: no auto-send even if callback arrives while enrolled (admin_regen column persists in DB)', () => {
+    // When retry-draft claims PENDING_REVIEW → DRAFT_GENERATING, it writes admin_regen=true.
+    // N8n cannot claim the row (processed stays true). If any callback arrives for
+    // this admin-triggered generation, admin_regen=true in the DB row blocks auto-send.
+    mockDbRow({ admin_regen: true, failed_reason: 'DRAFT_GENERATING' })
     mockNotBlocked(); mockConvNormal(); mockPatchSuccess()
     mIsAutoModeActive.mockResolvedValue(true)
-    // Even with enrollment active, no send should happen
-    const resultPromise = POST(makeReq(validBody({ generation_id: ADMIN_GEN, auto_approved: true })))
+    const resultPromise = POST(makeReq(validBody({ auto_approved: true })))
     return resultPromise.then(res => {
       expect(res.status).toBe(200)
       expect(mSendVia).not.toHaveBeenCalled()
     })
+  })
+
+  it('normal n8n generation (admin_regen=false) still allows auto-send when enrolled', async () => {
+    // Regression: admin_regen=false rows must still reach auto-send path when all conditions met.
+    mockDbRow({ admin_regen: false })
+    mockNotBlocked(); mockConvNormal(); mockPatchSuccess()
+    mIsAutoModeActive.mockResolvedValue(true)
+    mClaimDm.mockResolvedValue({ sendingStartedAt: new Date().toISOString() } as any)
+    mSendVia.mockResolvedValue({ outcome: 'sent', igHttpStatus: 200 } as any)
+    const res = await POST(makeReq(validBody({ auto_approved: true, enrolled_reason: 'MIGRATION_LEAD' })))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.auto_sent).toBe(true)
+    expect(mSendVia).toHaveBeenCalledTimes(1)
   })
 })
 

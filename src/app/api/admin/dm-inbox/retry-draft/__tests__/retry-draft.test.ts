@@ -209,16 +209,52 @@ describe('Routine failure rollback', () => {
   })
 })
 
-describe('admin_ generation_id prefix', () => {
-  it('generation_id in Routine trigger payload starts with admin_', async () => {
+describe('admin_regen flag + UUID validity (schema-aware)', () => {
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+  it('generation_id in claim PATCH body is a valid UUID (passes Postgres uuid column check)', async () => {
     mockRow({ failed_reason: 'DRAFT_FAILED' })
     mockNoSibling(); mockClaimSuccess(); mockHistory(); mockNoPending(); mockRoutineOk()
     await POST(makeReq({ id: BUFFER_ID }))
-    const routineCall = (mockFetch.mock.calls as Array<[string, RequestInit]>)
-      .find(([url]) => typeof url === 'string' && url.includes(ROUTINE_URL))
-    const payload = JSON.parse(JSON.parse(routineCall![1].body as string).text) as Record<string, unknown>
-    expect(typeof payload.generation_id).toBe('string')
-    expect((payload.generation_id as string).startsWith('admin_')).toBe(true)
+    const claimCall = (mockFetch.mock.calls as Array<[string, RequestInit]>)
+      .find(([url, opts]) =>
+        typeof url === 'string' && url.includes(BUFFER_ID) &&
+        (opts as RequestInit).method === 'PATCH' &&
+        JSON.parse((opts as RequestInit).body as string).failed_reason === 'DRAFT_GENERATING'
+      )
+    expect(claimCall).toBeDefined()
+    const claimBody = JSON.parse((claimCall![1] as RequestInit).body as string) as Record<string, unknown>
+    expect(typeof claimBody.generation_id).toBe('string')
+    expect(UUID_RE.test(claimBody.generation_id as string)).toBe(true)
+  })
+
+  it('claim PATCH body includes admin_regen=true (guards auto-send in callback)', async () => {
+    mockRow({ failed_reason: 'DRAFT_FAILED' })
+    mockNoSibling(); mockClaimSuccess(); mockHistory(); mockNoPending(); mockRoutineOk()
+    await POST(makeReq({ id: BUFFER_ID }))
+    const claimCall = (mockFetch.mock.calls as Array<[string, RequestInit]>)
+      .find(([url, opts]) =>
+        typeof url === 'string' && url.includes(BUFFER_ID) &&
+        (opts as RequestInit).method === 'PATCH' &&
+        JSON.parse((opts as RequestInit).body as string).failed_reason === 'DRAFT_GENERATING'
+      )
+    const claimBody = JSON.parse((claimCall![1] as RequestInit).body as string) as Record<string, unknown>
+    expect(claimBody.admin_regen).toBe(true)
+  })
+
+  it('admin_regen=true is set for PENDING_REVIEW starting state too', async () => {
+    mockRow({ failed_reason: 'PENDING_REVIEW', processed: true })
+    mockNoSibling(); mockClaimSuccess(); mockHistory(); mockNoPending(); mockRoutineOk()
+    await POST(makeReq({ id: BUFFER_ID }))
+    const claimCall = (mockFetch.mock.calls as Array<[string, RequestInit]>)
+      .find(([url, opts]) =>
+        typeof url === 'string' && url.includes(BUFFER_ID) &&
+        (opts as RequestInit).method === 'PATCH' &&
+        JSON.parse((opts as RequestInit).body as string).failed_reason === 'DRAFT_GENERATING'
+      )
+    const claimBody = JSON.parse((claimCall![1] as RequestInit).body as string) as Record<string, unknown>
+    expect(claimBody.admin_regen).toBe(true)
+    expect(UUID_RE.test(claimBody.generation_id as string)).toBe(true)
   })
 })
 

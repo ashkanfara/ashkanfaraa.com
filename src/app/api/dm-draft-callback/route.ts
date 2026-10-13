@@ -86,6 +86,7 @@ interface DmRow {
   response_text:         string | null
   draft_source:          string | null
   generation_id:         string | null
+  admin_regen:           boolean
 }
 
 interface ConvState {
@@ -98,7 +99,7 @@ async function fetchRow(bufferId: string): Promise<DmRow | null> {
   const res = await fetch(
     `${SUPABASE_BASE()}/rest/v1/instagram_dm_buffer` +
     `?id=eq.${encodeURIComponent(bufferId)}` +
-    `&select=id,sender_id,created_at,failed_reason,processed,response_sent,response_text,draft_source,generation_id` +
+    `&select=id,sender_id,created_at,failed_reason,processed,response_sent,response_text,draft_source,generation_id,admin_regen` +
     `&limit=1`,
     { headers: SUPABASE_HEADERS() }
   )
@@ -308,9 +309,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // Awaited — not fire-and-forget — so the HTTP response is not returned before the
   // outcome write completes. This prevents the serverless function from being torn down
   // before markDmSent / markDmWindowClosed / markDmStatusUnknown finishes.
-  // Admin-initiated regeneration: generation_id is prefixed 'admin_' by retry-draft.
+  // Admin-initiated regeneration: admin_regen=true was set by retry-draft.
   // Never auto-send regardless of Routine classification — leave in PENDING_REVIEW for review.
-  if (generation_id.startsWith('admin_'))
+  if (row.admin_regen)
     return NextResponse.json({ ok: true })
 
   if (routine_auto_approved) {

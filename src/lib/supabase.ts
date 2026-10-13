@@ -725,7 +725,11 @@ export async function getDmInbox(): Promise<{
         `&order=created_at.desc&limit=150`,
         { headers: headers(), cache: 'no-store' }
       ),
-      // Per-contact private notes (dm_contact_notes) — admin-only, service role
+      // Per-contact private notes (dm_contact_notes) — admin-only, service role.
+      // Scoped to ig_account_id='default' (single-account production setup).
+      // The in-memory contactNotesMap is keyed by sender_id only within this
+      // account's result set, so it cannot leak notes across accounts even if
+      // multiple accounts are added later — the query already filters them out.
       fetch(
         `${base()}/rest/v1/dm_contact_notes` +
         `?sender_id=in.${idList}&ig_account_id=eq.default` +

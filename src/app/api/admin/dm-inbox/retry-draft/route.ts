@@ -218,9 +218,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   // ── 5. Generate new UUID + atomically claim DRAFT_GENERATING ──
-  // Prefix admin_ so the callback route knows not to auto-send regardless of
-  // what the Routine's LLM classifies; human review is always required for admin regen.
-  const generationId = 'admin_' + randomUUID()
+  const generationId = randomUUID()
 
   const claimWhere = isFreshInbound
     ? `&failed_reason=is.null&processed=eq.false&processing_started_at=is.null`
@@ -239,6 +237,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       body:    JSON.stringify({
         failed_reason:         'DRAFT_GENERATING',
         generation_id:         generationId,
+        admin_regen:           true,
         processed:             true,
         processing:            true,
         processing_started_at: new Date().toISOString(),
