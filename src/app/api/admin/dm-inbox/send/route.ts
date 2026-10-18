@@ -51,11 +51,8 @@ import {
 } from '@/lib/supabase'
 import { requireAdminSession, validateSameOrigin } from '@/lib/adminSession'
 import { sendViaEngine } from '@/lib/dm-send-engine'
+import { writeConversationMemoryDurable } from '@/lib/dm-conversation-context'
 
-/**
- * Transition a row we own (already in SENDING) to REJECTED.
- * Unconditional PATCH — we hold the row in SENDING so no race.
- */
 async function forceTransition(id: string, state: 'REJECTED'): Promise<void> {
   const base = process.env.SUPABASE_URL!.replace(/\/$/, '')
   const key  = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -191,6 +188,12 @@ export async function POST(req: NextRequest) {
         approvalTs: claimed.sendingStartedAt, sendAttemptTs, sendState: 'SENT', isFirstReply,
       })
     } catch { /* non-fatal */ }
+    // Durable: persist this turn to instagram_dm_memory so n8n BRP has context.
+    // Awaited with internal retry; on total failure logs a recoverable structured error.
+    // dm_response_feedback (canonical) was already written by saveDmFeedback above.
+    if (messageText) {
+      await writeConversationMemoryDurable(senderId, messageText, finalText, id)
+    }
     return NextResponse.json({ ok: true, sent: true, messageId: result.igMessageId })
   }
 

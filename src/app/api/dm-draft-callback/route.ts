@@ -41,6 +41,7 @@ import {
   claimDmForSend,
 } from '@/lib/supabase'
 import { sendViaEngine } from '@/lib/dm-send-engine'
+import { writeConversationMemoryDurable } from '@/lib/dm-conversation-context'
 
 const SUPABASE_BASE = () => (process.env.SUPABASE_URL ?? '').replace(/\/$/, '')
 const SUPABASE_HEADERS = () => ({
@@ -87,6 +88,7 @@ interface DmRow {
   draft_source:          string | null
   generation_id:         string | null
   admin_regen:           boolean
+  message_text:          string | null
 }
 
 interface ConvState {
@@ -99,7 +101,7 @@ async function fetchRow(bufferId: string): Promise<DmRow | null> {
   const res = await fetch(
     `${SUPABASE_BASE()}/rest/v1/instagram_dm_buffer` +
     `?id=eq.${encodeURIComponent(bufferId)}` +
-    `&select=id,sender_id,created_at,failed_reason,processed,response_sent,response_text,draft_source,generation_id,admin_regen` +
+    `&select=id,sender_id,created_at,failed_reason,processed,response_sent,response_text,draft_source,generation_id,admin_regen,message_text` +
     `&limit=1`,
     { headers: SUPABASE_HEADERS() }
   )
@@ -357,6 +359,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           `[dm-draft-callback] Auto-send result | buffer_id=${buffer_id}` +
           ` outcome=${result?.outcome ?? 'error'} http=${result?.igHttpStatus ?? 'n/a'}`
         )
+        // Durable: write this auto-mode turn to instagram_dm_memory.
+        // dm_response_feedback is the canonical record (written by sendViaEngine→markDmSent).
+        // instagram_dm_memory write makes context available to n8n BRP on next inbound.
+        if (result?.outcome === 'sent' && row.message_text) {
+          await writeConversationMemoryDurable(
+            row.sender_id,
+            row.message_text,
+            draft_text,
+            buffer_id,
+          ).catch(e => console.error('[dm-draft-callback] instagram_dm_memory write failed (non-fatal):', e))
+        }
         // Return the send outcome to the Routine for observability (non-essential)
         return NextResponse.json({
           ok:          true,

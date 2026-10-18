@@ -38,6 +38,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { randomUUID }                from 'crypto'
 import { requireAdminSession, validateSameOrigin } from '@/lib/adminSession'
 import { supabaseConfigured }        from '@/lib/supabase'
+import { assembleDmConversationHistory } from '@/lib/dm-conversation-context'
 
 const SUPABASE_BASE    = () => (process.env.SUPABASE_URL ?? '').replace(/\/$/, '')
 const SUPABASE_HEADERS = () => ({
@@ -75,11 +76,9 @@ interface StoryCtx {
   ocr_text:       string | null
 }
 
-interface HistoryRow {
-  message_text:       string | null
-  final_response_text: string | null
-  created_at:         string
-}
+// HistoryRow removed — fetchHistory replaced by assembleDmConversationHistory
+// from dm-conversation-context, which uses dm_response_feedback (canonical source)
+// with bounded truncation. Regen and n8n ordinary-draft now share the same source.
 
 interface PendingRow {
   id:             string
@@ -107,15 +106,7 @@ async function fetchRow(id: string): Promise<DmRow | null> {
   return rows[0] ?? null
 }
 
-async function fetchHistory(senderId: string): Promise<HistoryRow[]> {
-  const res = await fetch(
-    `${SUPABASE_BASE()}/rest/v1/instagram_dm_buffer` +
-    `?sender_id=eq.${encodeURIComponent(senderId)}&response_sent=eq.true` +
-    `&select=message_text,final_response_text,created_at&order=created_at.desc&limit=8`,
-    { headers: SUPABASE_HEADERS() }
-  )
-  return res.ok ? res.json() : []
-}
+// fetchHistory removed — replaced by assembleDmConversationHistory(senderId) below.
 
 async function fetchStoryCtx(storyId: string): Promise<StoryCtx | null> {
   const res = await fetch(
@@ -254,22 +245,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ ok: false, error: 'Row state changed — refresh and try again' }, { status: 409 })
 
   // ── 6. Build DM context from DB ───────────────────────────────────────────────
-  const [historyRows, storyCtx, pendingRows] = await Promise.all([
-    fetchHistory(row.sender_id),
+  // assembleDmConversationHistory uses dm_response_feedback (canonical source) with
+  // bounded truncation — same source as n8n BRP after the n8n context patch is applied.
+  // This unifies the context path for ordinary drafts and regeneration.
+  const [conversationHistory, storyCtx, pendingRows] = await Promise.all([
+    assembleDmConversationHistory(row.sender_id),
     row.is_story_reply && row.story_id ? fetchStoryCtx(row.story_id) : Promise.resolve(null),
     fetchPendingInbound(row.sender_id, id),
   ])
-
-  // Build conversation_history as formatted text — matches Routine Instructions expected shape.
-  // Earlier turns first; each turn is "Customer: ..." / "Ashkan: ..."
-  const conversationHistory = [...historyRows].reverse()
-    .flatMap(h => {
-      const parts: string[] = []
-      if (h.message_text)        parts.push(`Customer: ${h.message_text}`)
-      if (h.final_response_text) parts.push(`Ashkan: ${h.final_response_text}`)
-      return parts
-    })
-    .join('\n')
 
   // combined_message: all pending messages in chronological order + the current row.
   // Bundle instruction is prepended so the AI addresses the full conversation as one reply.
