@@ -42,9 +42,8 @@ const SUPABASE_HEADERS = () => ({
 
 // ── Truncation parameters ────────────────────────────────────────────────────
 const FETCH_LIMIT     = 200   // fetch up to 200 turns; realistic max is ~30-50
-const MAX_VERBATIM    = 40    // if ≤40 turns, use all verbatim
-const ANCHOR_TURNS    = 5     // if >40, keep the oldest 5 to preserve original intent
-const MAX_CHAR_BUDGET = 12000 // hard character cap on the assembled history string
+const ANCHOR_TURNS    = 5     // when char budget forces truncation, preserve oldest 5 turns
+const MAX_CHAR_BUDGET = 12000 // primary constraint: hard character cap
 
 // ── Retry parameters for memory writes ──────────────────────────────────────
 const MAX_WRITE_ATTEMPTS = 3
@@ -94,9 +93,19 @@ export async function fetchDmConversationTurns(senderId: string): Promise<Conver
 
 /**
  * Build the conversation_history string passed to the Routine.
- * Applies bounded truncation with explicit marker if turns are omitted.
  *
- * Format matches what BRP produces and what the Routine prompt expects:
+ * Primary strategy: include ALL turns. Character budget (12000 chars) is the
+ * only truncation gate — not a fixed turn count. This preserves middle-turn
+ * facts (e.g. job offer stated in turn 20 of 50) as long as they fit in budget.
+ *
+ * Real DM conversations in Farsi average ~60–100 chars per message, so 80 turns
+ * ≈ 9600 chars — comfortably under budget. Truncation only activates for
+ * unusually long histories (>~100 short turns, or fewer long-message turns).
+ *
+ * When budget IS exceeded: keep ANCHOR_TURNS oldest (preserve original intent)
+ * + explicit marker + tail of remaining budget. Never silently drops turns.
+ *
+ * Format matches BRP output and Routine prompt expectation:
  *   Customer: <text>
  *   Ashkan: <text>
  *   ...
@@ -104,37 +113,38 @@ export async function fetchDmConversationTurns(senderId: string): Promise<Conver
 export function buildConversationHistoryText(turns: ConversationTurn[]): string {
   if (turns.length === 0) return ''
 
-  let selected: ConversationTurn[]
-  let truncationMarker = ''
-
-  if (turns.length <= MAX_VERBATIM) {
-    selected = turns
-  } else {
-    const anchor = turns.slice(0, ANCHOR_TURNS)
-    const recent = turns.slice(turns.length - (MAX_VERBATIM - ANCHOR_TURNS))
-    const skipped = turns.length - ANCHOR_TURNS - (MAX_VERBATIM - ANCHOR_TURNS)
-    truncationMarker = `[... ${skipped} earlier exchanges not shown — original intent preserved in turns above ...]`
-    selected = [...anchor, ...recent]
-  }
-
+  // Build full text — include every turn
   const lines: string[] = []
-  for (const t of selected) {
+  for (const t of turns) {
     lines.push(`Customer: ${t.inbound}`)
     lines.push(`Ashkan: ${t.outbound}`)
-    if (truncationMarker && lines.length === ANCHOR_TURNS * 2) {
-      lines.push(truncationMarker)
-      truncationMarker = '' // emit once
-    }
+  }
+  const fullText = lines.join('\n')
+
+  // Happy path: all turns fit in budget (the common case)
+  if (fullText.length <= MAX_CHAR_BUDGET) return fullText
+
+  // Budget exceeded: anchor oldest ANCHOR_TURNS + marker + tail
+  const anchorLines: string[] = []
+  for (const t of turns.slice(0, ANCHOR_TURNS)) {
+    anchorLines.push(`Customer: ${t.inbound}`)
+    anchorLines.push(`Ashkan: ${t.outbound}`)
+  }
+  const anchorText   = anchorLines.join('\n')
+  const marker       = `\n[... earlier context truncated for length — original intent in turns above ...]\n`
+  const tailBudget   = MAX_CHAR_BUDGET - anchorText.length - marker.length
+
+  if (tailBudget <= 0) {
+    // Anchor itself overflows — tail-only truncation
+    const raw = fullText.slice(fullText.length - MAX_CHAR_BUDGET)
+    const nl  = raw.indexOf('\n')
+    return `[... earlier context truncated for length ...]\n${nl >= 0 ? raw.slice(nl + 1) : raw}`
   }
 
-  const joined = lines.join('\n')
-  if (joined.length <= MAX_CHAR_BUDGET) return joined
-
-  // Character budget exceeded: keep the tail (recent exchanges most important)
-  const tail = joined.slice(joined.length - MAX_CHAR_BUDGET)
-  const firstNewline = tail.indexOf('\n')
-  const trimmed = firstNewline >= 0 ? tail.slice(firstNewline + 1) : tail
-  return `[... earlier context truncated for length ...]\n${trimmed}`
+  const tailRaw = fullText.slice(fullText.length - tailBudget)
+  const nl      = tailRaw.indexOf('\n')
+  const tail    = nl >= 0 ? tailRaw.slice(nl + 1) : tailRaw
+  return `${anchorText}${marker}${tail}`
 }
 
 /**

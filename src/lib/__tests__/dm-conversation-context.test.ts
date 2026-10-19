@@ -180,47 +180,58 @@ describe('buildConversationHistoryText', () => {
     expect(out).toBe('Customer: customer message 1\nAshkan: ashkan reply 1')
   })
 
-  test('uses all turns verbatim when ≤40 turns', () => {
+  test('all turns included when total chars fit in 12000-char budget', () => {
+    // Short messages: 40 turns × (avg ~30 chars/line × 2 lines) ≈ 2400 chars — well under budget
     const turns = Array.from({ length: 40 }, (_, i) => makeTurn(i + 1))
     const out = buildConversationHistoryText(turns)
     const lines = out.split('\n')
     expect(lines).toHaveLength(80)   // 40 turns × 2 lines
     expect(out).toContain('customer message 1')   // oldest
     expect(out).toContain('customer message 40')  // newest
-    expect(out).not.toContain('[...')             // no truncation marker
+    expect(out).not.toContain('[...')             // no truncation marker when budget allows
   })
 
-  test('>40 turns: keeps first 5 anchor turns + marker + 35 recent', () => {
-    // 50 turns total
+  test('50 short-message turns: ALL 50 included (no turn-count truncation)', () => {
+    // Key difference from old behavior: short messages don't exceed char budget,
+    // so middle turns (e.g. turn 20) are NOT dropped even with >40 turns
     const turns = Array.from({ length: 50 }, (_, i) => makeTurn(i + 1))
     const out = buildConversationHistoryText(turns)
 
-    // Anchor turns (1–5) present
+    // All turns present — no silent middle drop
     expect(out).toContain('customer message 1')
-    expect(out).toContain('customer message 5')
-
-    // Middle turns (6–15) absent — these are the skipped ones
-    // With 50 turns: skip = 50 - 5 anchor - 35 recent = 10 turns (6..15)
-    expect(out).not.toContain('customer message 6')
-    expect(out).not.toContain('customer message 15')
-
-    // Recent turns (16–50) present
-    expect(out).toContain('customer message 16')
+    expect(out).toContain('customer message 20')  // middle turn preserved
     expect(out).toContain('customer message 50')
-
-    // Explicit truncation marker present
-    expect(out).toContain('[... 10 earlier exchanges not shown')
+    // No truncation marker (budget not exceeded for short messages)
+    expect(out).not.toContain('[...')
   })
 
-  test('>40 turns: marker names correct count of skipped turns', () => {
-    // 60 turns: skip = 60 - 5 - 35 = 20
-    const turns = Array.from({ length: 60 }, (_, i) => makeTurn(i + 1))
+  test('CRITICAL: intent stated in middle turn (turn 20 of 50) is preserved', () => {
+    // Regression test for the documented failure mode: anchor+recent strategy
+    // drops turns 6–15 in a 50-turn conversation, losing middle-turn facts.
+    // New char-budget-first strategy keeps all turns when they fit.
+    const turns: ConversationTurn[] = [
+      ...Array.from({ length: 19 }, (_, i) => makeTurn(i + 1)),
+      // Turn 20: critical fact stated in middle (job offer details)
+      {
+        bufferId:  'middle-intent',
+        inbound:   'داداش من مهندس نرم‌افزار هستم با ۵ سال سابقه و جاب آفر ۱۵۰ هزار دلاری دارم',
+        outbound:  'عالیه! این شرایط خوبی برای ویزای ۱۸۶ هست',
+        createdAt: '2024-01-20T00:00:00Z',
+      },
+      ...Array.from({ length: 30 }, (_, i) => makeTurn(i + 21)),
+    ]
+    expect(turns).toHaveLength(50)
+
     const out = buildConversationHistoryText(turns)
-    expect(out).toContain('[... 20 earlier exchanges not shown')
+
+    // Middle-turn fact MUST be present
+    expect(out).toContain('داداش من مهندس نرم‌افزار هستم')
+    expect(out).toContain('جاب آفر ۱۵۰ هزار دلاری')
+    // No truncation marker — all fits in budget
+    expect(out).not.toContain('[...')
   })
 
-  test('original intent preserved in anchor turns even at 50 turns', () => {
-    // First turn is the "job offer" intent — must still be visible
+  test('original intent preserved in turn 1 even at 50 turns', () => {
     const turns = [
       { bufferId: 'anchor', inbound: 'دنبال جاب آفر از استرالیا هستم', outbound: 'حتماً کمکتون می‌کنم', createdAt: '2024-01-01T00:00:00Z' },
       ...Array.from({ length: 49 }, (_, i) => makeTurn(i + 2)),
@@ -241,20 +252,32 @@ describe('buildConversationHistoryText', () => {
     expect(out).not.toBe('')
   })
 
-  test('char budget: truncates from tail when assembled text exceeds 12000 chars', () => {
-    // Each turn has ~200 char content so 40 turns × 400 chars = 16000 > 12000
-    const longText = 'a'.repeat(200)
-    const turns = Array.from({ length: 40 }, (_, i) => ({
+  test('char budget: truncation only fires when total text actually exceeds 12000 chars', () => {
+    // 30 turns × (300 char inbound + 300 char outbound + labels) ≈ 18000 chars > 12000
+    const longText = 'a'.repeat(300)
+    const turns = Array.from({ length: 30 }, (_, i) => ({
       bufferId:  `b${i}`,
       inbound:   longText,
       outbound:  longText,
       createdAt: new Date(2024, 0, i + 1).toISOString(),
     }))
     const out = buildConversationHistoryText(turns)
-    expect(out.length).toBeLessThanOrEqual(12000 + 60) // 60 chars slack for marker line
-    expect(out).toContain('[... earlier context truncated for length ...]')
-    // Most recent content is preserved (tail)
-    expect(out.slice(-30)).toContain(longText.slice(-20))
+    expect(out.length).toBeLessThanOrEqual(12000 + 120) // 120 chars slack for anchor+marker line
+    expect(out).toContain('[... earlier context truncated for length')
+    // Anchor turns (first 5) present — original intent preserved
+    expect(out).toContain(longText.slice(0, 20))   // anchor content in output
+    // Most recent content also preserved (tail portion)
+    // (The tail starts after the marker)
+    const markerIdx = out.indexOf('[... earlier context truncated for length')
+    expect(markerIdx).toBeGreaterThan(0)
+  })
+
+  test('char budget: short 50-turn conversation is NOT truncated (budget not exceeded)', () => {
+    // Short messages: 50 turns × ~60 chars each side = ~6000 chars < 12000
+    const turns = Array.from({ length: 50 }, (_, i) => makeTurn(i + 1))
+    const out = buildConversationHistoryText(turns)
+    expect(out).not.toContain('[... earlier context truncated')
+    expect(out.split('\n')).toHaveLength(100)  // all 50 turns × 2 lines
   })
 })
 
@@ -488,32 +511,42 @@ describe('Live draft fixture: context reaches Routine payload (synthetic sender)
 
   const SYNTHETIC_SENDER = 'INVALID_TEST_SENDER_fixture_001'
 
-  test('assembled history includes older intent from 50-turn conversation', async () => {
-    // Turn 1: original intent (job offer)
-    // Turns 2–49: follow-up questions
-    // Turn 50: recent exchange
+  test('assembled history includes ALL turns from 50-turn short-message conversation', async () => {
+    // Turn 1: original intent (job offer) — in anchor position
+    // Turn 20: critical middle fact (job offer salary) — previously dropped by old strategy
+    // Turn 50: most recent short referential reply
     const rows: FeedbackRow[] = [
       { buffer_id: 'b1', inbound_context: 'داداش دنبال جاب آفر از استرالیا هستم', final_sent_response: 'حتماً کمکتون می‌کنم، چه رشته‌ای؟', created_at: '2024-01-01T00:00:00Z' },
-      ...Array.from({ length: 48 }, (_, i) => ({
+      ...Array.from({ length: 18 }, (_, i) => ({
         buffer_id:           `b${i + 2}`,
-        inbound_context:     `سوال فرعی ${i + 2}`,
-        final_sent_response: `جواب فرعی ${i + 2}`,
+        inbound_context:     `سوال ${i + 2}`,
+        final_sent_response: `جواب ${i + 2}`,
         created_at:          new Date(2024, 0, i + 2).toISOString(),
+      })),
+      // Turn 20: important middle fact
+      { buffer_id: 'b20', inbound_context: 'من مهندس نرم‌افزار با جاب آفر ۱۵۰ هزار دلاری دارم', final_sent_response: 'شرایط ویزای ۱۸۶ مناسبه', created_at: '2024-01-20T00:00:00Z' },
+      ...Array.from({ length: 29 }, (_, i) => ({
+        buffer_id:           `b${i + 21}`,
+        inbound_context:     `سوال ${i + 21}`,
+        final_sent_response: `جواب ${i + 21}`,
+        created_at:          new Date(2024, 1, i + 1).toISOString(),
       })),
       { buffer_id: 'b50', inbound_context: 'داداش دنبال گرفتنشم', final_sent_response: 'عالی — پس باید...', created_at: '2024-02-19T00:00:00Z' },
     ]
+    expect(rows).toHaveLength(50)
     mockSelect(rows)
 
     const history = await assembleDmConversationHistory(SYNTHETIC_SENDER)
 
-    // Original intent is in anchor turns — must be visible
+    // Original intent (turn 1) visible
     expect(history).toContain('داداش دنبال جاب آفر از استرالیا هستم')
-    // Most recent exchange visible
+    // Middle fact (turn 20) MUST be visible — this was the bug
+    expect(history).toContain('جاب آفر ۱۵۰ هزار دلاری')
+    expect(history).toContain('ویزای ۱۸۶')
+    // Most recent exchange (turn 50) visible
     expect(history).toContain('داداش دنبال گرفتنشم')
-    // Truncation marker present (50 > 40)
-    expect(history).toContain('[... ')
-    // Middle turns are skipped
-    expect(history).not.toContain('سوال فرعی 6')
+    // No truncation marker — 50 short turns fit in 12000-char budget
+    expect(history).not.toContain('[...')
   })
 
   test('pending messages concatenated as combined_message (structure check)', () => {
