@@ -63,6 +63,7 @@ type FeedbackRow = {
 }
 
 type BufferRow = {
+  id?: string
   message_text: string | null
   created_at: string
 }
@@ -76,9 +77,11 @@ function mockSelect(rows: FeedbackRow[]) {
 
 /** Mock the instagram_dm_buffer response (first fetch in assembleDmConversationHistory). */
 function mockInbound(rows: BufferRow[]) {
+  // Add synthetic id if omitted — real DB always has id; tests that don't care use a placeholder
+  const withIds = rows.map((r, i) => ({ id: r.id ?? `mock-id-${i}`, ...r }))
   mockFetch.mockResolvedValueOnce({
     ok:   true,
-    json: async () => rows,
+    json: async () => withIds,
   } as Response)
 }
 
@@ -185,15 +188,15 @@ describe('fetchDmConversationTurns', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('fetchHistoricalInbound', () => {
-  test('returns text+ts pairs for response_sent=true and SUPERSEDED rows', async () => {
+  test('returns id+text+ts for response_sent=true and SUPERSEDED rows', async () => {
     mockInbound([
-      { message_text: 'first',      created_at: '2024-01-01T00:00:00Z' },
-      { message_text: 'superseded', created_at: '2024-01-02T00:00:00Z' },
+      { id: 'buf-aaa', message_text: 'first',      created_at: '2024-01-01T00:00:00Z' },
+      { id: 'buf-bbb', message_text: 'superseded', created_at: '2024-01-02T00:00:00Z' },
     ])
     const rows = await fetchHistoricalInbound('sender_fhi_001')
     expect(rows).toHaveLength(2)
-    expect(rows[0]).toEqual({ text: 'first', ts: '2024-01-01T00:00:00Z' })
-    expect(rows[1]).toEqual({ text: 'superseded', ts: '2024-01-02T00:00:00Z' })
+    expect(rows[0]).toEqual({ id: 'buf-aaa', text: 'first',      ts: '2024-01-01T00:00:00Z' })
+    expect(rows[1]).toEqual({ id: 'buf-bbb', text: 'superseded', ts: '2024-01-02T00:00:00Z' })
   })
 
   test('filters null/empty message_text rows', async () => {
@@ -213,13 +216,31 @@ describe('fetchHistoricalInbound', () => {
     expect(rows).toEqual([])
   })
 
-  test('URL contains sender_id and the OR filter for response_sent + SUPERSEDED', async () => {
+  test('SUPERSEDED_BY_NEW_INBOUND excluded (stale window-closed rows, customer moved on)', async () => {
+    // SUPERSEDED_BY_NEW_INBOUND = old SEND_FAILED_WINDOW_CLOSED rows abandoned when
+    // customer reopened the conversation. Excluded to avoid confusing model with stale
+    // intent from a previous conversation thread the customer has already left.
+    // The DB filter (or=response_sent|SUPERSEDED) does NOT include SUPERSEDED_BY_NEW_INBOUND.
+    // This test verifies the fetch URL doesn't widen the filter.
+    mockInbound([])
+    await fetchHistoricalInbound('sender_fhi_003')
+    const url = (mockFetch.mock.calls[0] as [string, ...unknown[]])[0]
+    expect(url).not.toContain('SUPERSEDED_BY_NEW_INBOUND')
+    // The filter covers exactly two states, not more
+    expect(url).toContain('or=(response_sent.eq.true,failed_reason.eq.SUPERSEDED)')
+  })
+
+  test('URL contains sender_id, OR filter, and id.asc secondary sort for deterministic ordering', async () => {
     mockInbound([])
     await fetchHistoricalInbound('test_sender_123')
     const url = (mockFetch.mock.calls[0] as [string, ...unknown[]])[0]
     expect(url).toContain('instagram_dm_buffer')
     expect(url).toContain('sender_id=eq.test_sender_123')
     expect(url).toContain('or=(response_sent.eq.true,failed_reason.eq.SUPERSEDED)')
+    // Secondary sort ensures deterministic ordering when two rows share created_at
+    expect(url).toContain('id.asc')
+    // SUPERSEDED_BY_NEW_INBOUND intentionally excluded (stale window-closed rows)
+    expect(url).not.toContain('SUPERSEDED_BY_NEW_INBOUND')
   })
 })
 
@@ -268,22 +289,24 @@ describe('buildMergedHistory', () => {
     expect(lines[1]).toBe('Ashkan: ashkan reply')
   })
 
-  test('tied-timestamp: two customer messages at same second sorted stably (localeCompare)', () => {
-    // Two bundle siblings sent at the exact same second — both SUPERSEDED except primary.
-    // Sort must be deterministic (not random); JS sort is stable since V8 7.0 / Node 11.
+  test('tied-timestamp: input array order preserved (DB arrival sequence, not text order)', () => {
+    // Two bundle siblings with identical created_at timestamp (rare but possible in rapid bursts).
+    // fetchHistoricalInbound uses ORDER BY created_at ASC, id ASC so DB sequence is deterministic.
+    // buildMergedHistory returns 0 for same-type same-ts → JS stable sort preserves input order.
+    // "beta before alpha" input simulates a scenario where DB id.asc puts beta first.
     const ts = '2026-10-07T10:00:00Z'
     const out = buildMergedHistory(
       [
-        { text: 'message alpha', ts },
-        { text: 'message beta',  ts },
+        { id: 'id-001', text: 'message beta',  ts },  // arrives first by DB id ordering
+        { id: 'id-002', text: 'message alpha', ts },  // arrives second
       ],
       [],
     )
     const lines = out.split('\n')
     expect(lines).toHaveLength(2)
-    // Both must appear; exact stable order depends on input array order (preserved by sort stability)
-    expect(lines[0]).toBe('Customer: message alpha')
-    expect(lines[1]).toBe('Customer: message beta')
+    // Input order (DB sequence) is preserved — NOT alphabetical text order
+    expect(lines[0]).toBe('Customer: message beta')   // DB-first
+    expect(lines[1]).toBe('Customer: message alpha')  // DB-second
   })
 
   test('all three bundle siblings appear: response_sent primary + two SUPERSEDED', () => {
@@ -402,6 +425,29 @@ describe('Stale-callback and target isolation', () => {
     expect(history).toContain('Ashkan: ashkan reply')
     // Pending message not in history (it arrives as combined_message in the regen payload)
     expect(history).not.toContain('pending_not_here')
+  })
+
+  test('pending bundle rows are NOT in conversation_history (they go to combined_message via fetchPendingInbound)', async () => {
+    // PENDING_REVIEW / DRAFT_FAILED / DRAFT_GENERATING rows are the CURRENT unanswered batch.
+    // retry-draft/route.ts passes them as combined_message (fetchPendingInbound call at line 254).
+    // They are intentionally excluded from fetchHistoricalInbound so they don't appear TWICE
+    // (once in history, once in combined_message). This test verifies the fetch URL filter.
+    //
+    // Proof: fetchHistoricalInbound URL uses or=(response_sent.eq.true,failed_reason.eq.SUPERSEDED)
+    // which does NOT include PENDING_REVIEW/DRAFT_FAILED/DRAFT_GENERATING.
+    // Pending siblings reach the Routine via combined_message — no intent is lost.
+    mockInbound([])
+    mockSelect([])
+    await assembleDmConversationHistory(SENDER + '_pending_bundle')
+    const bufUrl = (mockFetch.mock.calls[0] as [string, ...unknown[]])[0]
+    expect(bufUrl).toContain('instagram_dm_buffer')
+    // Filter must not include PENDING_REVIEW — those go to combined_message
+    expect(bufUrl).not.toContain('PENDING_REVIEW')
+    expect(bufUrl).not.toContain('DRAFT_FAILED')
+    expect(bufUrl).not.toContain('DRAFT_GENERATING')
+    // Only confirmed/SUPERSEDED inbound in history
+    expect(bufUrl).toContain('response_sent.eq.true')
+    expect(bufUrl).toContain('failed_reason.eq.SUPERSEDED')
   })
 
   test('account separation: different senders never share history in same process', async () => {

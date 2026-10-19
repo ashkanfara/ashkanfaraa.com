@@ -100,30 +100,43 @@ export async function fetchDmConversationTurns(senderId: string): Promise<Conver
 }
 
 /**
- * Fetch ALL historical customer inbound messages from instagram_dm_buffer:
- *   - response_sent=true (primary approved rows — Ashkan replied to these)
- *   - failed_reason=SUPERSEDED (bundle siblings dismissed when primary was approved)
+ * Fetch ALL historical customer inbound messages from instagram_dm_buffer.
  *
- * SUPERSEDED rows capture bundle-member messages whose text was never stored in
- * dm_response_feedback.inbound_context (saveDmFeedback only stores the primary row's
- * message_text). Without this, earlier messages in a bundle (e.g. a customer stating
- * their Australia job offer) are silently missing from conversation_history.
+ * Included states:
+ *   response_sent=true   — primary approved rows; Ashkan sent a reply to these.
+ *   failed_reason=SUPERSEDED — bundle siblings dismissed by supersedeBundleSiblings()
+ *     when the primary was approved. Their message_text is NEVER in dm_response_feedback
+ *     (saveDmFeedback only stores the primary row's text). Without them, e.g. a customer
+ *     stating "Australia + job offer" in one bundle message is silently missing.
+ *
+ * Excluded states (intentional — each has a separate justification):
+ *   PENDING_REVIEW / DRAFT_FAILED / DRAFT_GENERATING — the CURRENT unanswered batch;
+ *     retry-draft/route.ts passes them as combined_message, not conversation_history.
+ *   SUPERSEDED_BY_NEW_INBOUND — old messages from a CLOSED 24h window abandoned when
+ *     customer sent a fresh message. Including stale window-expired intent risks confusing
+ *     the model with context from a prior conversation thread the customer has moved on from.
+ *     If the intent was still relevant the customer re-stated it in their new message.
+ *
+ * DB secondary sort `id.asc` makes ordering deterministic when two rows share an identical
+ * `created_at` timestamp (unusual but possible in rapid bundles). Stable sort in the caller
+ * then preserves this DB-level sequence during in-memory merging.
  */
-export async function fetchHistoricalInbound(senderId: string): Promise<{ text: string; ts: string }[]> {
+export async function fetchHistoricalInbound(senderId: string): Promise<{ id: string; text: string; ts: string }[]> {
   const res = await fetch(
     `${SUPABASE_BASE()}/rest/v1/instagram_dm_buffer` +
     `?sender_id=eq.${encodeURIComponent(senderId)}` +
     `&message_text=not.is.null` +
     `&or=(response_sent.eq.true,failed_reason.eq.SUPERSEDED)` +
-    `&order=created_at.asc` +
+    `&select=id,message_text,created_at` +
+    `&order=created_at.asc,id.asc` +
     `&limit=${FETCH_LIMIT}`,
     { headers: SUPABASE_HEADERS() }
   )
   if (!res.ok) return []
-  const rows = await res.json() as { message_text: string | null; created_at: string }[]
+  const rows = await res.json() as { id: string; message_text: string | null; created_at: string }[]
   return rows
     .filter(r => r.message_text?.trim())
-    .map(r => ({ text: r.message_text!.trim(), ts: r.created_at }))
+    .map(r => ({ id: r.id, text: r.message_text!.trim(), ts: r.created_at }))
 }
 
 /**
@@ -139,7 +152,7 @@ export async function fetchHistoricalInbound(senderId: string): Promise<{ text: 
  *   Never silent drop — always emits a marker when truncating.
  */
 export function buildMergedHistory(
-  inboundRows:   { text: string; ts: string }[],
+  inboundRows:   { id?: string; text: string; ts: string }[],
   feedbackTurns: ConversationTurn[],
 ): string {
   const events: HistoryEvent[] = [
@@ -147,12 +160,18 @@ export function buildMergedHistory(
     ...feedbackTurns.map(t => ({ type: 'ashkan' as const, text: t.outbound, ts: t.createdAt })),
   ]
 
-  // Sort chronologically; on exact ts tie: customer before ashkan, then text for stability
+  // Sort chronologically.
+  // Tie-breaking for exact same ts:
+  //   1. Customer before Ashkan (message received before reply written).
+  //   2. Same type, same ts → return 0: JS sort is stable (V8/Node 12+), so the
+  //      original input-array order is preserved — which reflects the DB ORDER BY
+  //      created_at ASC, id ASC from fetchHistoricalInbound. This is message-arrival
+  //      sequence, not arbitrary text order.
   events.sort((a, b) => {
     const cmp = a.ts.localeCompare(b.ts)
     if (cmp !== 0) return cmp
     if (a.type !== b.type) return a.type === 'customer' ? -1 : 1
-    return a.text.localeCompare(b.text)
+    return 0  // preserve input/DB order (stable sort)
   })
 
   if (events.length === 0) return ''

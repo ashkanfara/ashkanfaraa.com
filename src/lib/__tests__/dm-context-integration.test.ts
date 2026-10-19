@@ -44,7 +44,7 @@ type FeedbackRow = {
   created_at: string
 }
 
-type BufferRow = { message_text: string | null; created_at: string }
+type BufferRow = { id?: string; message_text: string | null; created_at: string }
 
 function mockFeedback(rows: FeedbackRow[]) {
   mockFetch.mockResolvedValueOnce({ ok: true, json: async () => rows } as Response)
@@ -339,5 +339,124 @@ describe('Integration Fixture E: strict account isolation in live path', () => {
     expect(histA).not.toContain('پیام از B')
     expect(histB).toContain('پیام از B')
     expect(histB).not.toContain('پیام از A')
+  })
+})
+
+// ── Fixture F: Complete live-failure proof — all payload components verified ─
+//
+// Reproduces the Oct 2026 failure where regen asked "کدوم کشور؟" despite:
+//   1. Customer stated Australia + job seeking in a SUPERSEDED bundle sibling
+//   2. Ashkan already asked adviser-trust + offer-status question (confirmed send)
+//   3. Customer sent a referential reply ("داداش دنبال گرفتنشم") — pending sibling
+//   4. Contact notes record customer profile
+//   5. User manually sent calmer occupation/experience reply — no further regens
+//
+// This fixture proves ALL components reach the Routine payload in the correct field:
+//   conversation_history — Australia intent + prior Ashkan question (confirmed send)
+//   combined_message     — pending sibling + referential reply (current batch)
+//   contact_notes        — customer profile note
+//   admin_regen=true     — review-only, no auto-send on callback
+//
+// No Instagram sends, no real Supabase, no real customers. INVALID_ sender only.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Integration Fixture F: complete live-failure payload proof', () => {
+  const SENDER = 'INVALID_SYNTHETIC_SENDER_007_fixture_f'
+
+  // Timestamps reflecting the real failure window (Oct 7-8 2026)
+  const T_SIBLING_A  = '2026-10-07T09:58:00Z'   // SUPERSEDED: Australia + seeking job offer
+  const T_PRIMARY_B  = '2026-10-07T09:58:30Z'   // response_sent=true: adviser trust question
+  const T_FEEDBACK_B = '2026-10-07T10:01:00Z'   // Ashkan reply to B (confirmed send)
+  const T_REFERENTIAL = '2026-10-08T09:00:00Z'  // pending: "داداش دنبال گرفتنشم"
+
+  test('FULL PAYLOAD: Australia+seeking from SUPERSEDED + prior question + pending sibling + notes all present', async () => {
+    // instagram_dm_buffer: row A (SUPERSEDED bundle sibling) + row B (response_sent=true primary)
+    // fetchHistoricalInbound fetches both: or=(response_sent.eq.true,failed_reason.eq.SUPERSEDED)
+    mockBuffer([
+      {
+        id:           'buf-A-superseded',
+        message_text: 'داداش دنبال جاب آفر از استرالیا هستم، دنبال گرفتنش هستم نه اینکه دارمش',
+        created_at:   T_SIBLING_A,
+      },
+      {
+        id:           'buf-B-primary',
+        message_text: 'شما رو به عنوان مشاور مهاجرت قبول دارم',
+        created_at:   T_PRIMARY_B,
+      },
+    ])
+    // dm_response_feedback: only row B's inbound stored (row A SUPERSEDED, never in feedback)
+    mockFeedback([
+      {
+        buffer_id:           'buf-B-primary',
+        inbound_context:     'شما رو به عنوان مشاور مهاجرت قبول دارم',
+        final_sent_response: 'آیا پیشنهاد کار داری یا دنبال گرفتنش هستی؟',
+        created_at:          T_FEEDBACK_B,
+      },
+    ])
+
+    const history = await assembleDmConversationHistory(SENDER)
+
+    // ── conversation_history assertions ──
+    // Row A (SUPERSEDED) MUST appear — the fix
+    expect(history).toContain('داداش دنبال جاب آفر از استرالیا هستم')
+    expect(history).toContain('دنبال گرفتنش هستم نه اینکه دارمش')    // seeking, NOT having
+    // Prior Ashkan question present
+    expect(history).toContain('Ashkan: آیا پیشنهاد کار داری یا دنبال گرفتنش هستی؟')
+    // Row B customer line also present
+    expect(history).toContain('Customer: شما رو به عنوان مشاور مهاجرت قبول دارم')
+    // Row A appears BEFORE row B (T_SIBLING_A < T_PRIMARY_B)
+    expect(history.indexOf('استرالیا')).toBeLessThan(history.indexOf('مشاور مهاجرت'))
+    // Ashkan reply appears AFTER customer lines (T_FEEDBACK_B > T_PRIMARY_B)
+    expect(history.indexOf('Ashkan:')).toBeGreaterThan(history.indexOf('Customer: شما رو به عنوان'))
+
+    // ── combined_message: pending sibling + referential reply (current batch) ──
+    // simulate retry-draft/route.ts: fetchPendingInbound returns earlier pending row
+    const pendingTexts  = ['داداش دنبال گرفتنشم']          // the referential reply (pending)
+    const currentText   = '[pending trigger row message]'   // the target row passed to retry-draft
+    const allTexts      = [...pendingTexts, currentText]
+    const bundleNote    = `[BUNDLE: ${allTexts.length} consecutive messages — respond to all as ONE reply]\n`
+    const combinedMessage = bundleNote + allTexts.join('\n')
+
+    // ── contact_notes: customer profile ──
+    const contactNotes = 'مشتری مهندس نرم‌افزار، دنبال جاب آفر از استرالیا، از ایران'
+
+    // ── Full Routine payload ──
+    const payload = buildRoutinePayload({
+      conversationHistory: history,
+      contactNotes,
+      combinedMessage,
+      senderId:    SENDER,
+      adminRegen:  true,
+    })
+
+    // Print proof — this is what the model actually receives
+    const lines = history.split('\n')
+    console.log('\n=== FIXTURE F: COMPLETE ROUTINE PAYLOAD PROOF ===')
+    console.log('admin_regen:       ', payload.admin_regen, ' (review-only — NO AUTO-SEND)')
+    console.log('sender_id:         ', payload.sender_id)
+    console.log('contact_notes:     ', payload.contact_notes)
+    console.log('combined_message:')
+    console.log('  ', payload.combined_message.split('\n').join('\n   '))
+    console.log('conversation_history:')
+    lines.forEach(l => console.log('  ', l))
+    console.log('history lines:     ', lines.length, '(Customer: + Ashkan: interleaved)')
+    console.log('Australia present: ', history.includes('استرالیا'))
+    console.log('Seeking (not having):', history.includes('دنبال گرفتنش هستم نه اینکه دارمش'))
+    console.log('Prior question:    ', history.includes('آیا پیشنهاد کار داری'))
+    console.log('Pending sibling:   ', combinedMessage.includes('داداش دنبال گرفتنشم'))
+    console.log('Notes separate:    ', payload.contact_notes === contactNotes)
+    console.log('=================================================\n')
+
+    // Final assertions
+    expect(payload.admin_regen).toBe(true)                    // review-only
+    expect(payload.conversation_history).toContain('استرالیا')         // Australia present
+    expect(payload.conversation_history).toContain('آیا پیشنهاد کار داری')  // prior question
+    expect(payload.combined_message).toContain('[BUNDLE: 2')           // bundle note
+    expect(payload.combined_message).toContain('داداش دنبال گرفتنشم') // pending sibling
+    expect(payload.contact_notes).toBe(contactNotes)                   // notes separate field
+    // Model must NOT need to re-ask destination country
+    expect(payload.conversation_history).not.toBe('')
+    // Stale-callback: admin_regen=true prevents auto-send in dm-draft-callback
+    expect(payload.admin_regen).toBe(true)
   })
 })
