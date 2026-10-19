@@ -70,7 +70,11 @@ function mockRow(overrides: Record<string, unknown> = {}) {
 function mockNoSibling()         { mockFetch.mockResolvedValueOnce({ ok: true, json: async () => [] } as Response) }
 function mockSiblingGenerating() { mockFetch.mockResolvedValueOnce({ ok: true, json: async () => [{ generation_id: 'sibling_gen' }] } as Response) }
 function mockClaimSuccess()      { mockFetch.mockResolvedValueOnce({ ok: true, json: async () => [{ id: BUFFER_ID }] } as Response) }
-function mockHistory()           { mockFetch.mockResolvedValueOnce({ ok: true, json: async () => [] } as Response) }
+// assembleDmConversationHistory now makes TWO fetches: instagram_dm_buffer then dm_response_feedback
+function mockHistory()           {
+  mockFetch.mockResolvedValueOnce({ ok: true, json: async () => [] } as Response)  // instagram_dm_buffer
+  mockFetch.mockResolvedValueOnce({ ok: true, json: async () => [] } as Response)  // dm_response_feedback
+}
 function mockNoPending()         { mockFetch.mockResolvedValueOnce({ ok: true, json: async () => [] } as Response) }
 function mockRoutineOk()         { mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({}) } as Response) }
 function mockRoutineFail()       { mockFetch.mockResolvedValueOnce({ ok: false, status: 500, text: async () => 'fail' } as Response) }

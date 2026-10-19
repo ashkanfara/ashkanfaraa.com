@@ -3,26 +3,28 @@
  *
  * Shared conversation context assembly for DM Routine drafts and regeneration.
  *
- * Source of truth: dm_response_feedback — written by saveDmFeedback() after every
- * confirmed send (admin-approved or auto-mode). Has both inbound_context (customer
- * text) and final_sent_response (what was sent). Never includes ambiguous/failed
- * sends in context — only rows with a non-null final_sent_response that corresponds
- * to a user-visible message.
+ * History source (merged, two tables):
+ *   Customer lines — instagram_dm_buffer where response_sent=true OR
+ *                    failed_reason=SUPERSEDED (bundle siblings).
+ *   Ashkan lines  — dm_response_feedback.final_sent_response (confirmed sends).
+ *   Merged by created_at timestamp; chat-budget truncation applied after merge.
  *
- * Bounded truncation strategy for long conversations:
- *   ≤ MAX_VERBATIM turns  → all turns verbatim, chronological order
- *   > MAX_VERBATIM turns  → first ANCHOR_TURNS turns (anchor older intent)
- *                           + explicit truncation marker
- *                           + most-recent (MAX_VERBATIM - ANCHOR_TURNS) turns
+ * WHY two sources: saveDmFeedback stores only the PRIMARY row's message_text as
+ * inbound_context. When Ashkan approves a reply, supersedeBundleSiblings marks
+ * earlier bundle-sibling rows SUPERSEDED. Their message_text (e.g. a job-offer
+ * statement like "جاب آفر ۱۵۰ هزار دلار استرالیا") never enters dm_response_feedback
+ * and was silently dropped from conversation_history. Fetching SUPERSEDED rows
+ * from instagram_dm_buffer restores that intent.
  *
- * This preserves:
- *   - Original intent (job-offer ask, migration goal, etc.) — from anchor turns
- *   - Recent exchange verbatim — for referential replies like "داداش دنبال گرفتنشم"
- *   - No silent drop without a visible marker
+ * Bounded truncation strategy:
+ *   Total chars ≤ MAX_CHAR_BUDGET  → all events verbatim, chronological.
+ *   Budget exceeded                 → oldest ANCHOR_EVENTS events
+ *                                    + explicit marker + tail of remaining budget.
+ *   Never silently drops events.
  *
  * Memory persistence (instagram_dm_memory):
  *   Written by writeConversationMemoryDurable() after every confirmed IG send.
- *   Used by n8n BRP node until n8n is patched to read dm_response_feedback directly.
+ *   Used by n8n BRP node until n8n FCH is updated to call the merged history source.
  *   Idempotency: buffer_id stored in message JSONB; dedup by pre-check before insert.
  *   Durability: up to MAX_WRITE_ATTEMPTS with RETRY_DELAY_MS between tries.
  *   On total failure: structured recoverable error logged (backfill script can repair).
@@ -41,8 +43,8 @@ const SUPABASE_HEADERS = () => ({
 })
 
 // ── Truncation parameters ────────────────────────────────────────────────────
-const FETCH_LIMIT     = 200   // fetch up to 200 turns; realistic max is ~30-50
-const ANCHOR_TURNS    = 5     // when char budget forces truncation, preserve oldest 5 turns
+const FETCH_LIMIT     = 200   // fetch up to 200 events per source; realistic max is ~30-50
+const ANCHOR_EVENTS   = 10    // when char budget forces truncation, preserve oldest 10 events
 const MAX_CHAR_BUDGET = 12000 // primary constraint: hard character cap
 
 // ── Retry parameters for memory writes ──────────────────────────────────────
@@ -53,17 +55,23 @@ const RETRY_DELAY_MS     = 250
 
 export interface ConversationTurn {
   bufferId:      string | null
-  inbound:       string  // customer message text
-  outbound:      string  // sent reply text
+  inbound:       string  // customer message text (from dm_response_feedback.inbound_context)
+  outbound:      string  // sent reply text (from dm_response_feedback.final_sent_response)
   createdAt:     string
+}
+
+// A flat event in the merged timeline (customer message OR Ashkan response)
+interface HistoryEvent {
+  type:  'customer' | 'ashkan'
+  text:  string
+  ts:    string
 }
 
 // ── Context assembly ──────────────────────────────────────────────────────────
 
 /**
- * Fetch confirmed-send history from dm_response_feedback for this sender.
- * Returns turns in chronological order (oldest first).
- * Only includes turns where both inbound and outbound are non-empty strings.
+ * Fetch confirmed-send history from dm_response_feedback.
+ * Returns turns in chronological order. Used for Ashkan: lines in merged history.
  */
 export async function fetchDmConversationTurns(senderId: string): Promise<ConversationTurn[]> {
   const res = await fetch(
@@ -92,50 +100,75 @@ export async function fetchDmConversationTurns(senderId: string): Promise<Conver
 }
 
 /**
- * Build the conversation_history string passed to the Routine.
+ * Fetch ALL historical customer inbound messages from instagram_dm_buffer:
+ *   - response_sent=true (primary approved rows — Ashkan replied to these)
+ *   - failed_reason=SUPERSEDED (bundle siblings dismissed when primary was approved)
  *
- * Primary strategy: include ALL turns. Character budget (12000 chars) is the
- * only truncation gate — not a fixed turn count. This preserves middle-turn
- * facts (e.g. job offer stated in turn 20 of 50) as long as they fit in budget.
- *
- * Real DM conversations in Farsi average ~60–100 chars per message, so 80 turns
- * ≈ 9600 chars — comfortably under budget. Truncation only activates for
- * unusually long histories (>~100 short turns, or fewer long-message turns).
- *
- * When budget IS exceeded: keep ANCHOR_TURNS oldest (preserve original intent)
- * + explicit marker + tail of remaining budget. Never silently drops turns.
- *
- * Format matches BRP output and Routine prompt expectation:
- *   Customer: <text>
- *   Ashkan: <text>
- *   ...
+ * SUPERSEDED rows capture bundle-member messages whose text was never stored in
+ * dm_response_feedback.inbound_context (saveDmFeedback only stores the primary row's
+ * message_text). Without this, earlier messages in a bundle (e.g. a customer stating
+ * their Australia job offer) are silently missing from conversation_history.
  */
-export function buildConversationHistoryText(turns: ConversationTurn[]): string {
-  if (turns.length === 0) return ''
+export async function fetchHistoricalInbound(senderId: string): Promise<{ text: string; ts: string }[]> {
+  const res = await fetch(
+    `${SUPABASE_BASE()}/rest/v1/instagram_dm_buffer` +
+    `?sender_id=eq.${encodeURIComponent(senderId)}` +
+    `&message_text=not.is.null` +
+    `&or=(response_sent.eq.true,failed_reason.eq.SUPERSEDED)` +
+    `&order=created_at.asc` +
+    `&limit=${FETCH_LIMIT}`,
+    { headers: SUPABASE_HEADERS() }
+  )
+  if (!res.ok) return []
+  const rows = await res.json() as { message_text: string | null; created_at: string }[]
+  return rows
+    .filter(r => r.message_text?.trim())
+    .map(r => ({ text: r.message_text!.trim(), ts: r.created_at }))
+}
 
-  // Build full text — include every turn
-  const lines: string[] = []
-  for (const t of turns) {
-    lines.push(`Customer: ${t.inbound}`)
-    lines.push(`Ashkan: ${t.outbound}`)
-  }
+/**
+ * Build conversation_history string from merged inbound + outbound event streams.
+ *
+ * Events are sorted chronologically. Customer: lines come from instagram_dm_buffer
+ * (full inbound history including SUPERSEDED bundle siblings). Ashkan: lines come
+ * from dm_response_feedback (confirmed sends only).
+ *
+ * Character-budget truncation (12000 chars is the primary gate, not event count):
+ *   All events fit    → verbatim, oldest first.
+ *   Budget exceeded   → keep oldest ANCHOR_EVENTS events + marker + tail.
+ *   Never silent drop — always emits a marker when truncating.
+ */
+export function buildMergedHistory(
+  inboundRows:   { text: string; ts: string }[],
+  feedbackTurns: ConversationTurn[],
+): string {
+  const events: HistoryEvent[] = [
+    ...inboundRows.map(r => ({ type: 'customer' as const, text: r.text, ts: r.ts })),
+    ...feedbackTurns.map(t => ({ type: 'ashkan' as const, text: t.outbound, ts: t.createdAt })),
+  ]
+
+  // Sort chronologically; on exact ts tie: customer before ashkan, then text for stability
+  events.sort((a, b) => {
+    const cmp = a.ts.localeCompare(b.ts)
+    if (cmp !== 0) return cmp
+    if (a.type !== b.type) return a.type === 'customer' ? -1 : 1
+    return a.text.localeCompare(b.text)
+  })
+
+  if (events.length === 0) return ''
+
+  const lines = events.map(e => e.type === 'customer' ? `Customer: ${e.text}` : `Ashkan: ${e.text}`)
   const fullText = lines.join('\n')
 
-  // Happy path: all turns fit in budget (the common case)
   if (fullText.length <= MAX_CHAR_BUDGET) return fullText
 
-  // Budget exceeded: anchor oldest ANCHOR_TURNS + marker + tail
-  const anchorLines: string[] = []
-  for (const t of turns.slice(0, ANCHOR_TURNS)) {
-    anchorLines.push(`Customer: ${t.inbound}`)
-    anchorLines.push(`Ashkan: ${t.outbound}`)
-  }
-  const anchorText   = anchorLines.join('\n')
-  const marker       = `\n[... earlier context truncated for length — original intent in turns above ...]\n`
-  const tailBudget   = MAX_CHAR_BUDGET - anchorText.length - marker.length
+  // Budget exceeded — anchor oldest ANCHOR_EVENTS events + marker + tail
+  const anchorLines = lines.slice(0, ANCHOR_EVENTS)
+  const anchorText  = anchorLines.join('\n')
+  const marker      = `\n[... earlier context truncated for length — original intent above ...]\n`
+  const tailBudget  = MAX_CHAR_BUDGET - anchorText.length - marker.length
 
   if (tailBudget <= 0) {
-    // Anchor itself overflows — tail-only truncation
     const raw = fullText.slice(fullText.length - MAX_CHAR_BUDGET)
     const nl  = raw.indexOf('\n')
     return `[... earlier context truncated for length ...]\n${nl >= 0 ? raw.slice(nl + 1) : raw}`
@@ -143,16 +176,31 @@ export function buildConversationHistoryText(turns: ConversationTurn[]): string 
 
   const tailRaw = fullText.slice(fullText.length - tailBudget)
   const nl      = tailRaw.indexOf('\n')
-  const tail    = nl >= 0 ? tailRaw.slice(nl + 1) : tailRaw
-  return `${anchorText}${marker}${tail}`
+  return `${anchorText}${marker}${nl >= 0 ? tailRaw.slice(nl + 1) : tailRaw}`
 }
 
 /**
- * Convenience: fetch turns and build text in one call.
+ * Backwards-compatible builder from ConversationTurn[] only (used by tests
+ * that mock only dm_response_feedback). Wraps buildMergedHistory with inbound
+ * derived from the turns' inbound field so existing callers continue to work.
+ */
+export function buildConversationHistoryText(turns: ConversationTurn[]): string {
+  const inboundRows = turns.map(t => ({ text: t.inbound, ts: t.createdAt }))
+  return buildMergedHistory(inboundRows, turns)
+}
+
+/**
+ * Fetch merged conversation history for a sender and build the text.
+ * Customer: lines from instagram_dm_buffer (response_sent=true + SUPERSEDED siblings).
+ * Ashkan:   lines from dm_response_feedback (confirmed sends).
+ * Merged by timestamp; char-budget truncation applied.
  */
 export async function assembleDmConversationHistory(senderId: string): Promise<string> {
-  const turns = await fetchDmConversationTurns(senderId)
-  return buildConversationHistoryText(turns)
+  const [inboundRows, feedbackTurns] = await Promise.all([
+    fetchHistoricalInbound(senderId),
+    fetchDmConversationTurns(senderId),
+  ])
+  return buildMergedHistory(inboundRows, feedbackTurns)
 }
 
 // ── Durable memory write (instagram_dm_memory) ────────────────────────────────
