@@ -48,7 +48,6 @@ const SUPABASE_HEADERS = () => ({
 })
 
 const DM_PROMPT_VERSION = DM_ROUTINE_PROMPT_VERSION
-const WINDOW_MS         = 30 * 24 * 60 * 60 * 1000  // context window for AI sibling fetch (not a send gate)
 
 // ── Row types ─────────────────────────────────────────────────────────────────────────────────
 
@@ -132,21 +131,38 @@ async function fetchSiblingGenerating(senderId: string, excludeId: string): Prom
   return rows[0] ?? null
 }
 
+async function fetchSavedContactNotes(senderId: string): Promise<string> {
+  // History sources are single-account; contact notes have an explicit account key.
+  const res = await fetch(`${SUPABASE_BASE()}/rest/v1/dm_contact_notes` +
+    `?sender_id=eq.${encodeURIComponent(senderId)}&ig_account_id=eq.default` +
+    '&select=sender_id,ig_account_id,notes&limit=1', { headers: SUPABASE_HEADERS() })
+  if (!res.ok) throw new Error(`Contact notes unavailable: HTTP ${res.status}`)
+  const rows = await res.json() as { sender_id: string; ig_account_id: string; notes: string }[]
+  if (!Array.isArray(rows) || rows.some(r => r.sender_id !== senderId || r.ig_account_id !== 'default'))
+    throw new Error('Contact notes scope mismatch')
+  return rows[0]?.notes?.trim() || ''
+}
+
 async function fetchPendingInbound(senderId: string, excludeId: string): Promise<PendingRow[]> {
-  const cutoff = new Date(Date.now() - WINDOW_MS).toISOString()
-  // Include all unresolved inbound states so the AI sees the full conversation bundle
-  const res = await fetch(
-    `${SUPABASE_BASE()}/rest/v1/instagram_dm_buffer` +
-    `?sender_id=eq.${encodeURIComponent(senderId)}&id=neq.${encodeURIComponent(excludeId)}` +
-    `&response_sent=eq.false` +
-    `&or=(failed_reason.is.null,failed_reason.eq.PENDING_REVIEW,failed_reason.eq.DRAFT_FAILED,failed_reason.eq.DRAFT_GENERATING)` +
-    `&created_at=gt.${encodeURIComponent(cutoff)}&select=id,message_text,message_type,` +
-    `created_at,is_story_reply,story_id,failed_reason,processed&order=created_at.asc&limit=10`,
-    { headers: SUPABASE_HEADERS() }
-  )
-  if (!res.ok) return []
-  const rows = await res.json() as PendingRow[]
-  return rows.filter(r => !(r.failed_reason === null && r.processed === true)).slice(0, 9)
+  const all: PendingRow[] = []
+  let offset = 0
+  for (;;) {
+    const res = await fetch(`${SUPABASE_BASE()}/rest/v1/instagram_dm_buffer` +
+      `?sender_id=eq.${encodeURIComponent(senderId)}&id=neq.${encodeURIComponent(excludeId)}` +
+      '&response_sent=eq.false' +
+      '&or=(failed_reason.is.null,failed_reason.eq.PENDING_REVIEW,failed_reason.eq.DRAFT_FAILED,failed_reason.eq.DRAFT_GENERATING)' +
+      '&select=id,message_text,message_type,created_at,is_story_reply,story_id,failed_reason,processed' +
+      `&order=created_at.asc,id.asc&limit=200&offset=${offset}`,
+      { headers: { ...SUPABASE_HEADERS(), Prefer: 'count=exact' } })
+    if (!res.ok) throw new Error(`DM pending context fetch failed: HTTP ${res.status}`)
+    const page = await res.json() as PendingRow[]
+    if (!Array.isArray(page)) throw new Error('Invalid pending context page')
+    all.push(...page)
+    offset += page.length
+    const total = res.headers.get('content-range')?.split('/')[1]
+    if (page.length === 0 || (total && total !== '*' && offset >= Number(total))) break
+  }
+  return all.filter(r => !(r.failed_reason === null && r.processed === true))
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────────────────────
@@ -165,7 +181,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   const id            = typeof body.id            === 'string' ? body.id.trim()            : ''
   // contact_notes: saved facts about this contact (do not re-ask questions answered here)
-  const contactNotes  = typeof body.contact_notes === 'string' ? body.contact_notes.trim() : ''
+  const suppliedContactNotes  = typeof body.contact_notes === 'string' ? body.contact_notes.trim() : ''
   // feedback: one-time guidance for this regeneration only, not stored
   const feedback      = typeof body.feedback      === 'string' ? body.feedback.trim()      : ''
   if (!id) return NextResponse.json({ ok: false, error: 'id is required' }, { status: 422 })
@@ -248,30 +264,39 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // assembleDmConversationHistory uses dm_response_feedback (canonical source) with
   // bounded truncation — same source as n8n BRP after the n8n context patch is applied.
   // This unifies the context path for ordinary drafts and regeneration.
-  const [conversationHistory, storyCtx, pendingRows] = await Promise.all([
+  let context: [string, StoryCtx | null, PendingRow[], string]
+  try {
+    context = await Promise.all([
     assembleDmConversationHistory(row.sender_id),
     row.is_story_reply && row.story_id ? fetchStoryCtx(row.story_id) : Promise.resolve(null),
     fetchPendingInbound(row.sender_id, id),
+    fetchSavedContactNotes(row.sender_id),
   ])
+  } catch {
+    // Release only this synthetic/current generation's claim, never a newer callback's claim.
+    await fetch(`${SUPABASE_BASE()}/rest/v1/instagram_dm_buffer` +
+      `?id=eq.${encodeURIComponent(id)}&generation_id=eq.${encodeURIComponent(generationId)}`,
+      { method: 'PATCH', headers: SUPABASE_HEADERS(), body: JSON.stringify({
+        failed_reason: row.failed_reason, generation_id: null,
+        processed: row.processed, processing: false,
+        processing_started_at: row.processing_started_at,
+      }) }).catch(() => {})
+    return NextResponse.json({ ok: false, error: 'Conversation context unavailable; retry generation' }, { status: 502 })
+  }
+  const [conversationHistory, storyCtx, pendingRows, savedContactNotes] = context
+  const contactNotes = suppliedContactNotes || savedContactNotes
 
   // combined_message: all pending messages in chronological order + the current row.
   // Bundle instruction is prepended so the AI addresses the full conversation as one reply.
-  const pendingTexts = pendingRows
-    .map(p => {
-      const parts: string[] = []
-      if (p.is_story_reply) parts.push('[پاسخ به استوری]')
-      if (p.message_text)   parts.push(p.message_text)
-      else                  parts.push(`[پیام ${p.message_type}]`)
-      return parts.join(' ')
-    })
-  const currentText = (() => {
-    const parts: string[] = []
-    if (row.is_story_reply) parts.push('[پاسخ به استوری]')
-    if (row.message_text)   parts.push(row.message_text)
-    else                    parts.push(`[پیام ${row.message_type}]`)
-    return parts.join(' ')
-  })()
-  const allTexts = [...pendingTexts, currentText].filter(Boolean)
+  const allRows = [...pendingRows, row].sort((a, b) =>
+    Date.parse(a.created_at) - Date.parse(b.created_at) || a.id.localeCompare(b.id))
+  const seen = new Set<string>()
+  const allTexts = allRows.filter(r => {
+    if (seen.has(r.id)) return false
+    seen.add(r.id)
+    return true
+  }).map(r => (r.is_story_reply ? '[پاسخ به استوری] ' : '') +
+    (r.message_text || `[پیام ${r.message_type}]`))
   const bundleNote = allTexts.length > 1
     ? `[BUNDLE: ${allTexts.length} consecutive messages — respond to all as ONE reply]\n`
     : ''

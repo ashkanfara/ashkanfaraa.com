@@ -43,9 +43,28 @@ const SUPABASE_HEADERS = () => ({
 })
 
 // ── Truncation parameters ────────────────────────────────────────────────────
-const FETCH_LIMIT     = 200   // fetch up to 200 events per source; realistic max is ~30-50
+const FETCH_LIMIT     = 200   // page size only; every page is fetched
 const ANCHOR_EVENTS   = 10    // when char budget forces truncation, preserve oldest 10 events
 const MAX_CHAR_BUDGET = 12000 // primary constraint: hard character cap
+
+
+// Fetch every page; the page size is not a conversation-history limit.
+async function fetchAllContextRows<T>(path: string): Promise<T[]> {
+  const rows: T[] = []
+  let offset = 0
+  for (;;) {
+    const res = await fetch(`${SUPABASE_BASE()}/rest/v1/${path}&limit=${FETCH_LIMIT}&offset=${offset}`,
+      { headers: { ...SUPABASE_HEADERS(), Prefer: 'count=exact' } })
+    if (!res.ok) throw new Error(`DM context fetch failed: HTTP ${res.status}`)
+    const page = await res.json() as T[]
+    if (!Array.isArray(page)) throw new Error('Invalid DM context page')
+    rows.push(...page)
+    offset += page.length
+    const range = res.headers.get('content-range')
+    const total = range?.split('/')[1]
+    if (page.length === 0 || (total && total !== '*' && offset >= Number(total))) return rows
+  }
+}
 
 // ── Retry parameters for memory writes ──────────────────────────────────────
 const MAX_WRITE_ATTEMPTS = 3
@@ -74,26 +93,16 @@ interface HistoryEvent {
  * Returns turns in chronological order. Used for Ashkan: lines in merged history.
  */
 export async function fetchDmConversationTurns(senderId: string): Promise<ConversationTurn[]> {
-  const res = await fetch(
-    `${SUPABASE_BASE()}/rest/v1/dm_response_feedback` +
-    `?sender_id=eq.${encodeURIComponent(senderId)}` +
-    `&select=buffer_id,inbound_context,final_sent_response,created_at` +
-    `&order=created_at.asc` +
-    `&limit=${FETCH_LIMIT}`,
-    { headers: SUPABASE_HEADERS() }
-  )
-  if (!res.ok) return []
-  const rows = await res.json() as {
-    buffer_id:           string | null
-    inbound_context:     string | null
-    final_sent_response: string | null
-    created_at:          string
-  }[]
+  const rows = await fetchAllContextRows<{
+    buffer_id: string | null; inbound_context: string | null;
+    final_sent_response: string | null; created_at: string
+  }>(`dm_response_feedback?sender_id=eq.${encodeURIComponent(senderId)}` +
+    '&select=id,buffer_id,inbound_context,final_sent_response,created_at&order=created_at.asc,id.asc')
   return rows
-    .filter(r => r.inbound_context?.trim() && r.final_sent_response?.trim())
+    .filter(r => r.final_sent_response?.trim())
     .map(r => ({
       bufferId:  r.buffer_id ?? null,
-      inbound:   r.inbound_context!.trim(),
+      inbound:   r.inbound_context?.trim() ?? '',
       outbound:  r.final_sent_response!.trim(),
       createdAt: r.created_at,
     }))
@@ -121,22 +130,14 @@ export async function fetchDmConversationTurns(senderId: string): Promise<Conver
  * `created_at` timestamp (unusual but possible in rapid bundles). Stable sort in the caller
  * then preserves this DB-level sequence during in-memory merging.
  */
-export async function fetchHistoricalInbound(senderId: string): Promise<{ id: string; text: string; ts: string }[]> {
-  const res = await fetch(
-    `${SUPABASE_BASE()}/rest/v1/instagram_dm_buffer` +
-    `?sender_id=eq.${encodeURIComponent(senderId)}` +
-    `&message_text=not.is.null` +
-    `&or=(response_sent.eq.true,failed_reason.eq.SUPERSEDED)` +
-    `&select=id,message_text,created_at` +
-    `&order=created_at.asc,id.asc` +
-    `&limit=${FETCH_LIMIT}`,
-    { headers: SUPABASE_HEADERS() }
-  )
-  if (!res.ok) return []
-  const rows = await res.json() as { id: string; message_text: string | null; created_at: string }[]
+export async function fetchHistoricalInbound(senderId: string): Promise<{ id: string; text: string; ts: string; confirmed: boolean }[]> {
+  const rows = await fetchAllContextRows<{
+    id: string; message_text: string | null; created_at: string; response_sent: boolean
+  }>(`instagram_dm_buffer?sender_id=eq.${encodeURIComponent(senderId)}` +
+    '&or=(response_sent.eq.true,failed_reason.eq.SUPERSEDED)' +
+    '&select=id,message_text,created_at,response_sent&order=created_at.asc,id.asc')
   return rows
-    .filter(r => r.message_text?.trim())
-    .map(r => ({ id: r.id, text: r.message_text!.trim(), ts: r.created_at }))
+    .map(r => ({ id: r.id, text: r.message_text?.trim() || '', ts: r.created_at, confirmed: r.response_sent === true }))
 }
 
 /**
@@ -156,7 +157,7 @@ export function buildMergedHistory(
   feedbackTurns: ConversationTurn[],
 ): string {
   const events: HistoryEvent[] = [
-    ...inboundRows.map(r => ({ type: 'customer' as const, text: r.text, ts: r.ts })),
+    ...inboundRows.filter(r => r.text.trim()).map(r => ({ type: 'customer' as const, text: r.text, ts: r.ts })),
     ...feedbackTurns.map(t => ({ type: 'ashkan' as const, text: t.outbound, ts: t.createdAt })),
   ]
 
@@ -181,21 +182,17 @@ export function buildMergedHistory(
 
   if (fullText.length <= MAX_CHAR_BUDGET) return fullText
 
-  // Budget exceeded — anchor oldest ANCHOR_EVENTS events + marker + tail
-  const anchorLines = lines.slice(0, ANCHOR_EVENTS)
-  const anchorText  = anchorLines.join('\n')
-  const marker      = `\n[... earlier context truncated for length — original intent above ...]\n`
-  const tailBudget  = MAX_CHAR_BUDGET - anchorText.length - marker.length
-
-  if (tailBudget <= 0) {
-    const raw = fullText.slice(fullText.length - MAX_CHAR_BUDGET)
-    const nl  = raw.indexOf('\n')
-    return `[... earlier context truncated for length ...]\n${nl >= 0 ? raw.slice(nl + 1) : raw}`
-  }
-
-  const tailRaw = fullText.slice(fullText.length - tailBudget)
-  const nl      = tailRaw.indexOf('\n')
-  return `${anchorText}${marker}${nl >= 0 ? tailRaw.slice(nl + 1) : tailRaw}`
+  const marker = '\n[... conversation history shortened for context budget ...]\n'
+  const anchors = lines.slice(0, ANCHOR_EVENTS)
+  const headBudget = Math.floor((MAX_CHAR_BUDGET - marker.length) / 2)
+  const perAnchor = Math.max(1, Math.floor(headBudget / Math.max(1, anchors.length)) - 1)
+  const head = anchors.map(line => line.length <= perAnchor ? line :
+    line.slice(0, perAnchor - 16) + ' [...shortened]').join('\n')
+  const tailBudget = MAX_CHAR_BUDGET - head.length - marker.length
+  let tail = fullText.slice(-tailBudget)
+  const nl = tail.indexOf('\n')
+  if (nl >= 0) tail = tail.slice(nl + 1)
+  return head + marker + tail
 }
 
 /**
@@ -219,7 +216,8 @@ export async function assembleDmConversationHistory(senderId: string): Promise<s
     fetchHistoricalInbound(senderId),
     fetchDmConversationTurns(senderId),
   ])
-  return buildMergedHistory(inboundRows, feedbackTurns)
+  const confirmed = new Set(inboundRows.filter(r => r.confirmed).map(r => r.id))
+  return buildMergedHistory(inboundRows, feedbackTurns.filter(t => t.bufferId && confirmed.has(t.bufferId)))
 }
 
 // ── Durable memory write (instagram_dm_memory) ────────────────────────────────
