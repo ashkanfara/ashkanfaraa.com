@@ -53,7 +53,7 @@ export default async function CourseSuccessPage({
   }
 
   return (
-    <main className="w-full overflow-x-hidden">
+    <main id="main-content" className="w-full overflow-x-hidden">
       <section style={{
         paddingInline:   PAD,
         paddingTop:      '10rem',
@@ -143,7 +143,7 @@ export default async function CourseSuccessPage({
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', flexWrap: 'wrap' }}>
 
             <Link
-              href="/en"
+              href="/"
               style={{
                 display:        'inline-flex',
                 alignItems:     'center',

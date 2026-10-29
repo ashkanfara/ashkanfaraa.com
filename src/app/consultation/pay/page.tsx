@@ -22,7 +22,7 @@ const PAD = 'clamp(1rem, 5vw, 4rem)'
 
 function Section({ children }: { children: React.ReactNode }) {
   return (
-    <main className="w-full overflow-x-hidden" dir="rtl">
+    <main id="main-content" className="w-full overflow-x-hidden" dir="rtl">
       <section style={{
         paddingInline:  PAD,
         paddingTop:     '8rem',

@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 
 export default function EnCoursePage() {
   return (
-    <main className="w-full overflow-x-hidden">
+    <main id="main-content" className="w-full overflow-x-hidden">
       <CoursePageShellEn />
       <Footer content={footer} />
     </main>

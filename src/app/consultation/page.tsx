@@ -23,7 +23,7 @@ function Eyebrow({ children }: { children: string }) {
 
 export default function ConsultationPage() {
   return (
-    <main className="w-full overflow-x-hidden">
+    <main id="main-content" className="w-full overflow-x-hidden">
 
       {/* ── Hero: image left, text right ── */}
       <section style={{ paddingInline: PAD, paddingTop: '6.5rem', paddingBottom: '3rem' }}>
@@ -94,7 +94,7 @@ export default function ConsultationPage() {
                 ارسال درخواست
               </a>
               <a
-                href="/"
+                href="/fa"
                 className="back-link"
                 style={{
                   display: 'inline-flex', alignItems: 'center', gap: '0.4rem',

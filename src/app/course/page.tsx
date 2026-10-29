@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 
 export default function CoursePage() {
   return (
-    <main className="w-full overflow-x-hidden">
+    <main id="main-content" className="w-full overflow-x-hidden">
       <CoursePageShell />
       <Footer />
     </main>

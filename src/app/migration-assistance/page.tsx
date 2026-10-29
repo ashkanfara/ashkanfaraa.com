@@ -24,7 +24,7 @@ function Eyebrow({ children }: { children: string }) {
 
 export default function MigrationAssistancePage() {
   return (
-    <main className="w-full overflow-x-hidden">
+    <main id="main-content" className="w-full overflow-x-hidden">
 
       {/* ── Hero ── */}
       <section dir="rtl" style={{ paddingInline: PAD, paddingTop: '6.5rem', paddingBottom: '3rem' }}>

@@ -52,7 +52,7 @@ export default async function ConsultationSuccessPage({
   }
 
   return (
-    <main className="w-full overflow-x-hidden">
+    <main id="main-content" className="w-full overflow-x-hidden">
       <section style={{
         paddingInline:  PAD,
         paddingTop:     '10rem',
@@ -87,7 +87,7 @@ export default async function ConsultationSuccessPage({
           <div style={{ height: '1px', background: 'var(--border)', marginBottom: '3rem' }} />
 
           <Link
-            href="/en"
+            href="/"
             style={{
               display:        'inline-flex',
               alignItems:     'center',

@@ -20,7 +20,7 @@ export const metadata: Metadata = {
 
 export default function EnHomePage() {
   return (
-    <main className="w-full overflow-x-hidden">
+    <main id="main-content" className="w-full overflow-x-hidden">
 
       {/* 1 — Hero */}
       <Hero

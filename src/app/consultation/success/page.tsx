@@ -94,7 +94,7 @@ export default async function ConsultationSuccessPage({
   }
 
   return (
-    <main className="w-full overflow-x-hidden" dir="rtl">
+    <main id="main-content" className="w-full overflow-x-hidden" dir="rtl">
       <section style={{
         paddingInline:  PAD,
         paddingTop:     '8rem',

@@ -155,7 +155,7 @@ export function CoursePageShell() {
                 درخواست دسترسی به دوره
               </a>
               <a
-                href="/"
+                href="/fa"
                 className="back-link"
                 style={{
                   display: 'inline-flex', alignItems: 'center', gap: '0.4rem',

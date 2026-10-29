@@ -26,7 +26,7 @@ function Eyebrow({ children }: { children: string }) {
 export default function EnConsultationPage() {
   const c = consultationContent
   return (
-    <main className="w-full overflow-x-hidden">
+    <main id="main-content" className="w-full overflow-x-hidden">
 
       {/* Hero */}
       <section style={{ paddingInline: PAD, paddingTop: '6.5rem', paddingBottom: '3rem' }}>
@@ -94,7 +94,7 @@ export default function EnConsultationPage() {
                 {c.ctaLabel}
               </a>
               <a
-                href="/en"
+                href="/"
                 className="back-link"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.78rem', color: 'var(--muted)', textDecoration: 'none', opacity: 0.75 }}
               >
