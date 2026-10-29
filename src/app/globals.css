@@ -80,7 +80,7 @@ main p[style*="opacity"] { opacity: 1 !important; }
 html[lang="en"] main:not(.home-page) h1 { font-family: Georgia,'Times New Roman',serif; font-weight: 400 !important; }
 footer > div { max-width: 1320px; margin-inline: auto; }
 html[lang="en"] body { font-family: Arial,Helvetica,sans-serif; --leading-body: 1.75; }
-html[lang="fa"] .hero-copy h1 { font-family: var(--font-vazirmatn),Tahoma,sans-serif; max-width: 15ch; font-size: clamp(30px,3.3vw,48px); line-height: 1.5; letter-spacing: -.025em; }
+html[lang="fa"] .hero-copy h1 { font-family: var(--font-vazirmatn),Tahoma,sans-serif; max-width: none; font-size: clamp(30px,3.3vw,48px); line-height: 1.5; letter-spacing: -.025em; }
 html[lang="fa"] .approach-section h2, html[lang="fa"] .section-heading h2, html[lang="fa"] .closing-section h2 { font-family: var(--font-vazirmatn),Tahoma,sans-serif; line-height: 1.65; }
 html[lang="fa"] .portrait-caption > span { font-family: var(--font-vazirmatn),Tahoma,sans-serif; }
 .skip-link { position: fixed; top: -100px; left: 20px; z-index: 100; background: #d4ac60; color: #17120b; padding: 12px 20px; }
@@ -123,7 +123,7 @@ html[lang="fa"] .portrait-caption > span { font-family: var(--font-vazirmatn),Ta
   .ways-section #offers h2 { font-size: 20px !important; }
   .voices-section { padding-block: 28px 35px; }
   .closing-section { padding-block: 44px 55px; }
-  html[lang="fa"] .hero-copy h1 { font-size: 31px; max-width: 17ch; }
+  html[lang="fa"] .hero-copy h1 { font-size: 31px; max-width: none; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation: none !important; transition: none !important; } }
 
