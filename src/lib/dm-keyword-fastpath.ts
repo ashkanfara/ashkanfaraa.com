@@ -152,14 +152,16 @@ async function verifiedConversation(event: KeywordEvent, accountIds: Set<unknown
 
 export async function keywordCapabilities() {
   const account = await accountIdentity()
-  const response = await graph('me/conversations?user_id=000000000000000&fields=id&limit=1')
-  return { accountVerified: Boolean(account.id), syntheticConversationLookupSupported: Array.isArray(response.data) && response.data.length === 0 }
+  // Nonexistent user_id can itself produce Graph HTTP 500/code 1. Use a supported
+  // metadata-only listing instead; no message content or customer IDs are returned.
+  const response = await graph('me/conversations?fields=id&limit=1')
+  return { accountVerified: Boolean(account.id), conversationListingSupported: Array.isArray(response.data) }
 }
 
 async function supersedeOlderDrafts(event: KeywordEvent, ownId: string) {
   const through = encodeURIComponent(new Date(event.inbound_ts).toISOString())
   const common = `instagram_dm_buffer?sender_id=eq.${encodeURIComponent(event.sender_id)}` +
-    `&id=neq.${ownId}&response_sent=eq.false&created_at=lte.${through}`
+    `&id=neq.${ownId}&response_sent=eq.false&processing=eq.false&created_at=lte.${through}`
   const body = JSON.stringify({ failed_reason: 'SUPERSEDED', processed: true, processing: false, generation_id: null })
   // Conditional writes race safely with the existing callback/admin claims. Sent,
   // sending, unknown and newer inbound rows are never overwritten. History stays.

@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
   return NextResponse.json(result, { status: 'retryable' in result && result.retryable ? 503 : 200 })
 }
 
-/** Authenticated read-only capability check: own account and impossible synthetic sender only. */
+/** Authenticated read-only capability check: own account and conversation metadata only. */
 export async function GET(request: NextRequest) {
   if (!authorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   try { return NextResponse.json(await keywordCapabilities()) }
